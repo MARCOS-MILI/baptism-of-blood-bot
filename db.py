@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import rules
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -81,6 +81,9 @@ _CHARACTER_COLUMNS = {
     "clergy_roll": "INTEGER",
     "clergy_set_at": "TEXT",
     "xp": "INTEGER NOT NULL DEFAULT 0",
+    "class_name": "TEXT",
+    "class_set_at": "TEXT",
+    **{f"attr_{atributo}": "INTEGER NOT NULL DEFAULT 0" for atributo in rules.ATTRIBUTES},
 }
 
 # Nome antigo da raça sorteada de 96 a 100, trocado por 'Dhampir' na versão 4.
@@ -177,6 +180,14 @@ def init_db(path: str | None = None) -> None:
                 clergy_roll INTEGER,
                 clergy_set_at TEXT,
                 xp INTEGER NOT NULL DEFAULT 0,
+                class_name TEXT,
+                class_set_at TEXT,
+                attr_forca INTEGER NOT NULL DEFAULT 0,
+                attr_destreza INTEGER NOT NULL DEFAULT 0,
+                attr_vitalidade INTEGER NOT NULL DEFAULT 0,
+                attr_razao INTEGER NOT NULL DEFAULT 0,
+                attr_vontade INTEGER NOT NULL DEFAULT 0,
+                attr_alma INTEGER NOT NULL DEFAULT 0,
                 UNIQUE (user_id, name_key)
             )
         """)
@@ -619,6 +630,37 @@ def rank_players(path: str | None = None) -> list[sqlite3.Row]:
 
 
 # ---------------------------------------------------------------------------
+# Classe e atributos (a ficha automática)
+# ---------------------------------------------------------------------------
+
+def set_class(character_id: int, class_name: str, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "UPDATE characters SET class_name = ?, class_set_at = ? WHERE id = ?",
+            (class_name, _now(), character_id),
+        )
+
+
+def attributes_of(personagem) -> dict[str, int]:
+    """Os seis atributos de um personagem (linha do banco) como dicionário."""
+    return {a: personagem[f"attr_{a}"] for a in rules.ATTRIBUTES}
+
+
+def set_attributes(character_id: int, values: dict[str, int], path: str | None = None) -> None:
+    """Grava só os atributos que vieram em values. Os nomes vêm de rules.ATTRIBUTES, nunca do usuário."""
+    if not values:
+        return
+    if any(a not in rules.ATTRIBUTES for a in values):
+        raise ValueError(f"Atributo desconhecido: {list(values)}")
+    colunas = [f"attr_{a}" for a in values]
+    with _connect(path) as conn:
+        conn.execute(
+            f"UPDATE characters SET {', '.join(c + ' = ?' for c in colunas)} WHERE id = ?",
+            [int(v) for v in values.values()] + [character_id],
+        )
+
+
+# ---------------------------------------------------------------------------
 # Ranks das perícias especiais
 # ---------------------------------------------------------------------------
 
@@ -643,7 +685,7 @@ def get_skill_ranks(character_id: int, path: str | None = None) -> dict[str, int
 
 
 # ---------------------------------------------------------------------------
-# Registro das ações de mestre
+# Registro das ações de mestre e cópia de segurança
 # ---------------------------------------------------------------------------
 
 def log_master_action(master_id: str, master_name: str, target_user_id: str,
@@ -655,3 +697,14 @@ def log_master_action(master_id: str, master_name: str, target_user_id: str,
             " character_name, action, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (master_id, master_name, target_user_id, character_id, character_name, action, detail, _now()),
         )
+
+
+def export_copy(dest_path: str, path: str | None = None) -> None:
+    """Copia o banco inteiro pra dest_path de forma consistente, mesmo com o bot rodando."""
+    origem = sqlite3.connect(path or DB_PATH)
+    destino = sqlite3.connect(dest_path)
+    try:
+        origem.backup(destino)
+    finally:
+        destino.close()
+        origem.close()

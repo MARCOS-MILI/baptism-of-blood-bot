@@ -1,6 +1,6 @@
 # Baptism of Blood: Bot de Dados
 
-Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, personagem, dado, resultado, data e hora), sorteia as definições do personagem (Rank de magia, Raça e Classe social), controla XP, nível e ranks, limita as vagas de personagem por jogador, mantém um rank público de XP e calcula os recursos (Vida, Sanidade, Mana e Estamina).
+Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, personagem, dado, resultado, data e hora), sorteia as definições do personagem (Rank de magia, Raça e Classe social), controla XP, nível e ranks, guarda classe e atributos de cada personagem e calcula sozinho os recursos (Vida, Sanidade, Mana e Estamina), limita as vagas de personagem por jogador e mantém um rank público de XP.
 
 ## Comandos dos jogadores
 
@@ -50,13 +50,18 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 | 1 a 49 | Baixo Clero |
 | 50 a 100 | Alto Clero |
 
+**Classe e atributos** (a ficha automática)
+
+- `/classe classe:Caçador` escolhe a classe do personagem. Vale **uma vez só**; depois, só um mestre muda. Mostra a vantagem de perícias e o bônus de Vida, Sanidade, Mana e Estamina da classe.
+- `/atributos forca:2 vitalidade:3 vontade:1` distribui os pontos de atributo. Só preenche o que quer mudar; sem nenhum número, só mostra como está. **Só dá pra aumentar** (pra diminuir, fala com um mestre), e o bot confere os pontos e os limites de criação da raça. Precisa ter sorteado a raça antes.
+
 **Ficha, níveis e recursos**
 
-- `/minha_ficha personagem:...` mostra nível, XP (e quanto falta pro próximo nível), Raça, Classe social, Rank de magia e os Ranks das perícias especiais. Só você vê a resposta.
+- `/minha_ficha personagem:...` mostra nível, XP (e quanto falta pro próximo nível), Raça, Classe social, Rank de magia, Classe, Atributos, os pontos de atributo usados e **Vida, Sanidade, Mana e Estamina já calculados**, mais os Ranks das perícias especiais. Só você vê a resposta.
 - `/niveis personagem:...` mostra o XP e as vantagens de cada nível, de 1 a 10, marcando o nível do seu personagem e o que vem no próximo.
 - `/extrato_xp personagem:...` mostra de onde veio o XP do personagem: as últimas 10 entradas, com motivo, mestre e horário.
 - `/rank tipo:personagens|jogadores limite:10` mostra o rank de XP total, **público** pra todo mundo. Em `jogadores`, cada um vale a soma do XP de todos os seus personagens. Quem tem 0 XP não aparece.
-- `/calcular_recursos classe:... vitalidade:... forca:... vontade:... alma:...` calcula Vida, Sanidade, Mana e Estamina, mostrando a conta. Serve pra ajustar a Vida depois de distribuir pontos de atributo.
+- `/calcular_recursos classe:... vitalidade:... forca:... vontade:... alma:...` calcula Vida, Sanidade, Mana e Estamina com os números que você digitar, mostrando a conta. Serve pra simular ("e se eu colocar mais um ponto em Vitalidade?"); a `/minha_ficha` já mostra os valores reais do seu personagem.
 
 ## Regras que o bot segue
 
@@ -76,6 +81,8 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 | 10 | 45.000 | +2 Perícia, +1 Atributo, habilidade |
 
 **Ganhos por nível** (igual ao site): a cada nível ganho, +2 pontos de Perícia. A cada 2 níveis (2, 4, 6, 8 e 10), +1 ponto de Atributo e uma habilidade nova ou melhorada. Até o nível 10 são 18 pontos de Perícia, 5 de Atributo e 5 habilidades. **Vampiros e Dhampirs** ganham ainda +1 ponto de Disciplina nesses níveis pares (5 no total). Na criação, o Vampiro começa com 4 pontos de Disciplina e o Dhampir com 3.
+
+**Atributos** (igual ao site): são 6 (Força, Destreza, Vitalidade, Razão, Vontade e Alma). Na criação são 6 pontos pra distribuir, e cada 2 níveis (2, 4, 6, 8 e 10) dá +1 ponto, então o total é 6 + nível ÷ 2 (11 no nível 10). Limites de criação: Humano tem 3 em Força, Destreza e Vitalidade e 6 em Razão; Vampiro tem 5 em Força, Destreza e Vitalidade; Vontade e Alma não têm limite. O Dhampir ainda não tem limite definido, então pra ele o bot só confere o total. Os pontos que vêm de nível podem passar do limite de criação, e é assim que o bot confere: o que passar do limite tem que caber nos pontos de nível.
 
 **Recursos** (igual ao site): Vida = Vitalidade × 5, Sanidade = Vontade × 5, Mana = (Alma + Vontade) × 3, Estamina = (Força + Vitalidade) × 3, sempre mais o bônus da classe. O nível não dá Vida direto; o que aumenta a Vida são os pontos de atributo colocados em Vitalidade. Destreza e Razão não entram nessas contas.
 
@@ -104,6 +111,9 @@ Só quem tem o cargo `Mestre` ou a permissão de Gerenciar Servidor. Sem `person
 - `/mestre jogador usuario:@alguém` mostra quantos personagens a pessoa tem, quantas vagas usa, o XP de cada um e quantos personagens ela já excluiu.
 - `/mestre vagas usuario:@alguém extras:2` define quantas vagas **extras** o jogador tem, além das 3 normais (o número é o total de extras, não soma com o que já tinha). O teto é 10 personagens no total.
 - `/mestre excluir_personagem usuario:@alguém personagem:...` exclui pra sempre o personagem de outro jogador, depois de pedir confirmação, e avisa o jogador no canal.
+- `/mestre atributos usuario:@alguém forca:9 ...` define atributos na mão, **sem conferir pontos nem limites** (e pode diminuir). Preenche só os que quer mudar. Serve pra corrigir erro ou dar pontos extras por história.
+- `/mestre corrigir_classe usuario:@alguém classe:...` define a classe na mão, mesmo depois de o jogador já ter escolhido.
+- `/mestre exportar` manda pra você, só você vendo, uma cópia de segurança do banco de dados (um arquivo `.db` consistente, mesmo com o bot rodando). Tem os dados de todos os jogadores, então guarda em lugar seguro. Fica registrado. Se o banco passar do limite de upload do servidor, o bot avisa e manda baixar pelo Railway.
 
 Toda ação de mestre fica registrada no banco (quem fez, em quem, o que mudou). Um valor definido por mestre aparece na ficha como "definido por um mestre".
 
@@ -167,7 +177,7 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 - `dice.py`: notação de dados e as tabelas de sorteio (magia, raça, classe social, clero).
 - `rules.py`: regras do sistema (XP e níveis, ganhos por nível, classes, perícias especiais, cálculo de recursos). Se uma regra mudar no site, muda aqui.
 - `db.py`: banco SQLite (histórico, personagens, XP e extrato, vagas, ranks, personagens excluídos, registro das ações de mestre).
-- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
+- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_rules.py`, `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
 
 ## Bancos antigos
 
@@ -177,4 +187,3 @@ Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores: as co
 
 - Integrar esse histórico com o site (hoje são dois sistemas separados, sem comunicação entre eles).
 - Disciplinas vampíricas (grau 0 a 5) ainda não aparecem na ficha do bot.
-- A ficha ainda não guarda atributos nem classe; por isso o `/calcular_recursos` pede os números na hora.

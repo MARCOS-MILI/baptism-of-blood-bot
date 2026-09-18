@@ -168,6 +168,16 @@ CLASSES = {
     "Sábio":           {"vida": 15, "sanidade": 35, "mana": 20, "estamina": 5},
 }
 CLASS_CHOICES = [CLASS_NONE, *CLASSES]
+
+# Vantagem nas perícias de cada classe.
+CLASS_SKILLS = {
+    "Caçador": "Religião e Luta ou Pontaria",
+    "Feiticeiros": "Investigação e Ocultismo",
+    "Ladrão": "Furtividade e Enganação",
+    "Mestre de Forja": "Ocultismo e Tática",
+    "Mundano": "duas à sua escolha",
+    "Sábio": "Ciências e Investigação",
+}
 _SEM_BONUS = {"vida": 0, "sanidade": 0, "mana": 0, "estamina": 0}
 
 
@@ -189,3 +199,58 @@ def calculate_resources(*, vitalidade: int, forca: int, vontade: int, alma: int,
         nome: {"base": base[nome], "bonus": bonus[nome], "total": base[nome] + bonus[nome]}
         for nome in base
     }
+
+
+# ---------------------------------------------------------------------------
+# Atributos
+# ---------------------------------------------------------------------------
+ATTRIBUTES = ("forca", "destreza", "vitalidade", "razao", "vontade", "alma")
+ATTRIBUTE_LABELS = {
+    "forca": "Força", "destreza": "Destreza", "vitalidade": "Vitalidade",
+    "razao": "Razão", "vontade": "Vontade", "alma": "Alma",
+}
+CREATION_ATTRIBUTE_POINTS = 6   # pontos pra distribuir nos 6 atributos na criação
+
+# Limite de cada atributo na criação, por raça. Atributo que não aparece aqui não tem limite.
+# O Dhampir fica de fora: os limites dele ainda não foram definidos (Em Aberto no site).
+CREATION_LIMITS = {
+    "Humano": {"forca": 3, "destreza": 3, "vitalidade": 3, "razao": 6},
+    "Vampiro": {"forca": 5, "destreza": 5, "vitalidade": 5},
+}
+
+
+def attribute_points_from_levels(level: int) -> int:
+    """Pontos de Atributo que vieram de nível: +1 a cada 2 níveis (2, 4, 6, 8 e 10)."""
+    return max(0, min(level, MAX_LEVEL)) // LEVELS_PER_ATTRIBUTE
+
+
+def attribute_points_total(level: int) -> int:
+    """Pontos de Atributo que o personagem pode ter no total nesse nível (criação mais níveis)."""
+    return CREATION_ATTRIBUTE_POINTS + attribute_points_from_levels(level)
+
+
+def validate_attributes(values: dict[str, int], level: int, race: str | None) -> list[str]:
+    """Confere a distribuição de atributos. Devolve a lista de problemas (vazia se está tudo certo).
+    1) o total não pode passar dos pontos que o nível dá;
+    2) os limites de criação da raça só podem ser ultrapassados com pontos que vieram de nível."""
+    erros = []
+    total = sum(values.get(a, 0) for a in ATTRIBUTES)
+    disponiveis = attribute_points_total(level)
+    if total > disponiveis:
+        erros.append(
+            f"Você distribuiu {total} pontos de atributo, mas no nível {level} o total é {disponiveis}."
+        )
+    limites = CREATION_LIMITS.get(race or "", {})
+    excesso = sum(max(0, values.get(a, 0) - limite) for a, limite in limites.items())
+    de_nivel = attribute_points_from_levels(level)
+    if excesso > de_nivel:
+        lista = ", ".join(f"{ATTRIBUTE_LABELS[a]} {limite}" for a, limite in limites.items())
+        erros.append(
+            f"O limite de criação de {race} é: {lista}. Só os pontos que vieram de nível podem passar "
+            f"disso (você tem {de_nivel}) e essa distribuição passa {excesso}."
+        )
+    return erros
+
+
+def describe_attributes(values: dict[str, int]) -> str:
+    return " · ".join(f"{ATTRIBUTE_LABELS[a]} {values.get(a, 0)}" for a in ATTRIBUTES)

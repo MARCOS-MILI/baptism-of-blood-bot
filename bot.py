@@ -5,7 +5,9 @@ Jogadores:
   /historico [usuario] [limite] [personagem] -> últimas rolagens de alguém (ou de um personagem)
   /personagem criar | usar | listar | excluir -> gerencia os personagens (limite de vagas por jogador)
   /magia_inicial | /raca_inicial | /classe_social -> sorteios de criação, uma vez por personagem
-  /minha_ficha [personagem]                  -> nível, XP, raça, classe social, ranks
+  /classe [personagem]                       -> escolhe a classe (uma vez)
+  /atributos [forca..alma] [personagem]      -> distribui os pontos de atributo (só aumenta)
+  /minha_ficha [personagem]                  -> nível, XP, raça, classe, atributos, recursos, ranks
   /niveis [personagem]                       -> XP e vantagens de cada nível
   /extrato_xp [personagem]                   -> de onde veio o XP do personagem
   /rank [tipo] [limite]                      -> rank público de XP total (personagens ou jogadores)
@@ -15,6 +17,7 @@ Mestres:
   /mestre dar_xp | upar | corrigir_nivel | rank_pericia
   /mestre apagar | corrigir_magia | corrigir_raca | corrigir_estado
   /mestre ficha | jogador | vagas | excluir_personagem
+  /mestre atributos | corrigir_classe | exportar
 
 Setup rápido:
   1. pip install -r requirements.txt
@@ -23,8 +26,9 @@ Setup rápido:
 """
 
 import os
+import tempfile
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -239,6 +243,52 @@ def _barra_xp(xp: int) -> str:
     return f"Nível {nivel}: {rules.fmt_xp(dentro)}/{rules.fmt_xp(precisa)} XP\n{rules.xp_bar(dentro, precisa)}"
 
 
+def _recursos_do_personagem(personagem):
+    """Vida, Sanidade, Mana e Estamina com os atributos e a classe guardados. None enquanto não tem classe."""
+    classe = personagem["class_name"]
+    if not classe:
+        return None
+    a = db.attributes_of(personagem)
+    return rules.calculate_resources(
+        vitalidade=a["vitalidade"], forca=a["forca"], vontade=a["vontade"], alma=a["alma"], classe=classe
+    )
+
+
+def _texto_recursos(res) -> str:
+    return (
+        f"❤️ Vida **{res['vida']['total']}** · 🧠 Sanidade **{res['sanidade']['total']}**\n"
+        f"🔮 Mana **{res['mana']['total']}** · 💪 Estamina **{res['estamina']['total']}**"
+    )
+
+
+def _texto_pontos(personagem) -> str:
+    total = rules.attribute_points_total(personagem["level"])
+    usados = sum(db.attributes_of(personagem).values())
+    livres = total - usados
+    if livres > 0:
+        sobra = f" ({livres} {'livre' if livres == 1 else 'livres'})"
+    elif livres < 0:
+        sobra = f" (passou {-livres})"
+    else:
+        sobra = ""
+    return f"Pontos de atributo: {usados} de {total} usados{sobra}"
+
+
+_SEM_CLASSE = "escolha a classe com `/classe` pra ver Vida, Sanidade, Mana e Estamina"
+
+
+def _embed_atributos(personagem, titulo: str) -> discord.Embed:
+    embed = discord.Embed(title=titulo, color=discord.Color.dark_green())
+    embed.add_field(
+        name="Atributos",
+        value=rules.describe_attributes(db.attributes_of(personagem)) + "\n" + _texto_pontos(personagem),
+        inline=False,
+    )
+    res = _recursos_do_personagem(personagem)
+    embed.add_field(name="Recursos", value=_texto_recursos(res) if res else _SEM_CLASSE, inline=False)
+    return embed
+
+
 def _embed_ficha(personagem, jogador: str) -> discord.Embed:
     nivel, xp = personagem["level"], personagem["xp"]
     _, dentro, precisa = rules.xp_progress(xp)
@@ -250,6 +300,22 @@ def _embed_ficha(personagem, jogador: str) -> discord.Embed:
     embed.add_field(name="Raça", value=_texto_definicao(personagem, "race", "/raca_inicial"), inline=True)
     embed.add_field(name="Classe Social", value=_texto_estado(personagem), inline=True)
     embed.add_field(name="Rank de Magia", value=_texto_definicao(personagem, "magic_rank", "/magia_inicial"), inline=True)
+    classe = personagem["class_name"]
+    embed.add_field(
+        name="Classe",
+        value=(
+            f"{classe}\n(vantagem em {rules.CLASS_SKILLS.get(classe, 'perícias da classe')})"
+            if classe else "ainda não definida\n(use `/classe`)"
+        ),
+        inline=True,
+    )
+    embed.add_field(
+        name="Atributos",
+        value=rules.describe_attributes(db.attributes_of(personagem)) + "\n" + _texto_pontos(personagem),
+        inline=False,
+    )
+    res = _recursos_do_personagem(personagem)
+    embed.add_field(name="Recursos", value=_texto_recursos(res) if res else _SEM_CLASSE, inline=False)
     ranks = db.get_skill_ranks(personagem["id"])
     linhas = [
         f"**{pericia}** {ranks[pericia]}/{rules.MAX_SKILL_RANK} {rules.bar(ranks[pericia], rules.MAX_SKILL_RANK)}"
@@ -726,6 +792,102 @@ async def classe_social(interaction: discord.Interaction, personagem: str | None
 
 
 # ---------------------------------------------------------------------------
+# Classe e atributos (a ficha automática)
+# ---------------------------------------------------------------------------
+
+@bot.tree.command(name="classe", description="Escolhe a classe do seu personagem (vale uma vez; só um mestre muda depois).")
+@app_commands.describe(
+    classe="A classe do personagem",
+    personagem="Opcional: qual personagem seu (padrão: o que você está usando)",
+)
+@app_commands.choices(classe=[app_commands.Choice(name=n, value=n) for n in rules.CLASSES])
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+async def classe_escolher(interaction: discord.Interaction, classe: str, personagem: str | None = None):
+    char, erro = _resolver(str(interaction.user.id), personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    if char["class_name"]:
+        await interaction.response.send_message(
+            f"**{char['name']}** já é da classe **{char['class_name']}**. Fala com um mestre se precisar mudar.",
+            ephemeral=True,
+        )
+        return
+    db.set_class(char["id"], classe)
+    b = rules.CLASSES[classe]
+    embed = discord.Embed(
+        title=f"🎓 Classe de {char['name']}: {classe}",
+        description=(
+            f"Vantagem nas perícias: {rules.CLASS_SKILLS[classe]}\n"
+            f"Bônus: Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}\n\n"
+            "Agora distribua os pontos de atributo com `/atributos`."
+        ),
+        color=discord.Color.dark_green(),
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+_DESCRICAO_ATRIBUTO = {a: f"Novo valor de {rules.ATTRIBUTE_LABELS[a]}" for a in rules.ATTRIBUTES}
+
+
+@bot.tree.command(name="atributos", description="Distribui os pontos de atributo do seu personagem (só dá pra aumentar).")
+@app_commands.describe(**_DESCRICAO_ATRIBUTO, personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+async def atributos(
+    interaction: discord.Interaction,
+    forca: app_commands.Range[int, 0, 20] | None = None,
+    destreza: app_commands.Range[int, 0, 20] | None = None,
+    vitalidade: app_commands.Range[int, 0, 20] | None = None,
+    razao: app_commands.Range[int, 0, 20] | None = None,
+    vontade: app_commands.Range[int, 0, 20] | None = None,
+    alma: app_commands.Range[int, 0, 20] | None = None,
+    personagem: str | None = None,
+):
+    char, erro = _resolver(str(interaction.user.id), personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+
+    pedidos = {
+        nome: valor
+        for nome, valor in [("forca", forca), ("destreza", destreza), ("vitalidade", vitalidade),
+                            ("razao", razao), ("vontade", vontade), ("alma", alma)]
+        if valor is not None
+    }
+    if not pedidos:  # sem números: só mostra como está
+        await interaction.response.send_message(
+            embed=_embed_atributos(char, f"🧬 Atributos de {char['name']}"), ephemeral=True
+        )
+        return
+
+    if not char["race"]:
+        await interaction.response.send_message(
+            "Sorteia a raça primeiro com `/raca_inicial`: os limites de atributo dependem dela.", ephemeral=True
+        )
+        return
+    atuais = db.attributes_of(char)
+    baixaram = [rules.ATTRIBUTE_LABELS[n] for n, v in pedidos.items() if v < atuais[n]]
+    if baixaram:
+        um = len(baixaram) == 1
+        await interaction.response.send_message(
+            f"Só dá pra aumentar atributo, e {_juntar(baixaram)} {'ficaria menor' if um else 'ficariam menores'} "
+            f"do que {'já está' if um else 'já estão'}. Pra diminuir, fala com um mestre.",
+            ephemeral=True,
+        )
+        return
+    problemas = rules.validate_attributes({**atuais, **pedidos}, char["level"], char["race"])
+    if problemas:
+        await interaction.response.send_message("⚠️ " + "\n".join(problemas), ephemeral=True)
+        return
+
+    db.set_attributes(char["id"], pedidos)
+    novo = db.get_character_by_id(char["id"])
+    await interaction.response.send_message(
+        embed=_embed_atributos(novo, f"🧬 Atributos de {char['name']} atualizados"), ephemeral=True
+    )
+
+
+# ---------------------------------------------------------------------------
 # Ficha, XP, níveis, rank e calculadora de recursos
 # ---------------------------------------------------------------------------
 
@@ -1115,8 +1277,10 @@ def _embed_xp(char, res: dict, motivo: str | None, mestre: str) -> discord.Embed
     linhas = [f"XP total: **{rules.fmt_xp(res['after_xp'])}**", _barra_xp(res["after_xp"])]
     if depois > antes:
         titulo = f"⬆️ {char['name']} subiu de nível! ({_mais(aplicado)} XP)"
-        ganhos = rules.describe_gains(rules.gains_between(antes, depois, char["race"]))
-        linhas.append(f"\nNível **{antes}** → **{depois}**\nGanhos: {ganhos}")
+        g = rules.gains_between(antes, depois, char["race"])
+        linhas.append(f"\nNível **{antes}** → **{depois}**\nGanhos: {rules.describe_gains(g)}")
+        if g["atributo"]:
+            linhas.append(f"Use `/atributos` pra distribuir {'o ponto' if g['atributo'] == 1 else 'os pontos'} de atributo.")
         cor = discord.Color.green()
     elif depois < antes:
         titulo = f"⬇️ {char['name']} perdeu nível ({_mais(aplicado)} XP)"
@@ -1386,6 +1550,130 @@ async def mestre_excluir_personagem(interaction: discord.Interaction, usuario: d
         embed=_embed_aviso_exclusao(char, usuario.display_name), view=view, ephemeral=True
     )
     view.origem = interaction
+
+
+@mestre_grupo.command(name="atributos", description="Define atributos de um personagem na mão, sem conferir limites.")
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    **{a: f"Novo valor de {rules.ATTRIBUTE_LABELS[a]}" for a in rules.ATTRIBUTES},
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+)
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_atributos(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    forca: app_commands.Range[int, 0, 30] | None = None,
+    destreza: app_commands.Range[int, 0, 30] | None = None,
+    vitalidade: app_commands.Range[int, 0, 30] | None = None,
+    razao: app_commands.Range[int, 0, 30] | None = None,
+    vontade: app_commands.Range[int, 0, 30] | None = None,
+    alma: app_commands.Range[int, 0, 30] | None = None,
+    personagem: str | None = None,
+):
+    pedidos = {
+        nome: valor
+        for nome, valor in [("forca", forca), ("destreza", destreza), ("vitalidade", vitalidade),
+                            ("razao", razao), ("vontade", vontade), ("alma", alma)]
+        if valor is not None
+    }
+    if not pedidos:
+        await interaction.response.send_message("Preenche pelo menos um atributo.", ephemeral=True)
+        return
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+
+    antes = db.attributes_of(char)
+    mudancas = {n: v for n, v in pedidos.items() if v != antes[n]}
+    if not mudancas:
+        await interaction.response.send_message(
+            f"Nada mudou: **{char['name']}** já tem esses valores.", ephemeral=True
+        )
+        return
+    db.set_attributes(char["id"], mudancas)
+    _auditar(interaction, usuario, char, "atributos", "; ".join(f"{n} {antes[n]} -> {v}" for n, v in mudancas.items()))
+
+    novo = db.get_character_by_id(char["id"])
+    linhas = [f"{rules.ATTRIBUTE_LABELS[n]}: **{antes[n]}** → **{v}**" for n, v in mudancas.items()]
+    embed = discord.Embed(
+        title="🛠️ Atributos corrigidos",
+        description=(
+            f"{interaction.user.display_name} mexeu nos atributos de **{char['name']}** ({usuario.display_name}).\n"
+            + "\n".join(linhas) + "\n" + _texto_pontos(novo)
+        ),
+        color=discord.Color.orange(),
+    )
+    embed.set_footer(text="Definido por um mestre, sem conferir os limites.")
+    await interaction.response.send_message(embed=embed)
+
+
+@mestre_grupo.command(name="corrigir_classe", description="Define a classe de um personagem na mão.")
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    classe="A classe certa",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+)
+@app_commands.choices(classe=[app_commands.Choice(name=n, value=n) for n in rules.CLASSES])
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_corrigir_classe(
+    interaction: discord.Interaction, usuario: discord.Member, classe: str, personagem: str | None = None
+):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    antes = char["class_name"] or "nada"
+    db.set_class(char["id"], classe)
+    _auditar(interaction, usuario, char, "corrigir_class", f"{antes} -> {classe}")
+    embed = discord.Embed(
+        title="🛠️ Definição corrigida",
+        description=(
+            f"{interaction.user.display_name} definiu a classe de **{char['name']}** ({usuario.display_name}).\n"
+            f"**{antes}** → **{classe}**"
+        ),
+        color=discord.Color.orange(),
+    )
+    embed.set_footer(text="Definido por um mestre.")
+    await interaction.response.send_message(embed=embed)
+
+
+@mestre_grupo.command(name="exportar", description="Manda uma cópia de segurança do banco de dados (só você vê).")
+@app_commands.check(_eh_mestre)
+async def mestre_exportar(interaction: discord.Interaction):
+    limite = getattr(interaction.guild, "filesize_limit", None) or 8 * 1024 * 1024
+    with tempfile.TemporaryDirectory() as pasta:
+        nome = f"baptism_of_blood_{datetime.now(timezone.utc):%Y-%m-%d_%H%M}.db"
+        destino = os.path.join(pasta, nome)
+        db.export_copy(destino)
+        tamanho = os.path.getsize(destino)
+        if tamanho > limite:
+            await interaction.response.send_message(
+                f"O banco tem {tamanho / 1048576:.1f} MB e este servidor só aceita arquivo de até "
+                f"{limite / 1048576:.0f} MB. Baixa direto pelo Railway (`railway volume files download`).",
+                ephemeral=True,
+            )
+            return
+        db.log_master_action(
+            master_id=str(interaction.user.id),
+            master_name=str(interaction.user.display_name),
+            target_user_id=str(interaction.user.id),
+            character_id=None,
+            character_name=None,
+            action="exportar",
+            detail=f"{tamanho} bytes",
+        )
+        arquivo = discord.File(destino, filename=nome)
+        try:
+            await interaction.response.send_message(
+                "Cópia de segurança do banco. Guarda em lugar seguro, porque tem os dados de todos os jogadores.",
+                file=arquivo,
+                ephemeral=True,
+            )
+        finally:
+            arquivo.close()
 
 
 bot.tree.add_command(mestre_grupo)

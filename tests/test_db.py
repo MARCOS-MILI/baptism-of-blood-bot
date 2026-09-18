@@ -38,7 +38,7 @@ print("1. caminho do banco OK")
 p = os.path.join(tmp, "volume", "sub", "bob.db")
 db.init_db(p); db.init_db(p)                                              # rodar duas vezes não quebra
 with sqlite3.connect(p) as c:
-    assert c.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert c.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     tabelas = {r[0] for r in c.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%'")}
 assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters"}, tabelas
 print("2. init_db OK")
@@ -120,7 +120,7 @@ f = db.get_active_character("42", p1)
 assert (f["name"], f["magic_rank"], f["magic_rank_roll"], f["level"], f["xp"], f["social_class"]) == ("Fulano", "Raro", 62, 1, 0, None)
 assert db.get_active_character("77", p1)["race"] == "Vampiro" and len(db.list_characters("42", p1)) == 1
 assert len(db.get_history("42", 10, None, p1)) == 1
-print("6a. v1 -> v4 OK")
+print("6a. v1 -> atual OK")
 
 # v2: personagens, sem nível/estado/xp; com a raça no nome antigo
 p2 = os.path.join(tmp, "v2.db"); L.create(p2, L.V2)
@@ -136,7 +136,7 @@ assert (r["name"], r["magic_rank"], r["race"], r["race_roll"], r["level"], r["xp
 assert db.get_character_by_id(2, p2)["race"] == "Vampiro" and db.get_active_character("7", p2)["id"] == 1
 assert len(db.get_history("7", 10, 1, p2)) == 1
 with sqlite3.connect(p2) as cn: assert cn.execute("SELECT COUNT(*) FROM master_actions").fetchone()[0] == 1
-print("6b. v2 -> v4 OK")
+print("6b. v2 -> atual OK")
 
 # v3 (o que está em produção agora): nível 3 e nível 10 já existentes viram XP no começo do nível
 p3 = os.path.join(tmp, "v3.db"); L.create(p3, L.V3)
@@ -151,9 +151,28 @@ assert (a["level"], a["xp"], b["level"], b["xp"], n["level"], n["xp"]) == (3, 30
 assert all(rules.level_for_xp(x["xp"]) == x["level"] for x in (a, b, n))   # nível e XP já saem coerentes
 assert a["race"] == "Dhampir" and (a["social_class"], a["clergy"]) == ("1º Estado", "Alto Clero") and db.get_skill_ranks(1, p3) == {"Forja": 5}
 with sqlite3.connect(p3) as cn:
-    assert cn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
 r = db.add_xp(1, 500, "pós-migração", "1", "Mestre", p3); assert (r["before_xp"], r["after_xp"]) == (3000, 3500)   # já dá pra usar
-print("6c. v3 -> v4 OK")
+print("6c. v3 -> atual OK")
+
+# v4 (o que está em produção agora): ganha classe e atributos, sem perder nada
+p4 = os.path.join(tmp, "v4.db"); L.create(p4, L.V4)
+with sqlite3.connect(p4) as cn:
+    cn.execute("INSERT INTO characters (id, user_id, name, name_key, created_at, magic_rank, magic_rank_roll, race, race_roll, level, xp, social_class, social_class_roll) VALUES (1,'7','Kairon Flagon','kairon flagon','2026-09-18T00:00:00+00:00','Raro',62,'Dhampir',98,4,6500,'2º Estado',85)")
+    cn.execute("INSERT INTO rolls (user_id, username, guild_id, notation, rolls_json, total, purpose, created_at, character_id, character_name) VALUES ('7','Marcos','g','1d20','[17]',17,'ataque','2026-09-18T00:00:00+00:00',1,'Kairon Flagon')")
+    cn.execute("INSERT INTO xp_log (character_id, character_name, amount, xp_before, xp_after, level_before, level_after, reason, master_id, master_name, created_at) VALUES (1,'Kairon Flagon',6500,0,6500,1,4,'início','1','Mestre','2026-09-18T00:00:00+00:00')")
+    cn.execute("INSERT INTO players (user_id, display_name, extra_slots, updated_at) VALUES ('7','Marcos',2,'2026-09-18T00:00:00+00:00')")
+    cn.execute("INSERT INTO deleted_characters (character_id, user_id, name, snapshot_json, deleted_by_id, deleted_by_name, deleted_at) VALUES (9,'7','Antigo','{}','7','Marcos','2026-09-18T00:00:00+00:00')")
+    cn.execute("INSERT INTO character_ranks VALUES (1,'Forja',3,'2026-09-18T00:00:00+00:00')")
+db.init_db(p4); db.init_db(p4)
+a = db.get_character_by_id(1, p4)
+assert (a["name"], a["magic_rank"], a["race"], a["level"], a["xp"], a["social_class"]) == ("Kairon Flagon", "Raro", "Dhampir", 4, 6500, "2º Estado")   # nada mudou
+assert a["class_name"] is None and a["class_set_at"] is None and db.attributes_of(a) == {x: 0 for x in rules.ATTRIBUTES}                                # colunas novas, neutras
+assert len(db.get_history("7", 10, None, p4)) == 1 and db.get_skill_ranks(1, p4) == {"Forja": 3} and db.get_extra_slots("7", p4) == 2 and db.count_deleted("7", p4) == 1
+assert len(db.get_xp_log(1, 10, p4)) == 1 and db.get_player_names(p4) == {"7": "Marcos"}
+with sqlite3.connect(p4) as cn: assert cn.execute("PRAGMA user_version").fetchone()[0] == 5
+db.set_class(1, "Caçador", p4); db.set_attributes(1, {"vitalidade": 3}, p4); assert db.attributes_of(db.get_character_by_id(1, p4))["vitalidade"] == 3   # já dá pra usar
+print("6d. v4 -> v5 (com dados) OK")
 
 # ---------- 7. XP: níveis, saltos, remoção, extrato ----------
 px = novo_banco("xp.db"); x = db.create_character("5", "Xis", path=px)["id"]
@@ -241,5 +260,40 @@ assert [(r["user_id"], r["total_xp"], r["personagens"], r["melhor_nivel"]) for r
 assert [r["owner"] for r in rp] == [None, "Ana", "Beto"]
 assert db.rank_characters(novo_banco("vazio.db")) == [] and db.rank_players(novo_banco("vazio2.db")) == []
 print("11. rank OK")
+
+# ---------- 12. classe e atributos ----------
+pf = novo_banco("ficha.db"); f = db.create_character("1", "Ficha Viva", path=pf)
+assert f["class_name"] is None and f["class_set_at"] is None and db.attributes_of(f) == {a: 0 for a in rules.ATTRIBUTES}
+db.set_class(f["id"], "Ladrão", pf); r = db.get_character_by_id(f["id"], pf); assert r["class_name"] == "Ladrão" and r["class_set_at"]
+db.set_class(f["id"], "Sábio", pf); assert db.get_character_by_id(f["id"], pf)["class_name"] == "Sábio"
+db.set_attributes(f["id"], {"forca": 2, "vitalidade": 3}, pf)
+assert db.attributes_of(db.get_character_by_id(f["id"], pf)) == {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 0, "alma": 0}
+db.set_attributes(f["id"], {"vontade": 1}, pf)                                            # só mexe no que veio
+assert db.attributes_of(db.get_character_by_id(f["id"], pf)) == {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 1, "alma": 0}
+db.set_attributes(f["id"], {}, pf)                                                        # vazio não faz nada
+for ruim in ({"sorte": 3}, {"forca": 1, "vitalidade = 99; DROP TABLE characters; --": 1}):
+    try: db.set_attributes(f["id"], ruim, pf); raise SystemExit("deveria recusar " + str(ruim))
+    except ValueError: pass
+assert db.get_character_by_id(f["id"], pf)["attr_forca"] == 2                             # a recusa não gravou nada, e a tabela segue viva
+outro = db.create_character("1", "Outro", path=pf); assert db.attributes_of(outro) == {a: 0 for a in rules.ATTRIBUTES} and outro["class_name"] is None
+snap = db.delete_character(f["id"], "1", "Ana", pf); assert snap["class_name"] == "Sábio" and snap["attr_vitalidade"] == 3   # a cópia dos excluídos leva a ficha toda
+db.clear_definition(outro["id"], "todas", pf); assert db.get_character_by_id(outro["id"], pf)["class_name"] is None          # 'apagar' não mexe na classe
+print("12. classe e atributos OK")
+
+# ---------- 13. cópia de segurança ----------
+pc = novo_banco("orig.db"); c1 = db.create_character("1", "Copiado", path=pc)["id"]; db.add_xp(c1, 2500, "teste", "9", "M", pc); db.set_class(c1, "Mundano", pc)
+dest = os.path.join(tmp, "copia", "backup.db"); os.makedirs(os.path.dirname(dest))
+db.export_copy(dest, pc)
+with sqlite3.connect(dest) as cn:
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
+    assert cn.execute("SELECT name, xp, level, class_name FROM characters").fetchone() == ("Copiado", 2500, 2, "Mundano")
+    assert cn.execute("SELECT COUNT(*) FROM xp_log").fetchone()[0] == 1
+db.add_xp(c1, 1, "depois da cópia", "9", "M", pc)
+with sqlite3.connect(dest) as cn: assert cn.execute("SELECT xp FROM characters").fetchone()[0] == 2500       # a cópia é uma foto
+copia = db.get_character_by_id(1, dest)                                                                        # e é um banco de verdade: abre e funciona
+assert copia["name"] == "Copiado"; db.init_db(dest)
+try: db.export_copy(os.path.join(tmp, "nao_existe", "x.db"), pc); raise SystemExit("deveria falhar")
+except sqlite3.OperationalError: pass
+print("13. cópia de segurança OK")
 
 print("\nTODOS OS TESTES DO BANCO PASSARAM")

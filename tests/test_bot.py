@@ -3,6 +3,7 @@ Rodar da pasta do bot: python tests/test_bot.py"""
 import asyncio
 import contextlib
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -83,12 +84,12 @@ def novo(uid, nome, personagem, quantos=1):
 
 # ============================ A. o que o Discord vai receber ============================
 raiz = {c.name: c for c in bot.bot.tree.get_commands()}
-assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","personagem","mestre"}, sorted(raiz)
+assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","personagem","mestre"}, sorted(raiz)
 pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
 assert sorted(o["name"] for o in pay["personagem"]["options"]) == ["criar","excluir","listar","usar"]
-assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","ficha","jogador","rank_pericia","upar","vagas"])
+assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","atributos","corrigir_classe","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
 req = lambda opts: {o["name"] for o in opts if o.get("required")}
 assert req(pay["rolar"]["options"]) == {"dado"} and req(pay["raca_inicial"].get("options", [])) == set()
 assert req(sub_("mestre", "dar_xp")["options"]) == {"usuario", "quantidade"}
@@ -106,6 +107,12 @@ assert (opt(pay["rank"], "limite")["min_value"], opt(pay["rank"], "limite")["max
 cr = pay["calcular_recursos"]; assert req(cr["options"]) == {"classe","vitalidade","forca","vontade","alma"}
 assert [c["value"] for c in opt(cr, "classe")["choices"]] == ["Nenhuma","Caçador","Feiticeiros","Ladrão","Mestre de Forja","Mundano","Sábio"]
 assert pay["mestre"].get("dm_permission") is False or pay["mestre"].get("contexts") == [0]
+at = pay["atributos"]; assert [o["name"] for o in at["options"]] == ["forca","destreza","vitalidade","razao","vontade","alma","personagem"] and req(at["options"]) == set()
+assert all((opt(at, a)["min_value"], opt(at, a)["max_value"]) == (0, 20) for a in ("forca","destreza","vitalidade","razao","vontade","alma")) and opt(at, "personagem")["autocomplete"] is True
+assert [c["value"] for c in opt(pay["classe"], "classe")["choices"]] == ["Caçador","Feiticeiros","Ladrão","Mestre de Forja","Mundano","Sábio"] and req(pay["classe"]["options"]) == {"classe"}
+ma = sub_("mestre", "atributos"); assert req(ma["options"]) == {"usuario"} and all((opt(ma, a)["min_value"], opt(ma, a)["max_value"]) == (0, 30) for a in ("forca","alma"))
+mc = sub_("mestre", "corrigir_classe"); assert req(mc["options"]) == {"usuario", "classe"} and [c["value"] for c in opt(mc, "classe")["choices"]] == ["Caçador","Feiticeiros","Ladrão","Mestre de Forja","Mundano","Sábio"]
+assert not sub_("mestre", "exportar").get("options")
 def walk(d, p=""):
     for o in d.get("options", []):
         if "description" in o: assert 1 <= len(o["description"]) <= 100, (p + o["name"], len(o["description"]))
@@ -154,7 +161,7 @@ print("B. fluxo básico OK")
 # ============================ C. mestre: permissão e correções ============================
 assert bot._eh_mestre(inter(2,"Zé", admin=True)) and bot._eh_mestre(inter(2,"Zé", manage=True))
 assert bot._eh_mestre(inter(2,"Zé", roles=["mestre"])) and not bot._eh_mestre(inter(2,"Zé", roles=["Jogador"])) and not bot._eh_mestre(inter(2,"Zé"))
-todos = list(bot.mestre_grupo.commands); assert len(todos) == 12
+todos = list(bot.mestre_grupo.commands); assert len(todos) == 15
 for c in todos:                                                     # TODOS os comandos de mestre barram quem não é mestre
     p = inter(3, "Intruso")
     assert run(c._check_can_run(p)) is False, c.name
@@ -442,5 +449,143 @@ r = inter(82, "Rara"); run(bot.personagem_criar.callback(r, "Rara Raça"))
 with dados(96): run(bot.raca_inicial.callback(r, None))
 assert "Raça: **Dhampir**" in txt(r) and "Meio humano" not in txt(r) and not sent(r)[1].get("ephemeral")            # continua público
 print("H. horário e Dhampir OK")
+
+# ============================ I. ficha automática: classe, atributos e recursos ============================
+db.DB_PATH = os.path.join(tmp, "ficha.db"); db.init_db()
+CAMPOS = ["Nível", "Raça", "Classe Social", "Rank de Magia", "Classe", "Atributos", "Recursos", "Ranks das perícias especiais"]
+def campos(i): return {f.name: f.value for f in sent(i)[1]["embed"].fields}
+ana = novo(100, "Ana", "Ana Ficha"); a100 = alvo(100, "Ana"); ficha = lambda: row(100, "Ana Ficha")
+
+# ficha nova: tudo zerado, e os campos novos ficam antes dos ranks, que continuam por último
+run(bot.minha_ficha.callback(ana, None)); assert [f.name for f in sent(ana)[1]["embed"].fields] == CAMPOS
+c = campos(ana); assert c["Classe"] == "ainda não definida\n(use `/classe`)" and c["Recursos"] == bot._SEM_CLASSE
+assert c["Atributos"] == "Força 0 · Destreza 0 · Vitalidade 0 · Razão 0 · Vontade 0 · Alma 0\nPontos de atributo: 0 de 6 usados (6 livres)"
+run(bot.atributos.callback(ana, None, None, None, None, None, None, None))                # sem números: só mostra
+assert sent(ana)[1]["ephemeral"] and titulo(ana) == "🧬 Atributos de Ana Ficha" and list(campos(ana)) == ["Atributos", "Recursos"]
+# sem raça, não distribui (os limites dependem dela)
+run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None)); assert "Sorteia a raça primeiro" in txt(ana) and db.attributes_of(ficha())["forca"] == 0
+db.set_race(ficha()["id"], "Humano", 40)
+
+# 6 pontos no nível 1, direto no limite
+run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None)); print("  ", campos(ana)["Atributos"].replace("\n", " | "))
+assert titulo(ana) == "🧬 Atributos de Ana Ficha atualizados" and sent(ana)[1]["ephemeral"]
+assert campos(ana)["Atributos"] == "Força 2 · Destreza 0 · Vitalidade 3 · Razão 0 · Vontade 1 · Alma 0\nPontos de atributo: 6 de 6 usados" and campos(ana)["Recursos"] == bot._SEM_CLASSE
+assert db.attributes_of(ficha()) == {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 1, "alma": 0}
+
+# classe: vale uma vez, mostra bônus e vantagem, e os recursos aparecem sozinhos
+run(bot.classe_escolher.callback(ana, "Caçador", None)); print("  ", desc(ana).splitlines()[0:2])
+assert titulo(ana) == "🎓 Classe de Ana Ficha: Caçador" and "Vantagem nas perícias: Religião e Luta ou Pontaria" in desc(ana)
+assert "Bônus: Vida +35 · Sanidade +15 · Mana +5 · Estamina +20" in desc(ana) and "/atributos" in desc(ana) and sent(ana)[1]["ephemeral"]
+run(bot.classe_escolher.callback(ana, "Sábio", None)); assert "já é da classe **Caçador**" in txt(ana) and ficha()["class_name"] == "Caçador"
+run(bot.minha_ficha.callback(ana, None)); c = campos(ana)
+assert c["Classe"] == "Caçador\n(vantagem em Religião e Luta ou Pontaria)"
+assert c["Recursos"] == "❤️ Vida **50** · 🧠 Sanidade **20**\n🔮 Mana **8** · 💪 Estamina **35**"       # 15+35, 5+15, 3+5, 15+20
+assert rules.calculate_resources(vitalidade=3, forca=2, vontade=1, alma=0, classe="Caçador")["estamina"]["total"] == 35   # mesma conta do /calcular_recursos
+run(bot.classe_escolher.callback(ana, "Ladrão", "Fantasma")); assert "Não achei" in txt(ana)
+sp = inter(199, "Sem Personagem"); run(bot.classe_escolher.callback(sp, "Sábio", None)); assert "Você ainda não tem personagem" in txt(sp)
+
+# só dá pra aumentar
+run(bot.atributos.callback(ana, 1, None, None, None, None, None, None)); assert "Só dá pra aumentar atributo, e Força ficaria menor do que já está." in txt(ana) and ficha()["attr_forca"] == 2
+run(bot.atributos.callback(ana, 1, None, 2, None, None, None, None)); assert "Força e Vitalidade ficariam menores do que já estão" in txt(ana) and ficha()["attr_vitalidade"] == 3
+# passar do total (6 no nível 1)
+run(bot.atributos.callback(ana, None, None, None, None, None, 1, None)); assert "Você distribuiu 7 pontos de atributo, mas no nível 1 o total é 6." in txt(ana) and ficha()["attr_alma"] == 0
+run(bot.atributos.callback(ana, None, None, None, None, None, 1, "Fantasma")); assert "Não achei" in txt(ana)
+
+# limite de criação do humano (3), só ultrapassável com ponto de nível
+lim = novo(102, "Lia", "Lia Limite"); db.set_race(row(102, "Lia Limite")["id"], "Humano", 1); alia = alvo(102, "Lia")
+run(bot.atributos.callback(lim, 4, None, None, None, None, None, None)); print("  ", txt(lim)[:120])
+assert "O limite de criação de Humano é: Força 3, Destreza 3, Vitalidade 3, Razão 6." in txt(lim) and "você tem 0" in txt(lim) and row(102, "Lia Limite")["attr_forca"] == 0
+run(bot.atributos.callback(lim, None, None, None, 6, None, None, None)); assert titulo(lim).endswith("atualizados")             # Razão vai até 6 no humano
+run(bot.atributos.callback(lim, None, None, None, 7, None, None, None)); assert "Você distribuiu 7 pontos" in txt(lim) and "O limite de criação" in txt(lim)   # dois problemas juntos
+run(bot.mestre_dar_xp.callback(gm, alia, 1000, None, None)); assert "Use `/atributos` pra distribuir o ponto de atributo." in desc(gm)                # nível 2: ganhou 1 ponto
+run(bot.atributos.callback(lim, 4, None, None, 6, None, None, None)); assert "Você distribuiu 10 pontos" in txt(lim)                        # ainda passa do total (7)
+db.set_attributes(row(102, "Lia Limite")["id"], {"razao": 3})
+run(bot.atributos.callback(lim, 4, None, None, None, None, None, None)); assert titulo(lim).endswith("atualizados") and row(102, "Lia Limite")["attr_forca"] == 4   # o ponto de nível cobre o excesso
+run(bot.atributos.callback(lim, 5, None, None, None, None, None, None)); assert "essa distribuição passa 2" in txt(lim)                     # dois acima do limite, só 1 ponto de nível
+run(bot.atributos.callback(lim, None, None, None, None, None, None, None)); assert "Pontos de atributo: 7 de 7 usados" in campos(lim)["Atributos"]
+
+# Vampiro (limite 5) e Dhampir (sem limite por atributo, só o total)
+for uid, raca, nome in [(103, "Vampiro", "Vlad"), (104, "Dhampir", "Alu")]:
+    u = novo(uid, f"J{uid}", nome); db.set_race(row(uid, nome)["id"], raca, 96)
+    if raca == "Vampiro":
+        run(bot.atributos.callback(u, 5, 1, None, None, None, None, None)); assert titulo(u).endswith("atualizados")
+        run(bot.atributos.callback(u, 6, None, None, None, None, None, None)); assert "O limite de criação de Vampiro é: Força 5, Destreza 5, Vitalidade 5." in txt(u)
+    else:
+        run(bot.atributos.callback(u, 6, None, None, None, None, None, None)); assert titulo(u).endswith("atualizados") and row(uid, nome)["attr_forca"] == 6
+        run(bot.atributos.callback(u, 7, None, None, None, None, None, None)); assert "Você distribuiu 7 pontos" in txt(u) and "O limite de criação" not in txt(u)
+
+# subir de nível avisa pra distribuir o ponto; nível ímpar não avisa; vários níveis falam em "pontos"
+b = novo(105, "Bia", "Bia Nível"); ab = alvo(105, "Bia")
+run(bot.mestre_dar_xp.callback(gm, ab, 1000, None, None)); assert "Use `/atributos` pra distribuir o ponto de atributo." in desc(gm)
+run(bot.mestre_dar_xp.callback(gm, ab, 2000, None, None)); assert "/atributos" not in desc(gm) and "Ganhos" in desc(gm)          # nível 3
+run(bot.mestre_dar_xp.callback(gm, ab, 42000, None, None)); assert "Nível **3** → **10**" in desc(gm) and "Use `/atributos` pra distribuir os pontos de atributo." in desc(gm)
+run(bot.mestre_dar_xp.callback(gm, ab, 500, None, None)); assert "/atributos" not in desc(gm)                                     # só XP, sem nível
+run(bot.mestre_dar_xp.callback(gm, ab, -5000, None, None)); assert "/atributos" not in desc(gm)                                  # perder nível não fala disso
+
+# mestre: mexe direto, sem conferir limites, e fica registrado
+m = novo(106, "Caio", "Caio Mestrado"); am = alvo(106, "Caio")
+run(bot.mestre_atributos.callback(gm, am, None, None, None, None, None, None, None)); assert "pelo menos um atributo" in txt(gm) and sent(gm)[1]["ephemeral"]
+run(bot.mestre_atributos.callback(gm, am, 9, None, 2, None, None, None, None)); print("  ", desc(gm).replace("\n", " | "))
+assert titulo(gm) == "🛠️ Atributos corrigidos" and "Força: **0** → **9**" in desc(gm) and "Vitalidade: **0** → **2**" in desc(gm) and "Destreza" not in desc(gm)
+assert "Pontos de atributo: 11 de 6 usados (passou 5)" in desc(gm) and rodape(gm) == "Definido por um mestre, sem conferir os limites." and not sent(gm)[1].get("ephemeral")
+assert (row(106, "Caio Mestrado")["attr_forca"], row(106, "Caio Mestrado")["attr_vitalidade"]) == (9, 2)
+run(bot.mestre_atributos.callback(gm, am, 9, None, None, None, None, None, None)); assert "Nada mudou" in txt(gm) and sent(gm)[1]["ephemeral"]
+run(bot.mestre_atributos.callback(gm, am, 3, None, None, None, None, None, None)); assert "Força: **9** → **3**" in desc(gm)          # o mestre pode diminuir
+run(bot.mestre_atributos.callback(gm, am, 5, None, None, None, None, None, "Fantasma")); assert "não tem nenhum personagem chamado" in txt(gm)
+run(bot.mestre_atributos.callback(gm, alvo(777, "Novato"), 5, None, None, None, None, None, None)); assert "ainda não tem personagem" in txt(gm)
+# mestre passou dos pontos: a ficha mostra, e o jogador não consegue mexer até acertar
+run(bot.mestre_atributos.callback(gm, am, 9, None, None, None, None, None, None)); db.set_race(row(106, "Caio Mestrado")["id"], "Humano", 2)
+run(bot.minha_ficha.callback(m, None)); assert "Pontos de atributo: 11 de 6 usados (passou 5)" in campos(m)["Atributos"]
+run(bot.atributos.callback(m, None, None, None, None, None, 1, None)); assert "Você distribuiu 12 pontos" in txt(m) and row(106, "Caio Mestrado")["attr_alma"] == 0
+# mestre corrige a classe (inclusive depois do jogador já ter escolhido)
+run(bot.mestre_corrigir_classe.callback(gm, am, "Sábio", None)); assert titulo(gm) == "🛠️ Definição corrigida" and "**nada** → **Sábio**" in desc(gm)
+run(bot.mestre_corrigir_classe.callback(gm, am, "Ladrão", None)); assert "**Sábio** → **Ladrão**" in desc(gm) and row(106, "Caio Mestrado")["class_name"] == "Ladrão"
+run(bot.classe_escolher.callback(m, "Mundano", None)); assert "já é da classe **Ladrão**" in txt(m)
+run(bot.mestre_ficha.callback(gm, am, None)); cf = campos(gm); assert sent(gm)[1]["ephemeral"] and cf["Classe"].startswith("Ladrão") and "Vida" in cf["Recursos"]
+run(bot.mestre_corrigir_classe.callback(gm, am, "Sábio", "Fantasma")); assert "não tem nenhum personagem chamado" in txt(gm)
+# 'apagar' limpa sorteios, nunca a classe nem os atributos
+run(bot.mestre_apagar.callback(gm, am, "todas", None)); c = row(106, "Caio Mestrado")
+assert c["race"] is None and c["class_name"] == "Ladrão" and c["attr_forca"] == 9
+with sqlite3.connect(db.DB_PATH) as cn:
+    acoes = [r for r in cn.execute("SELECT action, detail FROM master_actions WHERE action IN ('atributos','corrigir_class') ORDER BY id")]
+print("   auditoria:", acoes)
+assert acoes == [("atributos", "forca 0 -> 9; vitalidade 0 -> 2"), ("atributos", "forca 9 -> 3"), ("atributos", "forca 3 -> 9"), ("corrigir_class", "nada -> Sábio"), ("corrigir_class", "Sábio -> Ladrão")]
+# a cópia dos excluídos leva a ficha inteira (classe e atributos incluídos)
+async def exclui_caio():
+    u = inter(106, "Caio"); await bot.personagem_excluir.callback(u, "Caio Mestrado"); view = u.response.send_message.call_args.kwargs["view"]
+    await view.confirmar.callback(inter(106, "Caio"))
+run(exclui_caio())
+with sqlite3.connect(db.DB_PATH) as cn:
+    import json
+    snap = json.loads(cn.execute("SELECT snapshot_json FROM deleted_characters WHERE name='Caio Mestrado'").fetchone()[0])
+assert snap["class_name"] == "Ladrão" and snap["attr_forca"] == 9
+print("I. ficha automática OK")
+
+
+# ============================ J. /mestre exportar ============================
+db.DB_PATH = os.path.join(tmp, "export.db"); db.init_db()
+ex = novo(110, "Exp", "Exportável"); run(bot.mestre_dar_xp.callback(gm, alvo(110, "Exp"), 1500, "teste", None))
+db.set_class(row(110, "Exportável")["id"], "Mundano"); db.set_attributes(row(110, "Exportável")["id"], {"vitalidade": 2})
+capt = {}
+async def captura(*a, **kw):
+    f = kw.get("file")
+    if f is not None:
+        capt["nome"] = f.filename; capt["dados"] = f.fp.read(); f.fp.seek(0)
+    capt["kw"] = kw; capt["args"] = a
+mx = inter(4, "Mestre Belmont", roles=["Mestre"]); mx.response.send_message = AsyncMock(side_effect=captura)
+run(bot.mestre_exportar.callback(mx))
+assert capt["kw"]["ephemeral"] and re.fullmatch(r"baptism_of_blood_\d{4}-\d{2}-\d{2}_\d{4}\.db", capt["nome"]) and "todos os jogadores" in capt["args"][0]
+recebido = os.path.join(tmp, "recebido.db"); open(recebido, "wb").write(capt["dados"])
+with sqlite3.connect(recebido) as cn:
+    assert cn.execute("SELECT name, xp, class_name, attr_vitalidade FROM characters").fetchone() == ("Exportável", 1500, "Mundano", 2)
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION and cn.execute("SELECT COUNT(*) FROM xp_log").fetchone()[0] == 1
+with sqlite3.connect(db.DB_PATH) as cn:
+    assert [r[0] for r in cn.execute("SELECT detail FROM master_actions WHERE action='exportar'")] == [f"{len(capt['dados'])} bytes"]
+# maior que o limite do servidor: não manda o arquivo, explica, e não registra exportação
+mg = inter(4, "Mestre Belmont", roles=["Mestre"]); mg.guild = NS(roles=[], filesize_limit=1000)
+run(bot.mestre_exportar.callback(mg)); kw = sent(mg)[1]
+assert "file" not in kw and kw["ephemeral"] and "só aceita arquivo de até" in sent(mg)[0] and "railway volume files download" in sent(mg)[0]
+with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT COUNT(*) FROM master_actions WHERE action='exportar'").fetchone()[0] == 1
+print("J. exportar OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")
