@@ -3,17 +3,18 @@
 Jogadores:
   /rolar dado:1d20+3 [motivo] [personagem]   -> rola e salva no histórico
   /historico [usuario] [limite] [personagem] -> últimas rolagens de alguém (ou de um personagem)
-  /personagem criar | usar | listar          -> gerencia os personagens de cada jogador
-  /magia_inicial [personagem]                -> rola 1d100 uma vez e define o Rank de magia
-  /raca_inicial [personagem]                 -> rola 1d100 uma vez e define a Raça
-  /classe_social [personagem]                -> rola 1d100 (e outro, se cair no clero) e define o Estado
-  /minha_ficha [personagem]                  -> nível, raça, classe social, ranks
-  /niveis [personagem]                       -> vantagens de cada nível
+  /personagem criar | usar | listar | excluir -> gerencia os personagens (limite de vagas por jogador)
+  /magia_inicial | /raca_inicial | /classe_social -> sorteios de criação, uma vez por personagem
+  /minha_ficha [personagem]                  -> nível, XP, raça, classe social, ranks
+  /niveis [personagem]                       -> XP e vantagens de cada nível
+  /extrato_xp [personagem]                   -> de onde veio o XP do personagem
+  /rank [tipo] [limite]                      -> rank público de XP total (personagens ou jogadores)
   /calcular_recursos                         -> calcula Vida, Sanidade, Mana e Estamina
 
 Mestres:
+  /mestre dar_xp | upar | corrigir_nivel | rank_pericia
   /mestre apagar | corrigir_magia | corrigir_raca | corrigir_estado
-  /mestre upar | corrigir_nivel | rank_pericia | ficha
+  /mestre ficha | jogador | vagas | excluir_personagem
 
 Setup rápido:
   1. pip install -r requirements.txt
@@ -23,6 +24,7 @@ Setup rápido:
 
 import os
 import traceback
+from datetime import datetime
 
 import discord
 from discord import app_commands
@@ -39,11 +41,31 @@ TOKEN = os.environ.get("DISCORD_TOKEN")
 # Quem tem esse cargo (ou a permissão de Gerenciar Servidor) pode usar os comandos /mestre.
 MESTRE_ROLE = os.environ.get("MESTRE_ROLE", "Mestre")
 
+# Quantos personagens cada jogador pode ter. Os mestres liberam vagas extras na mão, até o teto.
+LIMITE_BASE = int(os.environ.get("LIMITE_PERSONAGENS", "3"))
+LIMITE_MAXIMO = max(LIMITE_BASE, int(os.environ.get("LIMITE_MAXIMO_PERSONAGENS", "10")))
+MAX_VAGAS_EXTRAS = LIMITE_MAXIMO - LIMITE_BASE
+
 NOME_MIN, NOME_MAX = 2, 60
+
+
+class Arvore(app_commands.CommandTree):
+    """Antes de cada comando, guarda o nome atual do jogador (o rank usa isso pra mostrar o dono)."""
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        try:
+            db.remember_player(str(interaction.user.id), str(interaction.user.display_name))
+        except Exception as e:  # nunca deixar de responder um comando por causa disso
+            print(f"Não consegui guardar o nome do jogador: {e!r}", flush=True)
+        return True
+
 
 intents = discord.Intents.default()
 # Ninguém consegue fazer o bot marcar @everyone ou cargos através de um nome de personagem.
-bot = commands.Bot(command_prefix="!", intents=intents, allowed_mentions=discord.AllowedMentions.none())
+bot = commands.Bot(
+    command_prefix="!", intents=intents, tree_cls=Arvore,
+    allowed_mentions=discord.AllowedMentions.none(),
+)
 
 _comandos_sincronizados = False
 
@@ -145,6 +167,34 @@ def _resolver_do_alvo(alvo: discord.Member, nome: str | None):
     return None, f"{alvo.display_name} ainda não tem personagem criado."
 
 
+def _juntar(itens: list[str]) -> str:
+    """['a', 'b', 'c'] vira 'a, b e c'."""
+    if len(itens) <= 1:
+        return "".join(itens)
+    return ", ".join(itens[:-1]) + " e " + itens[-1]
+
+
+def _quando(iso: str) -> str:
+    """Data e hora no fuso de quem está lendo (o Discord converte sozinho)."""
+    try:
+        epoch = int(datetime.fromisoformat(iso).timestamp())
+    except ValueError:
+        return iso[:16].replace("T", " ") + " UTC"
+    return f"<t:{epoch}:d> <t:{epoch}:t>"
+
+
+def _mais(n: int) -> str:
+    """1250 vira '+1.250', -500 vira '-500'."""
+    return ("+" if n > 0 else "-" if n < 0 else "") + rules.fmt_xp(abs(n))
+
+
+def _vagas(user_id: str) -> tuple[int, int, int]:
+    """(vagas usadas, vagas permitidas, vagas extras) do jogador."""
+    extras = db.get_extra_slots(user_id)
+    permitidas = min(LIMITE_BASE + extras, LIMITE_MAXIMO)
+    return len(db.list_characters(user_id)), permitidas, extras
+
+
 def _texto_definicao(personagem, campo: str, comando: str) -> str:
     valor = personagem[campo]
     if not valor:
@@ -181,10 +231,22 @@ def _texto_estado(personagem) -> str:
     return f"{resumo}\n({origem})"
 
 
+def _barra_xp(xp: int) -> str:
+    """'Nível 3: 1.250/3.000 XP' com a barra embaixo, ou 'Nível 10: máximo'."""
+    nivel, dentro, precisa = rules.xp_progress(xp)
+    if precisa is None:
+        return f"Nível {nivel}: máximo"
+    return f"Nível {nivel}: {rules.fmt_xp(dentro)}/{rules.fmt_xp(precisa)} XP\n{rules.xp_bar(dentro, precisa)}"
+
+
 def _embed_ficha(personagem, jogador: str) -> discord.Embed:
-    nivel = personagem["level"]
+    nivel, xp = personagem["level"], personagem["xp"]
+    _, dentro, precisa = rules.xp_progress(xp)
     embed = discord.Embed(title=f"📖 Ficha de {personagem['name']}", color=discord.Color.dark_purple())
-    embed.add_field(name="Nível", value=f"{nivel}/{rules.MAX_LEVEL}\n{rules.bar(nivel, rules.MAX_LEVEL)}", inline=True)
+    nivel_txt = f"{nivel}/{rules.MAX_LEVEL}\n{rules.bar(nivel, rules.MAX_LEVEL)}\nXP total: {rules.fmt_xp(xp)}"
+    if precisa is not None:
+        nivel_txt += f"\nFaltam {rules.fmt_xp(precisa - dentro)} pro nível {nivel + 1}"
+    embed.add_field(name="Nível", value=nivel_txt, inline=True)
     embed.add_field(name="Raça", value=_texto_definicao(personagem, "race", "/raca_inicial"), inline=True)
     embed.add_field(name="Classe Social", value=_texto_estado(personagem), inline=True)
     embed.add_field(name="Rank de Magia", value=_texto_definicao(personagem, "magic_rank", "/magia_inicial"), inline=True)
@@ -295,7 +357,7 @@ async def historico(
     titulo = f"📜 Histórico de {char['name']}" if char else f"📜 Histórico de {alvo.display_name}"
     embed = discord.Embed(title=titulo, color=discord.Color.dark_gold())
     for linha in linhas:
-        quando = linha["created_at"][:16].replace("T", " ")
+        quando = _quando(linha["created_at"])
         motivo = f" ({linha['purpose'][:80]})" if linha["purpose"] else ""
         if not char and linha["character_name"]:
             quando += f" · {linha['character_name']}"
@@ -311,7 +373,93 @@ async def historico(
 # Personagens
 # ---------------------------------------------------------------------------
 
-personagem_grupo = app_commands.Group(name="personagem", description="Cria e troca de personagem.")
+personagem_grupo = app_commands.Group(name="personagem", description="Cria, troca e exclui personagens.")
+
+
+def _resumo_excluido(snap: dict) -> str:
+    return f"nível {snap['level']}, {rules.fmt_xp(snap['xp'])} XP, raça {snap['race'] or 'não sorteada'}"
+
+
+class ConfirmarExclusao(discord.ui.View):
+    """Botões de confirmação da exclusão de um personagem. Só quem pediu consegue apertar."""
+
+    def __init__(self, executor, personagem, dono_id: str, por_mestre: bool = False):
+        super().__init__(timeout=60)
+        self.executor = executor
+        self.char_id = personagem["id"]
+        self.char_nome = personagem["name"]
+        self.dono_id = dono_id
+        self.por_mestre = por_mestre
+        self.origem: discord.Interaction | None = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.executor.id:
+            await interaction.response.send_message("Só quem pediu a exclusão pode confirmar.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Excluir pra sempre", style=discord.ButtonStyle.danger)
+    async def confirmar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        snap = db.delete_character(self.char_id, str(self.executor.id), str(self.executor.display_name))
+        if snap is None:
+            await interaction.response.edit_message(
+                content="Esse personagem já tinha sido excluído.", embed=None, view=None
+            )
+            return
+        if self.por_mestre:
+            db.log_master_action(
+                master_id=str(self.executor.id),
+                master_name=str(self.executor.display_name),
+                target_user_id=self.dono_id,
+                character_id=self.char_id,
+                character_name=self.char_nome,
+                action="excluir_personagem",
+                detail=_resumo_excluido(snap),
+            )
+        await interaction.response.edit_message(
+            content=f"🗑️ **{self.char_nome}** foi excluído pra sempre.", embed=None, view=None
+        )
+        if self.por_mestre:
+            dono = discord.Object(id=int(self.dono_id))
+            aviso = discord.Embed(
+                title="🗑️ Personagem excluído",
+                description=(
+                    f"{self.executor.display_name} excluiu **{self.char_nome}** ({_resumo_excluido(snap)}). "
+                    "A vaga foi liberada."
+                ),
+                color=discord.Color.red(),
+            )
+            await interaction.followup.send(
+                content=f"<@{self.dono_id}>", embed=aviso, allowed_mentions=discord.AllowedMentions(users=[dono]),
+            )
+
+    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary)
+    async def cancelar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(content="Beleza, nada foi excluído.", embed=None, view=None)
+
+    async def on_timeout(self):
+        if self.origem is not None:
+            try:
+                await self.origem.edit_original_response(
+                    content="Passou o tempo e nada foi excluído.", embed=None, view=None
+                )
+            except discord.HTTPException:
+                pass
+
+
+def _embed_aviso_exclusao(personagem, quem_e_dono: str) -> discord.Embed:
+    return discord.Embed(
+        title=f"🗑️ Excluir {personagem['name']}?",
+        description=(
+            f"Isso apaga **{personagem['name']}** de {quem_e_dono} (nível {personagem['level']}, "
+            f"{rules.fmt_xp(personagem['xp'])} XP) **pra sempre**. Não tem como desfazer, e o extrato de XP "
+            "e os ranks dele somem junto.\n"
+            "A vaga é liberada. As rolagens antigas continuam no histórico."
+        ),
+        color=discord.Color.red(),
+    )
 
 
 @personagem_grupo.command(name="criar", description="Cria um personagem novo e já passa a usar ele.")
@@ -323,10 +471,24 @@ async def personagem_criar(interaction: discord.Interaction, nome: str):
             f"⚠️ O nome precisa ter entre {NOME_MIN} e {NOME_MAX} letras.", ephemeral=True
         )
         return
+
+    uid = str(interaction.user.id)
+    usadas, permitidas, _ = _vagas(uid)
+    sem_vaga = (
+        f"Você já usa todas as suas vagas de personagem ({usadas} de {permitidas}). Pra criar outro, exclua um "
+        "com `/personagem excluir` (é pra sempre) ou peça uma vaga extra pra um mestre."
+    )
+    if usadas >= permitidas:
+        await interaction.response.send_message(sem_vaga, ephemeral=True)
+        return
+
     try:
-        novo = db.create_character(str(interaction.user.id), limpo)
+        novo = db.create_character(uid, limpo, max_characters=permitidas)
+    except db.CharacterLimit:
+        await interaction.response.send_message(sem_vaga, ephemeral=True)
+        return
     except db.CharacterExists:
-        existente = db.find_character(str(interaction.user.id), limpo)
+        existente = db.find_character(uid, limpo)
         await interaction.response.send_message(
             f"Você já tem um personagem chamado **{existente['name'] if existente else limpo}**. "
             "Use `/personagem usar` pra voltar pra ele.",
@@ -336,7 +498,7 @@ async def personagem_criar(interaction: discord.Interaction, nome: str):
     embed = discord.Embed(
         title="🎭 Personagem criado",
         description=(
-            f"**{novo['name']}** agora é o personagem que você está usando.\n"
+            f"**{novo['name']}** agora é o personagem que você está usando ({usadas + 1} de {permitidas} vagas).\n"
             "Próximos passos: `/magia_inicial`, `/raca_inicial` e `/classe_social`."
         ),
         color=discord.Color.dark_purple(),
@@ -375,24 +537,44 @@ async def personagem_listar(interaction: discord.Interaction):
     for c in chars:
         marca = "▶️" if ativo and c["id"] == ativo["id"] else "▫️"
         linhas.append(
-            f"{marca} **{c['name']}** · nível {c['level']}\n"
+            f"{marca} **{c['name']}** · nível {c['level']} · {rules.fmt_xp(c['xp'])} XP\n"
             f"　magia: {c['magic_rank'] or 'sem rank'} · raça: {c['race'] or 'sem raça'}"
             f" · estado: {_resumo_estado(c) or 'sem estado'}"
         )
+    _, permitidas, _ = _vagas(uid)
     embed = discord.Embed(
         title="🎭 Seus personagens",
         description="\n".join(linhas),
         color=discord.Color.dark_purple(),
     )
-    embed.set_footer(text="▶️ = o que você está usando agora")
+    embed.set_footer(text=f"▶️ = o que você está usando agora · vagas usadas: {len(chars)} de {permitidas}")
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@personagem_grupo.command(name="excluir", description="Exclui um personagem seu pra sempre (não tem volta).")
+@app_commands.describe(nome="Nome do personagem que vai ser excluído")
+@app_commands.autocomplete(nome=_autocomplete_personagem)
+async def personagem_excluir(interaction: discord.Interaction, nome: str):
+    uid = str(interaction.user.id)
+    char = db.find_character(uid, nome)
+    if not char:
+        await interaction.response.send_message(
+            f"Não achei nenhum personagem seu chamado **{nome}**. Use `/personagem listar` pra ver os seus.",
+            ephemeral=True,
+        )
+        return
+    view = ConfirmarExclusao(interaction.user, char, uid)
+    await interaction.response.send_message(
+        embed=_embed_aviso_exclusao(char, "você"), view=view, ephemeral=True
+    )
+    view.origem = interaction
 
 
 bot.tree.add_command(personagem_grupo)
 
 
 # ---------------------------------------------------------------------------
-# Definições: Rank de magia e Raça (uma rolagem só por personagem)
+# Definições: Rank de magia, Raça e Classe social (uma rolagem só por personagem)
 # ---------------------------------------------------------------------------
 
 DEFINICOES = {
@@ -544,10 +726,10 @@ async def classe_social(interaction: discord.Interaction, personagem: str | None
 
 
 # ---------------------------------------------------------------------------
-# Ficha, níveis e calculadora de recursos
+# Ficha, XP, níveis, rank e calculadora de recursos
 # ---------------------------------------------------------------------------
 
-@bot.tree.command(name="minha_ficha", description="Mostra nível, raça, classe social e ranks do seu personagem.")
+@bot.tree.command(name="minha_ficha", description="Mostra nível, XP, raça, classe social e ranks do seu personagem.")
 @app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 async def minha_ficha(interaction: discord.Interaction, personagem: str | None = None):
@@ -560,7 +742,7 @@ async def minha_ficha(interaction: discord.Interaction, personagem: str | None =
     )
 
 
-@bot.tree.command(name="niveis", description="Mostra as vantagens de cada nível, de 1 a 10.")
+@bot.tree.command(name="niveis", description="Mostra o XP e as vantagens de cada nível, de 1 a 10.")
 @app_commands.describe(personagem="Opcional: marcar o nível de qual personagem seu (padrão: o que você está usando)")
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 async def niveis(interaction: discord.Interaction, personagem: str | None = None):
@@ -577,33 +759,118 @@ async def niveis(interaction: discord.Interaction, personagem: str | None = None
         char = db.get_active_character(uid)  # sem personagem, mostra a tabela sem marcar nível
 
     atual = char["level"] if char else None
-    embed = discord.Embed(
-        title="📈 Vantagens de cada nível",
-        description=(
-            "\n".join(rules.level_table_lines(atual))
-            + f"\n\n**Somando tudo, do 1 ao {rules.MAX_LEVEL}:** {rules.describe_gains(rules.total_gains(rules.MAX_LEVEL))}"
-        ),
-        color=discord.Color.dark_teal(),
+    raca = char["race"] if char else None
+    descricao = (
+        "\n".join(rules.level_table_lines(atual, raca))
+        + f"\n\n**Somando tudo, do 1 ao {rules.MAX_LEVEL}:** "
+        + rules.describe_gains(rules.total_gains(rules.MAX_LEVEL, raca))
     )
+    if raca not in rules.VAMPIRIC_RACES:
+        descricao += "\nVampiros e Dhampirs ganham também +1 ponto de Disciplina a cada 2 níveis."
+    embed = discord.Embed(title="📈 XP e vantagens de cada nível", description=descricao, color=discord.Color.dark_teal())
     if char:
-        if atual >= rules.MAX_LEVEL:
+        xp = char["xp"]
+        _, dentro, precisa = rules.xp_progress(xp)
+        if precisa is None:
             proximo = "nível máximo, não tem próximo"
         else:
-            proximo = f"nível {atual + 1}: {rules.describe_gains(rules.gains_for_level(atual + 1))}"
+            proximo = (
+                f"nível {atual + 1}: {rules.describe_gains(rules.gains_for_level(atual + 1, raca))}"
+                f" (faltam {rules.fmt_xp(precisa - dentro)} XP)"
+            )
         embed.add_field(
             name=f"{char['name']}: nível {atual}/{rules.MAX_LEVEL}",
             value=(
-                f"{rules.bar(atual, rules.MAX_LEVEL)}\n"
-                f"Já ganhou: {rules.describe_gains(rules.total_gains(atual))}\n"
+                f"{_barra_xp(xp)}\n"
+                f"XP total: {rules.fmt_xp(xp)}\n"
+                f"Já ganhou: {rules.describe_gains(rules.total_gains(atual, raca))}\n"
                 f"Próximo, {proximo}"
             ),
             inline=False,
         )
     embed.set_footer(text=(
-        "Quem sobe de nível é decidido pelos mestres: RP marcante, missão secundária ou evento. "
+        "Os mestres dão XP em roleplay importante, missão ou evento. "
         "Pontos de atributo de nível podem passar do limite da raça."
     ))
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="extrato_xp", description="Mostra de onde veio o XP do seu personagem (últimas entradas).")
+@app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+async def extrato_xp(interaction: discord.Interaction, personagem: str | None = None):
+    char, erro = _resolver(str(interaction.user.id), personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    entradas = db.get_xp_log(char["id"], 10)
+    if not entradas:
+        await interaction.response.send_message(f"**{char['name']}** ainda não recebeu XP.", ephemeral=True)
+        return
+    linhas = [
+        f"**{_mais(e['amount'])} XP** · {e['reason'] or 'sem motivo'} · por {e['master_name'] or 'um mestre'}"
+        f" · {_quando(e['created_at'])}"
+        for e in entradas
+    ]
+    embed = discord.Embed(
+        title=f"📒 Extrato de XP de {char['name']}",
+        description="\n".join(linhas),
+        color=discord.Color.dark_gold(),
+    )
+    embed.set_footer(text=f"XP total: {rules.fmt_xp(char['xp'])} · nível {char['level']} · mostrando as últimas 10")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+_MEDALHAS = ["🥇", "🥈", "🥉"]
+
+
+def _posicao(i: int) -> str:
+    return _MEDALHAS[i - 1] if i <= len(_MEDALHAS) else f"**{i}.**"
+
+
+@bot.tree.command(name="rank", description="Mostra o rank de XP total, de personagens ou de jogadores.")
+@app_commands.describe(
+    tipo="Rank de personagens ou de jogadores (padrão: personagens)",
+    limite="Quantas posições mostrar (padrão 10)",
+)
+@app_commands.choices(tipo=[
+    app_commands.Choice(name="Personagens", value="personagens"),
+    app_commands.Choice(name="Jogadores (soma dos personagens)", value="jogadores"),
+])
+async def rank(interaction: discord.Interaction, tipo: str = "personagens", limite: app_commands.Range[int, 3, 25] = 10):
+    uid = str(interaction.user.id)
+    if tipo == "jogadores":
+        dados = db.rank_players()
+    else:
+        dados = db.rank_characters()
+    if not dados:
+        await interaction.response.send_message("Ninguém ganhou XP ainda, então o rank está vazio.", ephemeral=True)
+        return
+
+    linhas = []
+    for i, r in enumerate(dados[:limite], 1):
+        dono = r["owner"] or f"<@{r['user_id']}>"
+        if tipo == "jogadores":
+            n = r["personagens"]
+            linhas.append(
+                f"{_posicao(i)} **{dono}** · {rules.fmt_xp(r['total_xp'])} XP · "
+                f"{n} {'personagem' if n == 1 else 'personagens'} · melhor nível {r['melhor_nivel']}"
+            )
+        else:
+            linhas.append(f"{_posicao(i)} **{r['name']}** ({dono}) · nível {r['level']} · {rules.fmt_xp(r['xp'])} XP")
+
+    embed = discord.Embed(
+        title=f"🏆 Rank de XP: {'jogadores' if tipo == 'jogadores' else 'personagens'}",
+        description="\n".join(linhas),
+        color=discord.Color.gold(),
+    )
+    minha = next((i for i, r in enumerate(dados, 1) if r["user_id"] == uid), None)
+    if minha is not None:
+        embed.set_footer(text=(
+            f"Sua posição: {minha}º" if tipo == "jogadores"
+            else f"Seu melhor personagem: {minha}º ({dados[minha - 1]['name']})"
+        ))
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="calcular_recursos", description="Calcula Vida, Sanidade, Mana e Estamina pelos atributos e pela classe.")
@@ -654,7 +921,7 @@ async def calcular_recursos(
 
 mestre_grupo = app_commands.Group(
     name="mestre",
-    description="Comandos de mestre: corrigir definições, subir nível e dar ranks.",
+    description="Comandos de mestre: XP, níveis, vagas e correções.",
     guild_only=True,
 )
 
@@ -674,13 +941,6 @@ _ESTADO_ESCOLHAS = {
     "2": ("2º Estado", None),
     "3": ("3º Estado", None),
 }
-
-
-def _juntar(itens: list[str]) -> str:
-    """['a', 'b', 'c'] vira 'a, b e c'."""
-    if len(itens) <= 1:
-        return "".join(itens)
-    return ", ".join(itens[:-1]) + " e " + itens[-1]
 
 
 def _valor_atual(personagem, campo: str) -> str | None:
@@ -848,7 +1108,94 @@ async def mestre_corrigir_estado(
     await interaction.response.send_message(embed=embed)
 
 
-@mestre_grupo.command(name="upar", description="Sobe o nível de um personagem (máximo 10) e mostra o que ele ganha.")
+# --- XP e nível -------------------------------------------------------------
+
+def _embed_xp(char, res: dict, motivo: str | None, mestre: str) -> discord.Embed:
+    aplicado, antes, depois = res["applied"], res["before_level"], res["after_level"]
+    linhas = [f"XP total: **{rules.fmt_xp(res['after_xp'])}**", _barra_xp(res["after_xp"])]
+    if depois > antes:
+        titulo = f"⬆️ {char['name']} subiu de nível! ({_mais(aplicado)} XP)"
+        ganhos = rules.describe_gains(rules.gains_between(antes, depois, char["race"]))
+        linhas.append(f"\nNível **{antes}** → **{depois}**\nGanhos: {ganhos}")
+        cor = discord.Color.green()
+    elif depois < antes:
+        titulo = f"⬇️ {char['name']} perdeu nível ({_mais(aplicado)} XP)"
+        linhas.append(
+            f"\nNível **{antes}** → **{depois}**. Os pontos que vieram desses níveis precisam ser ajustados na ficha."
+        )
+        cor = discord.Color.orange()
+    elif aplicado > 0:
+        titulo = f"✨ {_mais(aplicado)} XP para {char['name']}"
+        cor = discord.Color.gold()
+    else:
+        titulo = f"🛠️ {_mais(aplicado)} XP em {char['name']}"
+        cor = discord.Color.orange()
+    if motivo:
+        linhas.append(f"Motivo: {motivo[:100]}")
+    embed = discord.Embed(title=titulo, description="\n".join(linhas), color=cor)
+    embed.set_footer(text=f"por {mestre}")
+    return embed
+
+
+async def _aplicar_xp(interaction: discord.Interaction, usuario: discord.Member, char, quantidade: int,
+                      motivo: str | None, acao: str):
+    res = db.add_xp(char["id"], quantidade, motivo, str(interaction.user.id), str(interaction.user.display_name))
+    if res is None:
+        await interaction.response.send_message("Esse personagem não existe mais.", ephemeral=True)
+        return
+    if res["applied"] == 0:
+        await interaction.response.send_message(
+            f"Nada mudou: **{char['name']}** continua com {rules.fmt_xp(res['after_xp'])} XP.", ephemeral=True
+        )
+        return
+
+    _auditar(
+        interaction, usuario, char, acao,
+        f"{_mais(res['applied'])} XP, nível {res['before_level']} -> {res['after_level']}"
+        + (f" ({motivo[:100]})" if motivo else ""),
+    )
+    embed = _embed_xp(char, res, motivo, interaction.user.display_name)
+    if res["applied"] > 0:  # quem ganha XP é avisado; correção pra baixo vai sem marcar ninguém
+        await interaction.response.send_message(
+            content=usuario.mention, embed=embed, allowed_mentions=discord.AllowedMentions(users=[usuario])
+        )
+    else:
+        await interaction.response.send_message(embed=embed)
+
+
+@mestre_grupo.command(
+    name="dar_xp",
+    description="Dá XP a um personagem (roleplay importante, missão ou evento). O nível sobe sozinho.",
+)
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    quantidade="Quanto XP dar (negativo tira, pra corrigir um engano)",
+    motivo="Opcional: o roleplay, a missão ou o evento",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+)
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_dar_xp(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    quantidade: app_commands.Range[int, -50000, 50000],
+    motivo: str | None = None,
+    personagem: str | None = None,
+):
+    if quantidade == 0:
+        await interaction.response.send_message("A quantidade precisa ser diferente de zero.", ephemeral=True)
+        return
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    await _aplicar_xp(interaction, usuario, char, quantidade, motivo, "dar_xp")
+
+
+@mestre_grupo.command(
+    name="upar",
+    description="Atalho: dá o XP que falta pra o personagem subir de nível (máximo 10).",
+)
 @app_commands.describe(
     usuario="Jogador dono do personagem",
     niveis="Quantos níveis subir (padrão 1)",
@@ -868,42 +1215,20 @@ async def mestre_upar(
     if erro:
         await interaction.response.send_message(erro, ephemeral=True)
         return
-
-    antes = char["level"]
-    if antes >= rules.MAX_LEVEL:
+    if char["level"] >= rules.MAX_LEVEL:
         await interaction.response.send_message(
             f"**{char['name']}** já está no nível máximo ({rules.MAX_LEVEL}).", ephemeral=True
         )
         return
-
-    depois = min(antes + niveis, rules.MAX_LEVEL)
-    ganhos = rules.gains_between(antes, depois)
-    db.set_level(char["id"], depois)
-    detalhe = f"{antes} -> {depois}" + (f" ({motivo[:100]})" if motivo else "")
-    _auditar(interaction, usuario, char, "upar", detalhe)
-
-    linhas = [
-        f"Nível **{antes}** → **{depois}** (máximo {rules.MAX_LEVEL})",
-        f"Ganhos: {rules.describe_gains(ganhos)}",
-    ]
-    if motivo:
-        linhas.append(f"Motivo: {motivo[:100]}")
-    linhas.append(
-        f"\n{usuario.mention}, veja tudo em `/niveis` e, depois de distribuir os pontos, "
-        "use `/calcular_recursos` pra ajustar a sua Vida."
-    )
-    embed = discord.Embed(
-        title=f"⬆️ {char['name']} subiu de nível!",
-        description="\n".join(linhas),
-        color=discord.Color.green(),
-    )
-    embed.set_footer(text=f"por {interaction.user.display_name}")
-    await interaction.response.send_message(
-        content=usuario.mention, embed=embed, allowed_mentions=discord.AllowedMentions(users=[usuario])
-    )
+    alvo = min(char["level"] + niveis, rules.MAX_LEVEL)
+    falta = rules.xp_at_level_start(alvo) - char["xp"]
+    await _aplicar_xp(interaction, usuario, char, falta, motivo or "atalho /mestre upar", "upar")
 
 
-@mestre_grupo.command(name="corrigir_nivel", description="Define o nível de um personagem na mão (de 1 a 10).")
+@mestre_grupo.command(
+    name="corrigir_nivel",
+    description="Põe o personagem no começo de um nível (de 1 a 10), com o XP mínimo dele.",
+)
 @app_commands.describe(
     usuario="Jogador dono do personagem",
     nivel="O nível certo",
@@ -921,20 +1246,13 @@ async def mestre_corrigir_nivel(
     if erro:
         await interaction.response.send_message(erro, ephemeral=True)
         return
-
-    antes = char["level"]
-    db.set_level(char["id"], nivel)
-    _auditar(interaction, usuario, char, "corrigir_nivel", f"{antes} -> {nivel}")
-
-    embed = discord.Embed(
-        title="🛠️ Nível corrigido",
-        description=(
-            f"{interaction.user.display_name} definiu o nível de **{char['name']}** ({usuario.display_name}).\n"
-            f"**{antes}** → **{nivel}**"
-        ),
-        color=discord.Color.orange(),
-    )
-    await interaction.response.send_message(embed=embed)
+    if char["level"] == nivel:
+        await interaction.response.send_message(
+            f"**{char['name']}** já está no nível {nivel}. Pra mexer só no XP, use `/mestre dar_xp`.", ephemeral=True
+        )
+        return
+    diferenca = rules.xp_at_level_start(nivel) - char["xp"]
+    await _aplicar_xp(interaction, usuario, char, diferenca, f"correção de nível pra {nivel}", "corrigir_nivel")
 
 
 @mestre_grupo.command(name="rank_pericia", description="Define o Rank (0 a 10) de uma perícia especial de um personagem.")
@@ -975,6 +1293,8 @@ async def mestre_rank_pericia(
     await interaction.response.send_message(embed=embed)
 
 
+# --- Ver, vagas e excluir ----------------------------------------------------
+
 @mestre_grupo.command(name="ficha", description="Mostra a ficha completa de um personagem de outro jogador.")
 @app_commands.describe(
     usuario="Jogador dono do personagem",
@@ -988,6 +1308,84 @@ async def mestre_ficha(interaction: discord.Interaction, usuario: discord.Member
         await interaction.response.send_message(erro, ephemeral=True)
         return
     await interaction.response.send_message(embed=_embed_ficha(char, usuario.display_name), ephemeral=True)
+
+
+@mestre_grupo.command(name="jogador", description="Mostra quantos personagens um jogador tem, as vagas e o XP de cada um.")
+@app_commands.describe(usuario="O jogador")
+@app_commands.check(_eh_mestre)
+async def mestre_jogador(interaction: discord.Interaction, usuario: discord.Member):
+    uid = str(usuario.id)
+    chars = db.list_characters(uid)
+    usadas, permitidas, extras = _vagas(uid)
+    excluidos = db.count_deleted(uid)
+
+    linhas = [
+        f"Personagens: **{usadas}** de **{permitidas}** vagas ({LIMITE_BASE} padrão + {extras} "
+        f"{'extra' if extras == 1 else 'extras'})",
+        f"XP somado: **{rules.fmt_xp(sum(c['xp'] for c in chars))}**",
+        f"Já excluiu: **{excluidos}** {'personagem' if excluidos == 1 else 'personagens'}",
+    ]
+    if chars:
+        linhas.append("")
+        for c in chars:
+            linhas.append(
+                f"**{c['name']}** · nível {c['level']} · {rules.fmt_xp(c['xp'])} XP · {c['race'] or 'sem raça'}"
+            )
+    else:
+        linhas.append("\nAinda não criou nenhum personagem.")
+    embed = discord.Embed(title=f"👤 {usuario.display_name}", description="\n".join(linhas), color=discord.Color.blurple())
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@mestre_grupo.command(name="vagas", description="Define quantas vagas EXTRAS de personagem um jogador tem.")
+@app_commands.describe(
+    usuario="O jogador",
+    extras=f"Vagas extras, de 0 a {MAX_VAGAS_EXTRAS} (todo mundo já pode ter {LIMITE_BASE} personagens)",
+)
+@app_commands.check(_eh_mestre)
+async def mestre_vagas(
+    interaction: discord.Interaction, usuario: discord.Member, extras: app_commands.Range[int, 0, MAX_VAGAS_EXTRAS]
+):
+    uid = str(usuario.id)
+    antes = db.get_extra_slots(uid)
+    db.set_extra_slots(uid, extras)
+    usadas, permitidas, _ = _vagas(uid)
+    db.log_master_action(
+        master_id=str(interaction.user.id),
+        master_name=str(interaction.user.display_name),
+        target_user_id=uid,
+        character_id=None,
+        character_name=None,
+        action="vagas",
+        detail=f"extras {antes} -> {extras}",
+    )
+    embed = discord.Embed(
+        title="🎟️ Vagas de personagem",
+        description=(
+            f"{interaction.user.display_name} definiu as vagas extras de {usuario.display_name}: "
+            f"**{antes}** → **{extras}**.\n"
+            f"Agora são {permitidas} vagas ({LIMITE_BASE} padrão + {extras} "
+            f"{'extra' if extras == 1 else 'extras'}), {usadas} em uso."
+        ),
+        color=discord.Color.blurple(),
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+@mestre_grupo.command(name="excluir_personagem", description="Exclui pra sempre um personagem de outro jogador.")
+@app_commands.describe(usuario="Jogador dono do personagem", personagem="Nome do personagem que vai ser excluído")
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_excluir_personagem(interaction: discord.Interaction, usuario: discord.Member, personagem: str):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    view = ConfirmarExclusao(interaction.user, char, str(usuario.id), por_mestre=True)
+    await interaction.response.send_message(
+        embed=_embed_aviso_exclusao(char, usuario.display_name), view=view, ephemeral=True
+    )
+    view.origem = interaction
 
 
 bot.tree.add_command(mestre_grupo)

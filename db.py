@@ -1,10 +1,14 @@
-"""Guarda o histórico de rolagens, os personagens e os resultados de definição
-(Rank de magia, Raça) num arquivo SQLite.
+"""Guarda o histórico de rolagens, os personagens, o XP e os resultados de definição
+(Rank de magia, Raça, Classe social) num arquivo SQLite.
 
 Onde o arquivo fica (nessa ordem):
   1. variável de ambiente DB_PATH, se existir;
   2. o Volume do Railway (RAILWAY_VOLUME_MOUNT_PATH), se tiver um anexado ao serviço;
   3. baptism_of_blood.db na pasta do bot. No Railway isso é APAGADO a cada redeploy.
+
+Regra que vale pro banco inteiro: o nível de um personagem é sempre o que o XP dele
+diz (rules.level_for_xp). Toda escrita de XP passa por add_xp ou set_xp, que mantêm
+os dois juntos.
 """
 
 import json
@@ -13,8 +17,10 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+import rules
+
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -40,6 +46,15 @@ class CharacterExists(ValueError):
     """Já existe um personagem com esse nome pra esse jogador."""
 
 
+class CharacterLimit(ValueError):
+    """O jogador já usou todas as vagas de personagem."""
+
+    def __init__(self, usados: int, permitidos: int):
+        super().__init__(f"{usados} de {permitidos} vagas usadas")
+        self.usados = usados
+        self.permitidos = permitidos
+
+
 # Campos de definição que a gente sabe manipular (lista fechada, nunca vem do usuário).
 _DEFINITION_FIELDS = {
     "magic_rank": ("magic_rank", "magic_rank_roll", "magic_rank_set_at"),
@@ -56,8 +71,8 @@ _CLEAR_GROUPS = {
     "todas": ["magic_rank", "race", "social_class", "clergy"],
 }
 
-# Colunas que bancos criados antes da versão 3 ainda não têm.
-_CHARACTER_COLUMNS_V3 = {
+# Colunas que bancos criados antes da versão atual ainda não têm.
+_CHARACTER_COLUMNS = {
     "level": "INTEGER NOT NULL DEFAULT 1",
     "social_class": "TEXT",
     "social_class_roll": "INTEGER",
@@ -65,7 +80,12 @@ _CHARACTER_COLUMNS_V3 = {
     "clergy": "TEXT",
     "clergy_roll": "INTEGER",
     "clergy_set_at": "TEXT",
+    "xp": "INTEGER NOT NULL DEFAULT 0",
 }
+
+# Nome antigo da raça sorteada de 96 a 100, trocado por 'Dhampir' na versão 4.
+_RACA_ANTIGA = "Meio humano, meio vampiro"
+_RACA_NOVA = "Dhampir"
 
 
 def _now() -> str:
@@ -156,23 +176,20 @@ def init_db(path: str | None = None) -> None:
                 clergy TEXT,
                 clergy_roll INTEGER,
                 clergy_set_at TEXT,
+                xp INTEGER NOT NULL DEFAULT 0,
                 UNIQUE (user_id, name_key)
             )
         """)
-        # Bancos da versão 2 têm a tabela, mas sem as colunas novas.
+        # Bancos de versões anteriores têm a tabela, mas sem as colunas novas.
         existentes = _column_names(conn, "characters")
-        for coluna, tipo in _CHARACTER_COLUMNS_V3.items():
-            if coluna not in existentes:
-                conn.execute(f"ALTER TABLE characters ADD COLUMN {coluna} {tipo}")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS character_ranks (
-                character_id INTEGER NOT NULL,
-                skill TEXT NOT NULL,
-                skill_rank INTEGER NOT NULL,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY (character_id, skill)
-            )
-        """)
+        for coluna, tipo in _CHARACTER_COLUMNS.items():
+            if coluna in existentes:
+                continue
+            conn.execute(f"ALTER TABLE characters ADD COLUMN {coluna} {tipo}")
+            if coluna == "xp":
+                # Quem já existia começa no início do nível em que está: 1000 x (n-1) x n / 2.
+                conn.execute("UPDATE characters SET xp = ? * (level - 1) * level / 2", (rules.XP_STEP,))
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_state (
                 user_id TEXT PRIMARY KEY,
@@ -192,10 +209,57 @@ def init_db(path: str | None = None) -> None:
                 created_at TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS character_ranks (
+                character_id INTEGER NOT NULL,
+                skill TEXT NOT NULL,
+                skill_rank INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (character_id, skill)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS xp_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id INTEGER NOT NULL,
+                character_name TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                xp_before INTEGER NOT NULL,
+                xp_after INTEGER NOT NULL,
+                level_before INTEGER NOT NULL,
+                level_after INTEGER NOT NULL,
+                reason TEXT,
+                master_id TEXT,
+                master_name TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS players (
+                user_id TEXT PRIMARY KEY,
+                display_name TEXT,
+                extra_slots INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS deleted_characters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id INTEGER NOT NULL,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                deleted_by_id TEXT,
+                deleted_by_name TEXT,
+                deleted_at TEXT NOT NULL
+            )
+        """)
 
         versao = conn.execute("PRAGMA user_version").fetchone()[0]
         if versao < 2:
             _migrar_definicoes_antigas(conn)
+        if versao < 4:
+            conn.execute("UPDATE characters SET race = ? WHERE race = ?", (_RACA_NOVA, _RACA_ANTIGA))
 
     # PRAGMA não aceita parâmetro, mas o valor aqui é uma constante nossa.
     with _connect(path) as conn:
@@ -228,14 +292,63 @@ def _migrar_definicoes_antigas(conn: sqlite3.Connection) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Jogadores (nome pra mostrar no rank e vagas extras de personagem)
+# ---------------------------------------------------------------------------
+
+def remember_player(user_id: str, display_name: str, path: str | None = None) -> None:
+    """Guarda o nome atual do jogador, pro rank poder mostrar quem é dono de cada personagem."""
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO players (user_id, display_name, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                display_name = excluded.display_name, updated_at = excluded.updated_at
+            """,
+            (user_id, display_name, _now()),
+        )
+
+
+def get_extra_slots(user_id: str, path: str | None = None) -> int:
+    with _connect(path) as conn:
+        row = conn.execute("SELECT extra_slots FROM players WHERE user_id = ?", (user_id,)).fetchone()
+    return row["extra_slots"] if row else 0
+
+
+def set_extra_slots(user_id: str, extras: int, path: str | None = None) -> None:
+    """Define quantas vagas EXTRAS o jogador tem (além do limite padrão)."""
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO players (user_id, extra_slots, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET extra_slots = excluded.extra_slots
+            """,
+            (user_id, extras, _now()),
+        )
+
+
+def get_player_names(path: str | None = None) -> dict[str, str]:
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT user_id, display_name FROM players WHERE display_name IS NOT NULL").fetchall()
+    return {r["user_id"]: r["display_name"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
 # Personagens
 # ---------------------------------------------------------------------------
 
-def create_character(user_id: str, name: str, path: str | None = None) -> sqlite3.Row:
-    """Cria o personagem e já deixa ele como o ativo do jogador."""
+def create_character(user_id: str, name: str, max_characters: int | None = None,
+                     path: str | None = None) -> sqlite3.Row:
+    """Cria o personagem e já deixa ele como o ativo do jogador.
+    Com max_characters, recusa (CharacterLimit) quando o jogador já usou todas as vagas."""
     nome = normalize_name(name)
     try:
         with _connect(path) as conn:
+            if max_characters is not None:
+                usados = conn.execute(
+                    "SELECT COUNT(*) FROM characters WHERE user_id = ?", (user_id,)
+                ).fetchone()[0]
+                if usados >= max_characters:
+                    raise CharacterLimit(usados, max_characters)
             cur = conn.execute(
                 "INSERT INTO characters (user_id, name, name_key, created_at) VALUES (?, ?, ?, ?)",
                 (user_id, nome, name_key(nome), _now()),
@@ -306,6 +419,45 @@ def resolve_character(user_id: str, name: str | None = None, path: str | None = 
     return get_active_character(user_id, path)
 
 
+def delete_character(character_id: int, deleted_by_id: str, deleted_by_name: str,
+                     path: str | None = None) -> dict | None:
+    """Exclui o personagem PRA SEMPRE: a ficha, os ranks e o extrato de XP somem e a vaga é liberada.
+    As rolagens antigas continuam no histórico (sem ligação com a ficha). Fica guardada uma
+    cópia da ficha no registro de excluídos, só pra os mestres poderem conferir.
+    Devolve essa cópia, ou None se o personagem não existe mais."""
+    with _connect(path) as conn:
+        row = conn.execute("SELECT * FROM characters WHERE id = ?", (character_id,)).fetchone()
+        if not row:
+            return None
+        snapshot = {chave: row[chave] for chave in row.keys()}
+        snapshot["ranks"] = {
+            r["skill"]: r["skill_rank"]
+            for r in conn.execute("SELECT skill, skill_rank FROM character_ranks WHERE character_id = ?", (character_id,))
+        }
+        conn.execute(
+            "INSERT INTO deleted_characters (character_id, user_id, name, snapshot_json, deleted_by_id,"
+            " deleted_by_name, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (character_id, row["user_id"], row["name"], json.dumps(snapshot, ensure_ascii=False),
+             deleted_by_id, deleted_by_name, _now()),
+        )
+        conn.execute("DELETE FROM character_ranks WHERE character_id = ?", (character_id,))
+        conn.execute("DELETE FROM xp_log WHERE character_id = ?", (character_id,))
+        conn.execute("UPDATE rolls SET character_id = NULL WHERE character_id = ?", (character_id,))
+        conn.execute("DELETE FROM characters WHERE id = ?", (character_id,))
+        # O personagem ativo passa a ser o mais recente que sobrou (ou nenhum).
+        conn.execute(
+            "UPDATE user_state SET active_character_id ="
+            " (SELECT id FROM characters WHERE user_id = ? ORDER BY id DESC LIMIT 1) WHERE user_id = ?",
+            (row["user_id"], row["user_id"]),
+        )
+    return snapshot
+
+
+def count_deleted(user_id: str, path: str | None = None) -> int:
+    with _connect(path) as conn:
+        return conn.execute("SELECT COUNT(*) FROM deleted_characters WHERE user_id = ?", (user_id,)).fetchone()[0]
+
+
 # ---------------------------------------------------------------------------
 # Rolagens
 # ---------------------------------------------------------------------------
@@ -337,7 +489,7 @@ def get_history(user_id: str, limit: int = 10, character_id: int | None = None,
 
 
 # ---------------------------------------------------------------------------
-# Definições (Rank de magia, Raça)
+# Definições (Rank de magia, Raça, Classe social)
 # ---------------------------------------------------------------------------
 
 def _set_definition(character_id: int, campo: str, valor: str, d100_result: int | None,
@@ -390,13 +542,85 @@ def set_social_status(character_id: int, estado: str, estado_roll: int | None,
 
 
 # ---------------------------------------------------------------------------
-# Nível e ranks das perícias especiais
+# XP e nível
 # ---------------------------------------------------------------------------
 
-def set_level(character_id: int, level: int, path: str | None = None) -> None:
+def add_xp(character_id: int, amount: int, reason: str | None = None,
+           master_id: str | None = None, master_name: str | None = None,
+           path: str | None = None) -> dict | None:
+    """Soma (ou tira, se negativo) XP e recalcula o nível, tudo numa operação só, e grava no
+    extrato. O XP nunca fica abaixo de zero. 'applied' é o quanto mudou de verdade.
+    Devolve None se o personagem não existe."""
     with _connect(path) as conn:
-        conn.execute("UPDATE characters SET level = ? WHERE id = ?", (level, character_id))
+        row = conn.execute("SELECT id, name, xp, level FROM characters WHERE id = ?", (character_id,)).fetchone()
+        if not row:
+            return None
+        antes_xp, antes_nivel = row["xp"], row["level"]
+        depois_xp = max(0, antes_xp + amount)
+        depois_nivel = rules.level_for_xp(depois_xp)
+        conn.execute("UPDATE characters SET xp = ?, level = ? WHERE id = ?", (depois_xp, depois_nivel, character_id))
+        if depois_xp != antes_xp:
+            conn.execute(
+                "INSERT INTO xp_log (character_id, character_name, amount, xp_before, xp_after, level_before,"
+                " level_after, reason, master_id, master_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (character_id, row["name"], depois_xp - antes_xp, antes_xp, depois_xp, antes_nivel, depois_nivel,
+                 reason, master_id, master_name, _now()),
+            )
+    return {
+        "applied": depois_xp - antes_xp,
+        "before_xp": antes_xp, "after_xp": depois_xp,
+        "before_level": antes_nivel, "after_level": depois_nivel,
+    }
 
+
+def set_xp(character_id: int, xp: int, path: str | None = None) -> None:
+    """Define o XP exato (sem passar pelo extrato) e o nível que ele dá."""
+    xp = max(0, xp)
+    with _connect(path) as conn:
+        conn.execute("UPDATE characters SET xp = ?, level = ? WHERE id = ?", (xp, rules.level_for_xp(xp), character_id))
+
+
+def set_level(character_id: int, level: int, path: str | None = None) -> None:
+    """Põe o personagem no começo desse nível (XP mínimo dele). Pra mexer com registro, use add_xp."""
+    set_xp(character_id, rules.xp_at_level_start(level), path)
+
+
+def get_xp_log(character_id: int, limit: int = 10, path: str | None = None) -> list[sqlite3.Row]:
+    with _connect(path) as conn:
+        return conn.execute(
+            "SELECT * FROM xp_log WHERE character_id = ? ORDER BY id DESC LIMIT ?", (character_id, limit)
+        ).fetchall()
+
+
+def rank_characters(path: str | None = None) -> list[sqlite3.Row]:
+    """Personagens com XP, do maior pro menor (empate: o mais antigo fica na frente)."""
+    with _connect(path) as conn:
+        return conn.execute(
+            """
+            SELECT c.id, c.user_id, c.name, c.level, c.xp, p.display_name AS owner
+            FROM characters c LEFT JOIN players p ON p.user_id = c.user_id
+            WHERE c.xp > 0 ORDER BY c.xp DESC, c.id ASC
+            """
+        ).fetchall()
+
+
+def rank_players(path: str | None = None) -> list[sqlite3.Row]:
+    """Jogadores pelo XP somado de todos os personagens deles."""
+    with _connect(path) as conn:
+        return conn.execute(
+            """
+            SELECT c.user_id, SUM(c.xp) AS total_xp, COUNT(*) AS personagens, MAX(c.level) AS melhor_nivel,
+                   p.display_name AS owner
+            FROM characters c LEFT JOIN players p ON p.user_id = c.user_id
+            GROUP BY c.user_id HAVING SUM(c.xp) > 0
+            ORDER BY total_xp DESC, MIN(c.id) ASC
+            """
+        ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Ranks das perícias especiais
+# ---------------------------------------------------------------------------
 
 def set_skill_rank(character_id: int, skill: str, skill_rank: int, path: str | None = None) -> None:
     with _connect(path) as conn:

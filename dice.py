@@ -58,11 +58,11 @@ MAGIC_RANK_TABLE = [
     (100, 100, "Mítico"),
 ]
 
-# Sorteio de Raça (rolagem em 1d100): 85% humano, 10% vampiro, 5% meio humano, meio vampiro.
+# Sorteio de Raça (rolagem em 1d100): 85% humano, 10% vampiro, 5% Dhampir (meio humano, meio vampiro).
 RACE_TABLE = [
     (1, 85, "Humano"),
     (86, 95, "Vampiro"),
-    (96, 100, "Meio humano, meio vampiro"),
+    (96, 100, "Dhampir"),
 ]
 
 # Classe social, em 1d100. Um 100 não vira Estado nenhum: o mestre é quem decide.
