@@ -1,13 +1,19 @@
 """Bot de Discord do Baptism of Blood.
 
-Comandos:
+Jogadores:
   /rolar dado:1d20+3 [motivo] [personagem]   -> rola e salva no histórico
   /historico [usuario] [limite] [personagem] -> últimas rolagens de alguém (ou de um personagem)
   /personagem criar | usar | listar          -> gerencia os personagens de cada jogador
   /magia_inicial [personagem]                -> rola 1d100 uma vez e define o Rank de magia
   /raca_inicial [personagem]                 -> rola 1d100 uma vez e define a Raça
-  /minha_ficha [personagem]                  -> mostra o que já foi definido
-  /mestre apagar | corrigir_magia | corrigir_raca  -> só pra mestre
+  /classe_social [personagem]                -> rola 1d100 (e outro, se cair no clero) e define o Estado
+  /minha_ficha [personagem]                  -> nível, raça, classe social, ranks
+  /niveis [personagem]                       -> vantagens de cada nível
+  /calcular_recursos                         -> calcula Vida, Sanidade, Mana e Estamina
+
+Mestres:
+  /mestre apagar | corrigir_magia | corrigir_raca | corrigir_estado
+  /mestre upar | corrigir_nivel | rank_pericia | ficha
 
 Setup rápido:
   1. pip install -r requirements.txt
@@ -25,6 +31,7 @@ from dotenv import load_dotenv
 
 import db
 import dice
+import rules
 
 load_dotenv()
 TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -68,6 +75,14 @@ def _eh_mestre(interaction: discord.Interaction) -> bool:
         return True
     cargo = MESTRE_ROLE.casefold()
     return any(r.name.casefold() == cargo for r in getattr(membro, "roles", []))
+
+
+def _cargo_mestre(guild: discord.Guild | None):
+    """O cargo de mestre do servidor, se existir (usado pra avisar os mestres)."""
+    if guild is None:
+        return None
+    cargo = MESTRE_ROLE.casefold()
+    return next((r for r in guild.roles if r.name.casefold() == cargo), None)
 
 
 @bot.tree.error
@@ -137,6 +152,55 @@ def _texto_definicao(personagem, campo: str, comando: str) -> str:
     rolagem = personagem[f"{campo}_roll"]
     origem = "definido por um mestre" if rolagem is None else f"1d100: {rolagem}"
     return f"{valor}\n({origem})"
+
+
+def _resumo_estado(personagem) -> str | None:
+    """'2º Estado (Nobreza)', '1º Estado (Clero), Alto Clero' ou 'aguardando o mestre'."""
+    estado = personagem["social_class"]
+    if not estado:
+        return None
+    if estado == dice.SOCIAL_CLASS_MASTER:
+        return "aguardando o mestre"
+    texto = rules.ESTADO_LABELS.get(estado, estado)
+    if personagem["clergy"]:
+        texto += f", {personagem['clergy']}"
+    return texto
+
+
+def _texto_estado(personagem) -> str:
+    resumo = _resumo_estado(personagem)
+    if not resumo:
+        return "ainda não definido\n(use `/classe_social`)"
+    r1, r2 = personagem["social_class_roll"], personagem["clergy_roll"]
+    if personagem["social_class"] == dice.SOCIAL_CLASS_MASTER:
+        return f"{resumo}\n(tirou {r1}, fala com um mestre)"
+    if r1 is None:
+        origem = "definido por um mestre"
+    else:
+        origem = f"1d100: {r1}" + (f" e {r2}" if r2 is not None else "")
+    return f"{resumo}\n({origem})"
+
+
+def _embed_ficha(personagem, jogador: str) -> discord.Embed:
+    nivel = personagem["level"]
+    embed = discord.Embed(title=f"📖 Ficha de {personagem['name']}", color=discord.Color.dark_purple())
+    embed.add_field(name="Nível", value=f"{nivel}/{rules.MAX_LEVEL}\n{rules.bar(nivel, rules.MAX_LEVEL)}", inline=True)
+    embed.add_field(name="Raça", value=_texto_definicao(personagem, "race", "/raca_inicial"), inline=True)
+    embed.add_field(name="Classe Social", value=_texto_estado(personagem), inline=True)
+    embed.add_field(name="Rank de Magia", value=_texto_definicao(personagem, "magic_rank", "/magia_inicial"), inline=True)
+    ranks = db.get_skill_ranks(personagem["id"])
+    linhas = [
+        f"**{pericia}** {ranks[pericia]}/{rules.MAX_SKILL_RANK} {rules.bar(ranks[pericia], rules.MAX_SKILL_RANK)}"
+        for pericia in rules.SPECIAL_SKILLS
+        if ranks.get(pericia)
+    ]
+    embed.add_field(
+        name="Ranks das perícias especiais",
+        value="\n".join(linhas) or "nenhum grau ainda",
+        inline=False,
+    )
+    embed.set_footer(text=f"jogador: {jogador}")
+    return embed
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +337,7 @@ async def personagem_criar(interaction: discord.Interaction, nome: str):
         title="🎭 Personagem criado",
         description=(
             f"**{novo['name']}** agora é o personagem que você está usando.\n"
-            "Próximos passos: `/magia_inicial` e `/raca_inicial`."
+            "Próximos passos: `/magia_inicial`, `/raca_inicial` e `/classe_social`."
         ),
         color=discord.Color.dark_purple(),
     )
@@ -311,8 +375,9 @@ async def personagem_listar(interaction: discord.Interaction):
     for c in chars:
         marca = "▶️" if ativo and c["id"] == ativo["id"] else "▫️"
         linhas.append(
-            f"{marca} **{c['name']}**\n"
+            f"{marca} **{c['name']}** · nível {c['level']}\n"
             f"　magia: {c['magic_rank'] or 'sem rank'} · raça: {c['race'] or 'sem raça'}"
+            f" · estado: {_resumo_estado(c) or 'sem estado'}"
         )
     embed = discord.Embed(
         title="🎭 Seus personagens",
@@ -415,7 +480,74 @@ async def raca_inicial(interaction: discord.Interaction, personagem: str | None 
     await _sortear_definicao(interaction, "race", personagem)
 
 
-@bot.tree.command(name="minha_ficha", description="Mostra os resultados de definição já salvos do seu personagem.")
+@bot.tree.command(name="classe_social", description="Rola 1d100 e sorteia o Estado social do seu personagem (1º, 2º ou 3º).")
+@app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+async def classe_social(interaction: discord.Interaction, personagem: str | None = None):
+    uid = str(interaction.user.id)
+    char, erro = _resolver(uid, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+
+    if char["social_class"]:
+        if char["social_class"] == dice.SOCIAL_CLASS_MASTER:
+            msg = (
+                f"**{char['name']}** tirou 100 no sorteio da Classe Social, então quem decide o Estado é o mestre. "
+                "Fala com um mestre."
+            )
+        else:
+            msg = (
+                f"**{char['name']}** já tem Classe Social: **{_resumo_estado(char)}**. "
+                "Fala com um mestre se precisar rolar de novo."
+            )
+        await interaction.response.send_message(msg, ephemeral=True)
+        return
+
+    # Sem 'await' daqui até salvar: o mesmo jogador não consegue rolar duas vezes ao mesmo tempo.
+    guild_id = str(interaction.guild_id) if interaction.guild_id else None
+    nome_jogador = str(interaction.user.display_name)
+
+    r1 = dice.roll("1d100")
+    estado = dice.social_class_for(r1.total)
+    db.log_roll(
+        user_id=uid, username=nome_jogador, guild_id=guild_id, notation="1d100", rolls=r1.rolls,
+        total=r1.total, purpose="classe_social", character_id=char["id"], character_name=char["name"],
+    )
+
+    clero = r2 = None
+    if estado == "1º Estado":
+        # Quem cai no clero rola outro 1d100: de 50 pra cima é Alto Clero.
+        r2 = dice.roll("1d100")
+        clero = dice.clergy_for(r2.total)
+        db.log_roll(
+            user_id=uid, username=nome_jogador, guild_id=guild_id, notation="1d100", rolls=r2.rolls,
+            total=r2.total, purpose="clero", character_id=char["id"], character_name=char["name"],
+        )
+    db.set_social_status(char["id"], estado, r1.total, clero, r2.total if r2 else None)
+
+    embed = discord.Embed(title=f"⚜️ Classe Social de {char['name']}", color=discord.Color.gold())
+    linhas = [f"1d100 = **{r1.total}**"]
+    ping = {}
+    if estado == dice.SOCIAL_CLASS_MASTER:
+        linhas.append("Resultado especial! Quem decide o Estado desse personagem é o mestre. Fala com um mestre.")
+        cargo = _cargo_mestre(interaction.guild)
+        if cargo:
+            ping = {"content": cargo.mention, "allowed_mentions": discord.AllowedMentions(roles=[cargo])}
+    else:
+        linhas.append(f"Estado: **{rules.ESTADO_LABELS[estado]}**")
+        if clero:
+            linhas.append(f"Outro 1d100 = **{r2.total}**\nClero: **{clero}**")
+    embed.description = "\n".join(linhas)
+    embed.set_footer(text=f"jogador: {nome_jogador}")
+    await interaction.response.send_message(embed=embed, **ping)
+
+
+# ---------------------------------------------------------------------------
+# Ficha, níveis e calculadora de recursos
+# ---------------------------------------------------------------------------
+
+@bot.tree.command(name="minha_ficha", description="Mostra nível, raça, classe social e ranks do seu personagem.")
 @app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 async def minha_ficha(interaction: discord.Interaction, personagem: str | None = None):
@@ -423,31 +555,153 @@ async def minha_ficha(interaction: discord.Interaction, personagem: str | None =
     if erro:
         await interaction.response.send_message(erro, ephemeral=True)
         return
+    await interaction.response.send_message(
+        embed=_embed_ficha(char, interaction.user.display_name), ephemeral=True
+    )
 
-    embed = discord.Embed(title=f"📖 Ficha de {char['name']}", color=discord.Color.dark_purple())
-    embed.add_field(name="Rank de Magia", value=_texto_definicao(char, "magic_rank", "/magia_inicial"), inline=True)
-    embed.add_field(name="Raça", value=_texto_definicao(char, "race", "/raca_inicial"), inline=True)
-    embed.set_footer(text=f"jogador: {interaction.user.display_name}")
+
+@bot.tree.command(name="niveis", description="Mostra as vantagens de cada nível, de 1 a 10.")
+@app_commands.describe(personagem="Opcional: marcar o nível de qual personagem seu (padrão: o que você está usando)")
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+async def niveis(interaction: discord.Interaction, personagem: str | None = None):
+    uid = str(interaction.user.id)
+    if personagem:
+        char = db.find_character(uid, personagem)
+        if not char:
+            await interaction.response.send_message(
+                f"Não achei nenhum personagem seu chamado **{personagem}**. Use `/personagem listar` pra ver os seus.",
+                ephemeral=True,
+            )
+            return
+    else:
+        char = db.get_active_character(uid)  # sem personagem, mostra a tabela sem marcar nível
+
+    atual = char["level"] if char else None
+    embed = discord.Embed(
+        title="📈 Vantagens de cada nível",
+        description=(
+            "\n".join(rules.level_table_lines(atual))
+            + f"\n\n**Somando tudo, do 1 ao {rules.MAX_LEVEL}:** {rules.describe_gains(rules.total_gains(rules.MAX_LEVEL))}"
+        ),
+        color=discord.Color.dark_teal(),
+    )
+    if char:
+        if atual >= rules.MAX_LEVEL:
+            proximo = "nível máximo, não tem próximo"
+        else:
+            proximo = f"nível {atual + 1}: {rules.describe_gains(rules.gains_for_level(atual + 1))}"
+        embed.add_field(
+            name=f"{char['name']}: nível {atual}/{rules.MAX_LEVEL}",
+            value=(
+                f"{rules.bar(atual, rules.MAX_LEVEL)}\n"
+                f"Já ganhou: {rules.describe_gains(rules.total_gains(atual))}\n"
+                f"Próximo, {proximo}"
+            ),
+            inline=False,
+        )
+    embed.set_footer(text=(
+        "Quem sobe de nível é decidido pelos mestres: RP marcante, missão secundária ou evento. "
+        "Pontos de atributo de nível podem passar do limite da raça."
+    ))
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="calcular_recursos", description="Calcula Vida, Sanidade, Mana e Estamina pelos atributos e pela classe.")
+@app_commands.describe(
+    classe="Sua classe (dá o bônus de cada recurso)",
+    vitalidade="Seu atributo Vitalidade",
+    forca="Seu atributo Força",
+    vontade="Seu atributo Vontade",
+    alma="Seu atributo Alma",
+)
+@app_commands.choices(classe=[app_commands.Choice(name=n, value=n) for n in rules.CLASS_CHOICES])
+async def calcular_recursos(
+    interaction: discord.Interaction,
+    classe: str,
+    vitalidade: app_commands.Range[int, 0, 20],
+    forca: app_commands.Range[int, 0, 20],
+    vontade: app_commands.Range[int, 0, 20],
+    alma: app_commands.Range[int, 0, 20],
+):
+    res = rules.calculate_resources(vitalidade=vitalidade, forca=forca, vontade=vontade, alma=alma, classe=classe)
+    sem_classe = classe == rules.CLASS_NONE
+
+    def linha(emoji: str, nome: str, chave: str, conta: str) -> str:
+        r = res[chave]
+        extra = "" if sem_classe else f", mais {r['bonus']} da classe"
+        return f"{emoji} **{nome}: {r['total']}**\n　{conta} = {r['base']}{extra}"
+
+    embed = discord.Embed(
+        title=f"🧮 Recursos ({'sem classe' if sem_classe else classe})",
+        description="\n".join([
+            linha("❤️", "Vida", "vida", f"Vitalidade {vitalidade} × 5"),
+            linha("🧠", "Sanidade", "sanidade", f"Vontade {vontade} × 5"),
+            linha("🔮", "Mana", "mana", f"(Alma {alma} + Vontade {vontade}) × 3"),
+            linha("💪", "Estamina", "estamina", f"(Força {forca} + Vitalidade {vitalidade}) × 3"),
+        ]),
+        color=discord.Color.dark_green(),
+    )
+    embed.set_footer(text=(
+        "Cada ponto de Vitalidade dá +5 Vida e +3 Estamina. Vontade dá +5 Sanidade e +3 Mana. "
+        "Alma dá +3 Mana. Força dá +3 Estamina. Destreza e Razão não entram nessas contas."
+    ))
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # ---------------------------------------------------------------------------
-# Comandos de mestre: corrigir ou apagar uma definição errada
+# Comandos de mestre
 # ---------------------------------------------------------------------------
 
 mestre_grupo = app_commands.Group(
     name="mestre",
-    description="Comandos de mestre: corrigir ou apagar definições de personagem.",
+    description="Comandos de mestre: corrigir definições, subir nível e dar ranks.",
     guild_only=True,
 )
 
-_ROTULO_COM_ARTIGO = {"magic_rank": "o Rank de Magia", "race": "a Raça"}
-_COMANDO_DE_ROLAR = {"magic_rank": "`/magia_inicial`", "race": "`/raca_inicial`"}
+_APAGAVEIS = {
+    "magic_rank": ["magic_rank"],
+    "race": ["race"],
+    "social_class": ["social_class"],
+    "todas": ["magic_rank", "race", "social_class"],
+}
+_ROTULO = {"magic_rank": "Rank de Magia", "race": "Raça", "social_class": "Classe Social"}
+_ROTULO_COM_ARTIGO = {"magic_rank": "o Rank de Magia", "race": "a Raça", "social_class": "a Classe Social"}
+_COMANDO_DE_ROLAR = {"magic_rank": "`/magia_inicial`", "race": "`/raca_inicial`", "social_class": "`/classe_social`"}
+
+_ESTADO_ESCOLHAS = {
+    "1-alto": ("1º Estado", "Alto Clero"),
+    "1-baixo": ("1º Estado", "Baixo Clero"),
+    "2": ("2º Estado", None),
+    "3": ("3º Estado", None),
+}
+
+
+def _juntar(itens: list[str]) -> str:
+    """['a', 'b', 'c'] vira 'a, b e c'."""
+    if len(itens) <= 1:
+        return "".join(itens)
+    return ", ".join(itens[:-1]) + " e " + itens[-1]
+
+
+def _valor_atual(personagem, campo: str) -> str | None:
+    return _resumo_estado(personagem) if campo == "social_class" else personagem[campo]
+
+
+def _auditar(interaction: discord.Interaction, usuario: discord.Member, char, acao: str, detalhe: str) -> None:
+    db.log_master_action(
+        master_id=str(interaction.user.id),
+        master_name=str(interaction.user.display_name),
+        target_user_id=str(usuario.id),
+        character_id=char["id"],
+        character_name=char["name"],
+        action=acao,
+        detail=detalhe,
+    )
 
 
 @mestre_grupo.command(
     name="apagar",
-    description="Apaga o Rank de magia e/ou a Raça de um personagem, pra ele poder rolar de novo.",
+    description="Apaga magia, raça e/ou classe social de um personagem, pra ele poder rolar de novo.",
 )
 @app_commands.describe(
     usuario="Jogador dono do personagem",
@@ -457,7 +711,8 @@ _COMANDO_DE_ROLAR = {"magic_rank": "`/magia_inicial`", "race": "`/raca_inicial`"
 @app_commands.choices(definicao=[
     app_commands.Choice(name="Rank de magia", value="magic_rank"),
     app_commands.Choice(name="Raça", value="race"),
-    app_commands.Choice(name="Rank de magia e Raça", value="ambos"),
+    app_commands.Choice(name="Classe social", value="social_class"),
+    app_commands.Choice(name="Tudo (magia, raça e classe social)", value="todas"),
 ])
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 @app_commands.check(_eh_mestre)
@@ -469,9 +724,8 @@ async def mestre_apagar(
         await interaction.response.send_message(erro, ephemeral=True)
         return
 
-    campos = ["magic_rank", "race"] if definicao == "ambos" else [definicao]
-    apagados = [c for c in campos if char[c]]  # só o que estava mesmo definido
-    antes = [f"{DEFINICOES[c]['rotulo']}: {char[c]}" for c in apagados]
+    apagados = [c for c in _APAGAVEIS[definicao] if _valor_atual(char, c)]  # só o que estava mesmo definido
+    antes = [f"{_ROTULO[c]}: {_valor_atual(char, c)}" for c in apagados]
     if not apagados:
         await interaction.response.send_message(
             f"**{char['name']}** não tem nada definido nisso pra apagar.", ephemeral=True
@@ -479,23 +733,15 @@ async def mestre_apagar(
         return
 
     db.clear_definition(char["id"], definicao)
-    db.log_master_action(
-        master_id=str(interaction.user.id),
-        master_name=str(interaction.user.display_name),
-        target_user_id=str(usuario.id),
-        character_id=char["id"],
-        character_name=char["name"],
-        action="apagar",
-        detail="; ".join(antes),
-    )
+    _auditar(interaction, usuario, char, "apagar", "; ".join(antes))
 
     embed = discord.Embed(
         title="🧹 Definição apagada",
         description=(
-            f"{interaction.user.display_name} apagou {' e '.join(_ROTULO_COM_ARTIGO[c] for c in apagados)} "
+            f"{interaction.user.display_name} apagou {_juntar([_ROTULO_COM_ARTIGO[c] for c in apagados])} "
             f"de **{char['name']}**.\n"
             f"Antes era: {'; '.join(antes)}\n\n"
-            f"{usuario.mention}, você pode rolar de novo com {' e '.join(_COMANDO_DE_ROLAR[c] for c in apagados)}."
+            f"{usuario.mention}, você pode rolar de novo com {_juntar([_COMANDO_DE_ROLAR[c] for c in apagados])}."
         ),
         color=discord.Color.orange(),
     )
@@ -515,15 +761,7 @@ async def _corrigir(interaction: discord.Interaction, usuario: discord.Member, p
 
     antes = char[campo] or "nada"
     cfg["salvar"](char["id"], novo_valor, None)  # None = definido na mão, sem rolagem
-    db.log_master_action(
-        master_id=str(interaction.user.id),
-        master_name=str(interaction.user.display_name),
-        target_user_id=str(usuario.id),
-        character_id=char["id"],
-        character_name=char["name"],
-        action=f"corrigir_{campo}",
-        detail=f"{antes} -> {novo_valor}",
-    )
+    _auditar(interaction, usuario, char, f"corrigir_{campo}", f"{antes} -> {novo_valor}")
 
     embed = discord.Embed(
         title="🛠️ Definição corrigida",
@@ -565,6 +803,191 @@ async def mestre_corrigir_raca(
     interaction: discord.Interaction, usuario: discord.Member, raca: str, personagem: str | None = None
 ):
     await _corrigir(interaction, usuario, personagem, "race", raca)
+
+
+@mestre_grupo.command(
+    name="corrigir_estado",
+    description="Define a Classe Social de um personagem na mão (serve pro 100 do sorteio).",
+)
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    estado="O Estado certo",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+)
+@app_commands.choices(estado=[
+    app_commands.Choice(name="1º Estado (Clero): Alto Clero", value="1-alto"),
+    app_commands.Choice(name="1º Estado (Clero): Baixo Clero", value="1-baixo"),
+    app_commands.Choice(name="2º Estado (Nobreza)", value="2"),
+    app_commands.Choice(name="3º Estado (Povo)", value="3"),
+])
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_corrigir_estado(
+    interaction: discord.Interaction, usuario: discord.Member, estado: str, personagem: str | None = None
+):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+
+    novo_estado, novo_clero = _ESTADO_ESCOLHAS[estado]
+    antes = _resumo_estado(char) or "nada"
+    db.set_social_status(char["id"], novo_estado, None, novo_clero, None)  # None = definido na mão
+    depois = rules.ESTADO_LABELS[novo_estado] + (f", {novo_clero}" if novo_clero else "")
+    _auditar(interaction, usuario, char, "corrigir_social_class", f"{antes} -> {depois}")
+
+    embed = discord.Embed(
+        title="🛠️ Definição corrigida",
+        description=(
+            f"{interaction.user.display_name} definiu a Classe Social de **{char['name']}** "
+            f"({usuario.display_name}).\n**{antes}** → **{depois}**"
+        ),
+        color=discord.Color.orange(),
+    )
+    embed.set_footer(text="Definido por um mestre, sem rolagem.")
+    await interaction.response.send_message(embed=embed)
+
+
+@mestre_grupo.command(name="upar", description="Sobe o nível de um personagem (máximo 10) e mostra o que ele ganha.")
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    niveis="Quantos níveis subir (padrão 1)",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+    motivo="Opcional: RP marcante, missão secundária ou evento",
+)
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_upar(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    niveis: app_commands.Range[int, 1, 9] = 1,
+    personagem: str | None = None,
+    motivo: str | None = None,
+):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+
+    antes = char["level"]
+    if antes >= rules.MAX_LEVEL:
+        await interaction.response.send_message(
+            f"**{char['name']}** já está no nível máximo ({rules.MAX_LEVEL}).", ephemeral=True
+        )
+        return
+
+    depois = min(antes + niveis, rules.MAX_LEVEL)
+    ganhos = rules.gains_between(antes, depois)
+    db.set_level(char["id"], depois)
+    detalhe = f"{antes} -> {depois}" + (f" ({motivo[:100]})" if motivo else "")
+    _auditar(interaction, usuario, char, "upar", detalhe)
+
+    linhas = [
+        f"Nível **{antes}** → **{depois}** (máximo {rules.MAX_LEVEL})",
+        f"Ganhos: {rules.describe_gains(ganhos)}",
+    ]
+    if motivo:
+        linhas.append(f"Motivo: {motivo[:100]}")
+    linhas.append(
+        f"\n{usuario.mention}, veja tudo em `/niveis` e, depois de distribuir os pontos, "
+        "use `/calcular_recursos` pra ajustar a sua Vida."
+    )
+    embed = discord.Embed(
+        title=f"⬆️ {char['name']} subiu de nível!",
+        description="\n".join(linhas),
+        color=discord.Color.green(),
+    )
+    embed.set_footer(text=f"por {interaction.user.display_name}")
+    await interaction.response.send_message(
+        content=usuario.mention, embed=embed, allowed_mentions=discord.AllowedMentions(users=[usuario])
+    )
+
+
+@mestre_grupo.command(name="corrigir_nivel", description="Define o nível de um personagem na mão (de 1 a 10).")
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    nivel="O nível certo",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+)
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_corrigir_nivel(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    nivel: app_commands.Range[int, 1, 10],
+    personagem: str | None = None,
+):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+
+    antes = char["level"]
+    db.set_level(char["id"], nivel)
+    _auditar(interaction, usuario, char, "corrigir_nivel", f"{antes} -> {nivel}")
+
+    embed = discord.Embed(
+        title="🛠️ Nível corrigido",
+        description=(
+            f"{interaction.user.display_name} definiu o nível de **{char['name']}** ({usuario.display_name}).\n"
+            f"**{antes}** → **{nivel}**"
+        ),
+        color=discord.Color.orange(),
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+@mestre_grupo.command(name="rank_pericia", description="Define o Rank (0 a 10) de uma perícia especial de um personagem.")
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    pericia="Qual perícia especial",
+    rank="O Rank novo (0 = nenhum grau)",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+)
+@app_commands.choices(pericia=[app_commands.Choice(name=n, value=n) for n in rules.SPECIAL_SKILLS])
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_rank_pericia(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    pericia: str,
+    rank: app_commands.Range[int, 0, 10],
+    personagem: str | None = None,
+):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+
+    antes = db.get_skill_ranks(char["id"]).get(pericia, 0)
+    db.set_skill_rank(char["id"], pericia, rank)
+    _auditar(interaction, usuario, char, "rank_pericia", f"{pericia}: {antes} -> {rank}")
+
+    subiu = rank > antes
+    embed = discord.Embed(
+        title=f"{'⬆️' if subiu else '🛠️'} {pericia}: Rank {rank}/{rules.MAX_SKILL_RANK}",
+        description=(
+            f"{interaction.user.display_name} definiu o Rank de **{pericia}** de **{char['name']}** "
+            f"({usuario.display_name}).\n**{antes}** → **{rank}**\n{rules.bar(rank, rules.MAX_SKILL_RANK)}"
+        ),
+        color=discord.Color.green() if subiu else discord.Color.orange(),
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+@mestre_grupo.command(name="ficha", description="Mostra a ficha completa de um personagem de outro jogador.")
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+)
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_ficha(interaction: discord.Interaction, usuario: discord.Member, personagem: str | None = None):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    await interaction.response.send_message(embed=_embed_ficha(char, usuario.display_name), ephemeral=True)
 
 
 bot.tree.add_command(mestre_grupo)

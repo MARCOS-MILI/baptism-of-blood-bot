@@ -1,8 +1,8 @@
 # Baptism of Blood: Bot de Dados
 
-Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, personagem, dado, resultado, data e hora) e usa rolagens específicas pra definir coisas do personagem: o Rank de magia e a Raça.
+Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, personagem, dado, resultado, data e hora), sorteia as definições do personagem (Rank de magia, Raça e Classe social), controla nível e ranks e calcula os recursos (Vida, Sanidade, Mana e Estamina).
 
-## Comandos
+## Comandos dos jogadores
 
 **Rolagens**
 
@@ -13,15 +13,15 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 
 - `/personagem criar nome:...` cria um personagem e já passa a usar ele.
 - `/personagem usar nome:...` troca o personagem que você está usando (as rolagens novas vão pro histórico dele).
-- `/personagem listar` mostra os seus personagens, com Rank e Raça de cada um.
+- `/personagem listar` mostra os seus personagens, com nível, Rank, Raça e Estado de cada um.
 
 Cada jogador pode ter quantos personagens quiser. Nomes iguais só não podem se repetir dentro dos personagens da mesma pessoa.
 
-**Definição do personagem** (uma rolagem só por personagem)
+**Sorteios de criação** (uma rolagem só por personagem)
 
 - `/magia_inicial` rola 1d100 e define o Rank de magia.
 - `/raca_inicial` rola 1d100 e sorteia a Raça.
-- `/minha_ficha` mostra o que já foi definido. Nos três, dá pra passar `personagem:` pra escolher qual (padrão: o que você está usando).
+- `/classe_social` rola 1d100 e sorteia o Estado. Quem cai no 1º Estado rola outro 1d100 na hora, pra saber se é Alto ou Baixo Clero.
 
 | 1d100 | Rank de magia |
 |---|---|
@@ -37,13 +37,53 @@ Cada jogador pode ter quantos personagens quiser. Nomes iguais só não podem se
 | 86 a 95 | Vampiro |
 | 96 a 100 | Meio humano, meio vampiro |
 
-**Mestre** (só quem tem o cargo `Mestre` ou a permissão de Gerenciar Servidor)
+| 1d100 | Classe social |
+|---|---|
+| 1 a 80 | 3º Estado (Povo) |
+| 81 a 91 | 2º Estado (Nobreza) |
+| 92 a 99 | 1º Estado (Clero), com segundo sorteio |
+| 100 | O mestre decide (o bot avisa o cargo Mestre) |
 
-- `/mestre apagar usuario:@alguém definicao:... personagem:...` apaga o Rank de magia, a Raça ou os dois, pro jogador poder rolar de novo. A rolagem antiga continua no histórico.
-- `/mestre corrigir_magia usuario:@alguém rank:...` define o Rank na mão, sem rolar.
-- `/mestre corrigir_raca usuario:@alguém raca:...` define a Raça na mão, sem rolar.
+| Segundo 1d100 (só do 1º Estado) | Clero |
+|---|---|
+| 1 a 49 | Baixo Clero |
+| 50 a 100 | Alto Clero |
 
-Sem `personagem`, vale o que o jogador está usando. Toda ação de mestre fica registrada no banco (quem fez, em quem, o que mudou). Um valor definido por mestre aparece na ficha como "definido por um mestre".
+**Ficha, níveis e recursos**
+
+- `/minha_ficha personagem:...` mostra nível, Raça, Classe social, Rank de magia e os Ranks das perícias especiais. Só você vê a resposta.
+- `/niveis personagem:...` mostra as vantagens de cada nível, de 1 a 10, marcando o nível do seu personagem e o que vem no próximo.
+- `/calcular_recursos classe:... vitalidade:... forca:... vontade:... alma:...` calcula Vida, Sanidade, Mana e Estamina, mostrando a conta. Serve pra ajustar a Vida depois de distribuir pontos de atributo.
+
+## Regras que o bot segue
+
+**Progressão** (igual ao site): nível máximo 10. Todo personagem começa no nível 1. A cada nível ganho, +2 pontos de Perícia. A cada 2 níveis (2, 4, 6, 8 e 10), +1 ponto de Atributo e uma habilidade nova ou melhorada. Até o nível 10 são 18 pontos de Perícia, 5 de Atributo e 5 habilidades. Quem sobe de nível é decidido pelos mestres (RP marcante, missão secundária ou evento).
+
+**Recursos** (igual ao site): Vida = Vitalidade × 5, Sanidade = Vontade × 5, Mana = (Alma + Vontade) × 3, Estamina = (Força + Vitalidade) × 3, sempre mais o bônus da classe. O nível não dá Vida direto; o que aumenta a Vida são os pontos de atributo colocados em Vitalidade. Destreza e Razão não entram nessas contas.
+
+| Classe | Vida | Sanidade | Mana | Estamina |
+|---|---|---|---|---|
+| Caçador | 35 | 15 | 5 | 20 |
+| Feiticeiros | 20 | 20 | 25 | 5 |
+| Ladrão | 25 | 20 | 10 | 15 |
+| Mestre de Forja | 15 | 35 | 15 | 20 |
+| Mundano | 10 | 15 | 10 | 10 |
+| Sábio | 15 | 35 | 20 | 5 |
+
+**Ranks das perícias especiais**: Ritualismo, Alquimia, Forja, Culinária e Fé têm Rank de 0 a 10. Quem dá um grau novo são os mestres.
+
+## Comandos de mestre
+
+Só quem tem o cargo `Mestre` ou a permissão de Gerenciar Servidor. Sem `personagem`, vale o que o jogador está usando.
+
+- `/mestre upar usuario:@alguém niveis:1 motivo:...` sobe o nível (máximo 10), mostra o que o personagem ganha e marca o jogador.
+- `/mestre corrigir_nivel usuario:@alguém nivel:...` define o nível na mão, pra consertar um erro.
+- `/mestre rank_pericia usuario:@alguém pericia:... rank:...` define o Rank (0 a 10) de uma perícia especial.
+- `/mestre apagar usuario:@alguém definicao:...` apaga Rank de magia, Raça, Classe social ou tudo isso, pro jogador poder rolar de novo. A rolagem antiga continua no histórico.
+- `/mestre corrigir_magia`, `/mestre corrigir_raca` e `/mestre corrigir_estado` definem o valor na mão, sem rolar. O `corrigir_estado` é o jeito de resolver o 100 do sorteio de Classe social.
+- `/mestre ficha usuario:@alguém personagem:...` mostra a ficha completa de um personagem de outro jogador (só o mestre vê).
+
+Toda ação de mestre fica registrada no banco (quem fez, em quem, o que mudou). Um valor definido por mestre aparece na ficha como "definido por um mestre".
 
 O nome do cargo pode ser trocado com a variável `MESTRE_ROLE` (padrão: `Mestre`).
 
@@ -64,7 +104,7 @@ O nome do cargo pode ser trocado com a variável `MESTRE_ROLE` (padrão: `Mestre
    python bot.py
    ```
 
-Os comandos podem demorar até uma hora pra aparecer no Discord na primeira vez, e de novo quando entram comandos novos. É o próprio Discord sincronizando.
+Os comandos podem demorar um pouco pra aparecer no Discord na primeira vez, e de novo quando entram comandos novos. É o próprio Discord sincronizando.
 
 ## Onde hospedar (pra ficar online 24/7)
 
@@ -97,10 +137,18 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 | `DB_PATH` | Caminho do arquivo do banco (opcional, ganha do Volume) |
 | `RAILWAY_VOLUME_MOUNT_PATH` | Criada pelo Railway sozinha quando tem Volume |
 
+## Arquivos
+
+- `bot.py`: os comandos.
+- `dice.py`: notação de dados e as tabelas de sorteio (magia, raça, classe social, clero).
+- `rules.py`: regras do sistema (classes, progressão de nível, perícias especiais, cálculo de recursos). Se uma regra mudar no site, muda aqui.
+- `db.py`: banco SQLite (histórico, personagens, ranks, registro das ações de mestre).
+
 ## Bancos antigos
 
-Ao iniciar, o bot atualiza sozinho um banco criado antes dos personagens: as colunas novas são adicionadas e cada definição antiga (que era por jogador) vira um personagem com o nome do jogador.
+Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores: as colunas novas são adicionadas (personagens antigos começam no nível 1, sem Estado) e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
 
 ## O que ainda falta
 
 - Integrar esse histórico com o site (hoje são dois sistemas separados, sem comunicação entre eles).
+- Disciplinas vampíricas (grau 0 a 5) ainda não aparecem na ficha do bot.

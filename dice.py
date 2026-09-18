@@ -65,8 +65,25 @@ RACE_TABLE = [
     (96, 100, "Meio humano, meio vampiro"),
 ]
 
+# Classe social, em 1d100. Um 100 não vira Estado nenhum: o mestre é quem decide.
+SOCIAL_CLASS_MASTER = "Aguardando o mestre"
+SOCIAL_CLASS_TABLE = [
+    (1, 80, "3º Estado"),
+    (81, 91, "2º Estado"),
+    (92, 99, "1º Estado"),
+    (100, 100, SOCIAL_CLASS_MASTER),
+]
+
+# Quem cai no 1º Estado rola outro 1d100: de 50 pra cima é Alto Clero, abaixo disso Baixo Clero.
+CLERGY_TABLE = [
+    (1, 49, "Baixo Clero"),
+    (50, 100, "Alto Clero"),
+]
+
 MAGIC_RANKS = [name for _, _, name in MAGIC_RANK_TABLE]
 RACES = [name for _, _, name in RACE_TABLE]
+SOCIAL_CLASSES = ["1º Estado", "2º Estado", "3º Estado"]
+CLERGY_LEVELS = ["Alto Clero", "Baixo Clero"]
 
 
 def _lookup(table: list[tuple[int, int, str]], d100_result: int) -> str:
@@ -82,3 +99,12 @@ def magic_rank_for(d100_result: int) -> str:
 
 def race_for(d100_result: int) -> str:
     return _lookup(RACE_TABLE, d100_result)
+
+
+def social_class_for(d100_result: int) -> str:
+    """Devolve '1º Estado', '2º Estado', '3º Estado' ou SOCIAL_CLASS_MASTER (o 100)."""
+    return _lookup(SOCIAL_CLASS_TABLE, d100_result)
+
+
+def clergy_for(d100_result: int) -> str:
+    return _lookup(CLERGY_TABLE, d100_result)

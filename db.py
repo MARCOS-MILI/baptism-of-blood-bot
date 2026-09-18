@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -44,6 +44,27 @@ class CharacterExists(ValueError):
 _DEFINITION_FIELDS = {
     "magic_rank": ("magic_rank", "magic_rank_roll", "magic_rank_set_at"),
     "race": ("race", "race_roll", "race_set_at"),
+    "social_class": ("social_class", "social_class_roll", "social_class_set_at"),
+    "clergy": ("clergy", "clergy_roll", "clergy_set_at"),
+}
+
+# O que 'clear_definition' apaga em cada opção. O clero depende do Estado, então saem juntos.
+_CLEAR_GROUPS = {
+    "magic_rank": ["magic_rank"],
+    "race": ["race"],
+    "social_class": ["social_class", "clergy"],
+    "todas": ["magic_rank", "race", "social_class", "clergy"],
+}
+
+# Colunas que bancos criados antes da versão 3 ainda não têm.
+_CHARACTER_COLUMNS_V3 = {
+    "level": "INTEGER NOT NULL DEFAULT 1",
+    "social_class": "TEXT",
+    "social_class_roll": "INTEGER",
+    "social_class_set_at": "TEXT",
+    "clergy": "TEXT",
+    "clergy_roll": "INTEGER",
+    "clergy_set_at": "TEXT",
 }
 
 
@@ -128,7 +149,28 @@ def init_db(path: str | None = None) -> None:
                 race TEXT,
                 race_roll INTEGER,
                 race_set_at TEXT,
+                level INTEGER NOT NULL DEFAULT 1,
+                social_class TEXT,
+                social_class_roll INTEGER,
+                social_class_set_at TEXT,
+                clergy TEXT,
+                clergy_roll INTEGER,
+                clergy_set_at TEXT,
                 UNIQUE (user_id, name_key)
+            )
+        """)
+        # Bancos da versão 2 têm a tabela, mas sem as colunas novas.
+        existentes = _column_names(conn, "characters")
+        for coluna, tipo in _CHARACTER_COLUMNS_V3.items():
+            if coluna not in existentes:
+                conn.execute(f"ALTER TABLE characters ADD COLUMN {coluna} {tipo}")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS character_ranks (
+                character_id INTEGER NOT NULL,
+                skill TEXT NOT NULL,
+                skill_rank INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (character_id, skill)
             )
         """)
         conn.execute("""
@@ -319,17 +361,61 @@ def set_race(character_id: int, race: str, d100_result: int | None, path: str | 
 
 
 def clear_definition(character_id: int, quais: str, path: str | None = None) -> None:
-    """quais: 'magic_rank', 'race' ou 'ambos'. Deixa vazio pra o jogador poder rolar de novo."""
-    campos = list(_DEFINITION_FIELDS) if quais == "ambos" else [quais]
-    if any(c not in _DEFINITION_FIELDS for c in campos):
+    """quais: 'magic_rank', 'race', 'social_class' ou 'todas'. Deixa vazio pra o jogador poder rolar de novo."""
+    if quais not in _CLEAR_GROUPS:
         raise ValueError(f"Definição desconhecida: {quais}")
     with _connect(path) as conn:
-        for campo in campos:
+        for campo in _CLEAR_GROUPS[quais]:
             col_valor, col_roll, col_data = _DEFINITION_FIELDS[campo]
             conn.execute(
                 f"UPDATE characters SET {col_valor} = NULL, {col_roll} = NULL, {col_data} = NULL WHERE id = ?",
                 (character_id,),
             )
+
+
+def set_social_status(character_id: int, estado: str, estado_roll: int | None,
+                      clergy: str | None = None, clergy_roll: int | None = None,
+                      path: str | None = None) -> None:
+    """Grava o Estado e, se for 1º Estado, o Clero, na mesma operação.
+    Sem clergy, o clero fica vazio. Rolls None significam que o mestre definiu na mão."""
+    agora = _now()
+    with _connect(path) as conn:
+        conn.execute(
+            "UPDATE characters SET social_class = ?, social_class_roll = ?, social_class_set_at = ?,"
+            " clergy = ?, clergy_roll = ?, clergy_set_at = ? WHERE id = ?",
+            (estado, estado_roll, agora,
+             clergy, clergy_roll if clergy else None, agora if clergy else None,
+             character_id),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Nível e ranks das perícias especiais
+# ---------------------------------------------------------------------------
+
+def set_level(character_id: int, level: int, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE characters SET level = ? WHERE id = ?", (level, character_id))
+
+
+def set_skill_rank(character_id: int, skill: str, skill_rank: int, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO character_ranks (character_id, skill, skill_rank, updated_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT(character_id, skill) DO UPDATE SET
+                skill_rank = excluded.skill_rank, updated_at = excluded.updated_at
+            """,
+            (character_id, skill, skill_rank, _now()),
+        )
+
+
+def get_skill_ranks(character_id: int, path: str | None = None) -> dict[str, int]:
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT skill, skill_rank FROM character_ranks WHERE character_id = ?", (character_id,)
+        ).fetchall()
+    return {r["skill"]: r["skill_rank"] for r in rows}
 
 
 # ---------------------------------------------------------------------------
