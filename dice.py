@@ -58,9 +58,27 @@ MAGIC_RANK_TABLE = [
     (100, 100, "Mítico"),
 ]
 
+# Sorteio de Raça (rolagem em 1d100): 85% humano, 10% vampiro, 5% meio humano, meio vampiro.
+RACE_TABLE = [
+    (1, 85, "Humano"),
+    (86, 95, "Vampiro"),
+    (96, 100, "Meio humano, meio vampiro"),
+]
 
-def magic_rank_for(d100_result: int) -> str:
-    for low, high, name in MAGIC_RANK_TABLE:
+MAGIC_RANKS = [name for _, _, name in MAGIC_RANK_TABLE]
+RACES = [name for _, _, name in RACE_TABLE]
+
+
+def _lookup(table: list[tuple[int, int, str]], d100_result: int) -> str:
+    for low, high, name in table:
         if low <= d100_result <= high:
             return name
     raise DiceError(f"Resultado fora da faixa esperada de 1d100: {d100_result}")
+
+
+def magic_rank_for(d100_result: int) -> str:
+    return _lookup(MAGIC_RANK_TABLE, d100_result)
+
+
+def race_for(d100_result: int) -> str:
+    return _lookup(RACE_TABLE, d100_result)
