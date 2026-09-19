@@ -14,35 +14,48 @@ import rules
 
 base = dict(race=None, magic_rank=None, social_class=None, class_name=None, **{f"attr_{a}": 0 for a in rules.ATTRIBUTES})
 st = lambda **k: rules.creation_status({**base, **k})
-SORTEADOS = dict(race="Humano", magic_rank="Raro", social_class="3º Estado")
 
 # ---------- passo a passo: um item por passo, com o ícone certo ----------
+SORTEIOS = dict(race="Humano", social_class="3º Estado")
 l = ajuda.linhas_passo_a_passo(st())
 assert l == [
     "✅ Personagem criado",
     "▶️ Sortear a raça: `/raca_inicial`",
-    "⬜ Sortear o Rank de magia: `/magia_inicial`",
     "⬜ Sortear a classe social: `/classe_social`",
-    "🔒 Escolher a classe: depois dos sorteios",
-    "🔒 Distribuir os pontos de atributo: depois dos sorteios e de escolher a classe",
+    "🔒 Escolher a classe: depois de sortear a raça e a classe social",
+    "🔒 Sortear o Rank de magia: depois de sortear a raça e a classe social e de escolher a classe",
+    "🔒 Distribuir os pontos de atributo: depois de sortear a raça e a classe social, de escolher a classe e de sortear o Rank de magia",
 ], l
-assert ajuda.proximo_passo(st()) == "Próximo passo: `/raca_inicial`, pra sortear a raça (os três sorteios podem ser feitos em qualquer ordem)."
-l = ajuda.linhas_passo_a_passo(st(race="Humano", magic_rank="Raro"))                                # o "próximo" pula o que já foi feito
-assert l[1] == "✅ Sortear a raça" and l[2] == "✅ Sortear o Rank de magia" and l[3] == "▶️ Sortear a classe social: `/classe_social`"
-l = ajuda.linhas_passo_a_passo(st(**SORTEADOS))
-assert l[-2:] == ["▶️ Escolher a classe: `/classe`", "🔒 Distribuir os pontos de atributo: depois de escolher a classe"]
-assert ajuda.proximo_passo(st(**SORTEADOS)) == "Próximo passo: `/classe`, pra escolher a classe."
-l = ajuda.linhas_passo_a_passo(st(**SORTEADOS, class_name="Sábio", attr_forca=2))
-assert l[-1] == "▶️ Distribuir os pontos de atributo: `/atributos` (2 de 6 pontos usados)"
-pronta = st(**SORTEADOS, class_name="Sábio", attr_forca=2, attr_vitalidade=3, attr_vontade=1)
+assert ajuda.proximo_passo(st()) == "Próximo passo: `/raca_inicial`, pra sortear a raça (a raça e a classe social podem ser sorteadas em qualquer ordem)."
+l = ajuda.linhas_passo_a_passo(st(race="Humano"))                                                      # o "próximo" pula o que já foi feito
+assert l[1] == "✅ Sortear a raça" and l[2] == "▶️ Sortear a classe social: `/classe_social`" and l[3] == "🔒 Escolher a classe: depois de sortear a classe social"
+l = ajuda.linhas_passo_a_passo(st(**SORTEIOS))
+assert l[3] == "▶️ Escolher a classe: `/classe`" and l[4] == "🔒 Sortear o Rank de magia: depois de escolher a classe"
+assert ajuda.proximo_passo(st(**SORTEIOS)) == "Próximo passo: `/classe`, pra escolher a classe."
+# quem NÃO tem magia (Humano Mundano): o passo do Rank de magia aparece como "não vale", e os atributos abrem
+l = ajuda.linhas_passo_a_passo(st(**SORTEIOS, class_name="Mundano"))
+assert l[3] == "✅ Escolher a classe" and l[4] == "➖ Rank de magia: a sua raça e a sua classe não têm magia, então esse passo não vale pra você"
+assert l[5] == "▶️ Distribuir os pontos de atributo: `/atributos` (0 de 6 pontos usados)"
+assert ajuda.proximo_passo(st(**SORTEIOS, class_name="Mundano")) == "Próximo passo: `/atributos`, pra distribuir os pontos de atributo."
+# quem TEM magia: o Rank de magia é o próximo, e os atributos esperam
+for dados in (dict(class_name="Feiticeiros"), dict(class_name="Mestre de Forja"), dict(race="Vampiro", class_name="Mundano")):
+    c = st(**{**SORTEIOS, **dados}); l = ajuda.linhas_passo_a_passo(c)
+    assert l[4] == "▶️ Sortear o Rank de magia: `/magia_inicial`" and l[5] == "🔒 Distribuir os pontos de atributo: depois de sortear o Rank de magia", dados
+    assert ajuda.proximo_passo(c) == "Próximo passo: `/magia_inicial`, pra sortear o Rank de magia.", dados
+l = ajuda.linhas_passo_a_passo(st(**SORTEIOS, class_name="Feiticeiros", magic_rank="Raro", attr_forca=2))
+assert l[4] == "✅ Sortear o Rank de magia" and l[-1] == "▶️ Distribuir os pontos de atributo: `/atributos` (2 de 6 pontos usados)"
+# Rank guardado de quem não tem magia (dado antigo): aparece como feito, não como "não vale"
+assert ajuda.linhas_passo_a_passo(st(**SORTEIOS, class_name="Mundano", magic_rank="Raro"))[4] == "✅ Sortear o Rank de magia"
+pronta = st(**SORTEIOS, class_name="Feiticeiros", magic_rank="Raro", attr_forca=2, attr_vitalidade=3, attr_vontade=1)
 assert set(x[0] for x in ajuda.linhas_passo_a_passo(pronta)) == {"✅"} and ajuda.proximo_passo(pronta) == "A ficha está pronta e tudo está liberado."
-# classe feita por um mestre sem os sorteios: o atributo continua fechado e o texto diz o que falta de verdade
+# classe feita por um mestre sem os sorteios: o resto continua fechado e o texto diz o que falta de verdade
 l = ajuda.linhas_passo_a_passo(st(class_name="Sábio"))
-assert l[-2] == "✅ Escolher a classe" and l[-1] == "🔒 Distribuir os pontos de atributo: depois dos sorteios"
+assert l[3] == "✅ Escolher a classe" and l[4] == "🔒 Sortear o Rank de magia: depois de sortear a raça e a classe social"
+assert l[-1] == "🔒 Distribuir os pontos de atributo: depois de sortear a raça e a classe social e de sortear o Rank de magia"
 # 100 na classe social: o mestre decide
-s100 = st(race="Humano", magic_rank="Raro", social_class=dice.SOCIAL_CLASS_MASTER)
+s100 = st(race="Humano", social_class=dice.SOCIAL_CLASS_MASTER)
 l = ajuda.linhas_passo_a_passo(s100)
-assert l[3] == "⏳ Classe social: você tirou 100, então um mestre vai definir o seu Estado" and l[4].startswith("🔒 Escolher a classe")
+assert l[2] == "⏳ Classe social: você tirou 100, então um mestre vai definir o seu Estado" and l[3].startswith("🔒 Escolher a classe")
 assert ajuda.proximo_passo(s100) == "Agora é com um mestre: fala com ele pra definir o seu Estado, e aí você segue."
 print("1. passo a passo OK")
 
@@ -51,9 +64,17 @@ t = ajuda.texto_bloqueio("Kairon Flagon", st())
 assert t.startswith("🔒 A ficha de **Kairon Flagon** ainda não está pronta, e esse comando só abre quando ela estiver.")
 assert "▶️ Sortear a raça: `/raca_inicial`" in t and "Próximo passo: `/raca_inicial`" in t and t.endswith("use `/ajuda`.") and len(t) < 1500
 t = ajuda.texto_falta_para("classe", st())
-assert t.startswith("Ainda não dá pra usar `/classe`: a criação tem uma ordem") and "🔒 Escolher a classe: depois dos sorteios" in t
-t = ajuda.texto_falta_para("atributos", st(**SORTEADOS)); assert "`/atributos`" in t and "▶️ Escolher a classe: `/classe`" in t
-t = ajuda.texto_falta_para("classe", s100)
+assert t.startswith("Ainda não dá pra usar `/classe`: a criação tem uma ordem") and "🔒 Escolher a classe: depois de sortear a raça e a classe social" in t
+t = ajuda.texto_falta_para("magia", st(**SORTEIOS))
+assert t.startswith("Ainda não dá pra usar `/magia_inicial`") and "▶️ Escolher a classe: `/classe`" in t and t.endswith("pra escolher a classe.")
+t = ajuda.texto_falta_para("atributos", st(**SORTEIOS, class_name="Feiticeiros"))
+assert "`/atributos`" in t and "▶️ Sortear o Rank de magia: `/magia_inicial`" in t
+# quem não tem magia tenta o /magia_inicial
+t = ajuda.texto_sem_magia("Ana", "Humano", "Mundano", st(**SORTEIOS, class_name="Mundano"))
+assert t.startswith("🚫 **Ana** não sorteia o Rank de magia: só tem magia quem é Vampiro (de qualquer classe) ou das classes Feiticeiros e Mestre de Forja")
+assert "essa combinação é Humano com Mundano. Esse passo não vale pra esse personagem." in t and t.endswith("Próximo passo: `/atributos`, pra distribuir os pontos de atributo.")
+s100b = st(race="Humano", social_class=dice.SOCIAL_CLASS_MASTER, class_name="Feiticeiros")
+t = ajuda.texto_falta_para("classe", st(race="Humano", social_class=dice.SOCIAL_CLASS_MASTER))
 assert t == ("Ainda não dá pra usar `/classe`: você tirou 100 no sorteio da classe social, então um mestre precisa definir o seu "
              "Estado primeiro. Fala com ele.")
 print("2. textos de bloqueio OK")
@@ -75,7 +96,7 @@ print("3. achar comando OK")
 
 # ---------- sugestões do autocomplete ----------
 tudo = ajuda.sugestoes("", incluir_mestre=True)
-assert len(tudo) == 25 and tudo[:3] == ["personagem criar", "raca_inicial", "magia_inicial"]           # sem digitar, começa pelo passo a passo
+assert len(tudo) == 25 and tudo[:5] == ["personagem criar", "raca_inicial", "classe_social", "classe", "magia_inicial"]           # sem digitar, começa pelo passo a passo
 jogador = ajuda.sugestoes("", incluir_mestre=False)
 assert jogador == [k for k in ajuda.ORDEM_SUGESTAO if k in ajuda.AJUDA] and not any(k.startswith("mestre ") for k in jogador)
 assert ajuda.sugestoes("atrib", False) == ["atributos"] and ajuda.sugestoes("atrib", True) == ["atributos", "mestre atributos"]
@@ -118,7 +139,8 @@ def cabe(v):
         total += len(nome) + len(valor)
     assert len(v["campos"]) <= 25 and total <= 6000, total
     return total
-situacoes = [(None, False), (st(), True), (st(**SORTEADOS), True), (s100, True), (pronta, True)]
+situacoes = [(None, False), (st(), True), (st(**SORTEIOS), True), (s100, True), (pronta, True),
+             (st(**SORTEIOS, class_name="Mundano"), True), (st(race="Vampiro", social_class="3º Estado", class_name="Ladrão"), True)]
 for status, tem in situacoes:
     for mestre in (False, True):
         cabe(ajuda.visao_geral(status, tem, mestre))

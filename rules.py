@@ -297,14 +297,31 @@ def describe_attributes(values: dict[str, int]) -> str:
 # ---------------------------------------------------------------------------
 # Ordem da criação do personagem
 # ---------------------------------------------------------------------------
-# Cada passo só abre depois dos que ele exige. Os três sorteios podem ser feitos em qualquer ordem.
-# Só com todos os passos feitos a ficha fica "pronta" e os comandos de jogo são liberados.
+# Quem tem magia: Vampiro (de qualquer classe) e as classes mágicas. Quem não tem (por exemplo, um Humano
+# Mundano) não sorteia o Rank de magia, e esse passo da criação não vale pra ele. O Dhampir não entra
+# aqui: ele só tem magia se a classe dele for mágica.
+MAGIC_RACES = ("Vampiro",)
+MAGIC_CLASSES = ("Feiticeiros", "Mestre de Forja")
+
+
+def magic_access(race: str | None, class_name: str | None) -> str:
+    """'sim' (tem magia), 'nao' (não tem) ou 'indefinido' (ainda falta a raça ou a classe pra saber)."""
+    if race in MAGIC_RACES or class_name in MAGIC_CLASSES:
+        return "sim"
+    if race and class_name:
+        return "nao"
+    return "indefinido"
+
+
+# Cada passo só abre depois dos que ele exige. A raça e a classe social podem ser sorteadas em qualquer
+# ordem; a classe vem depois das duas; o Rank de magia (só pra quem tem magia) depois da raça e da classe;
+# os atributos por último. Só com todos os passos feitos a ficha fica "pronta" e os comandos de jogo abrem.
 CREATION_STEPS = [
     {"id": "raca", "rotulo": "Sortear a raça", "comando": "/raca_inicial", "requer": []},
-    {"id": "magia", "rotulo": "Sortear o Rank de magia", "comando": "/magia_inicial", "requer": []},
     {"id": "estado", "rotulo": "Sortear a classe social", "comando": "/classe_social", "requer": []},
-    {"id": "classe", "rotulo": "Escolher a classe", "comando": "/classe", "requer": ["raca", "magia", "estado"]},
-    {"id": "atributos", "rotulo": "Distribuir os pontos de atributo", "comando": "/atributos", "requer": ["classe"]},
+    {"id": "classe", "rotulo": "Escolher a classe", "comando": "/classe", "requer": ["raca", "estado"]},
+    {"id": "magia", "rotulo": "Sortear o Rank de magia", "comando": "/magia_inicial", "requer": ["raca", "classe"]},
+    {"id": "atributos", "rotulo": "Distribuir os pontos de atributo", "comando": "/atributos", "requer": ["classe", "magia"]},
 ]
 _STEP_BY_ID = {p["id"]: p for p in CREATION_STEPS}
 
@@ -315,17 +332,23 @@ def creation_status(personagem) -> dict:
     ('Aguardando o mestre') ainda não conta como feito: quem decide é um mestre."""
     usados = sum(personagem[f"attr_{a}"] for a in ATTRIBUTES)
     estado = personagem["social_class"]
+    acesso = magic_access(personagem["race"], personagem["class_name"])
+    sorteou_magia = bool(personagem["magic_rank"])
     feitos = {
         "raca": bool(personagem["race"]),
-        "magia": bool(personagem["magic_rank"]),
         "estado": bool(estado) and estado != dice.SOCIAL_CLASS_MASTER,
         "classe": bool(personagem["class_name"]),
+        "magia": sorteou_magia or acesso == "nao",          # quem não tem magia não sorteia: o passo não vale
         "atributos": usados >= CREATION_ATTRIBUTE_POINTS,     # os pontos da criação; os de nível podem sobrar
     }
     return {
         **feitos,
         "aguardando_mestre": estado == dice.SOCIAL_CLASS_MASTER,
         "pontos_usados": usados,
+        "magia_acesso": acesso,
+        "sem_magia": acesso == "nao",
+        "magia_sorteada": sorteou_magia,
+        "magia_indevida": sorteou_magia and acesso == "nao",   # tem Rank guardado, mas raça e classe não têm magia
         "pronta": all(feitos.values()),
     }
 

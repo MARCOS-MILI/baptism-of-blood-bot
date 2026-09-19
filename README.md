@@ -23,13 +23,16 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 A criação do personagem tem uma ordem, e o bot vai guiando:
 
 1. `/personagem criar`
-2. Os três sorteios, em qualquer ordem: `/raca_inicial`, `/magia_inicial` e `/classe_social`
-3. `/classe`, que só abre depois dos três sorteios
-4. `/atributos`, que só abre depois de escolher a classe
+2. Os sorteios de raça e de classe social, em qualquer ordem: `/raca_inicial` e `/classe_social`
+3. `/classe`, que só abre depois desses dois sorteios
+4. `/magia_inicial`, **só pra quem tem magia** (ver abaixo), que só abre depois da raça e da classe
+5. `/atributos`, que só abre depois de escolher a classe e, se o personagem tem magia, de sortear o Rank de magia
 
-A ficha só fica **pronta** com os três sorteios feitos (um 100 na classe social conta só depois que um mestre decide o Estado), a classe escolhida e os 6 pontos de atributo da criação distribuídos. Enquanto não estiver pronta, o bot **bloqueia** `/rolar` e `/extrato_xp` (que usam o personagem em uso, ou o do campo `personagem:`) e `/historico` e `/rank` (que só abrem quando pelo menos um dos seus personagens estiver pronto). A mensagem de bloqueio mostra o passo a passo com o que já foi feito (✅), o próximo (▶️), o que ainda está fechado (🔒) e o que está com o mestre (⏳). Ficam sempre abertos: `/ajuda`, `/help`, `/personagem`, `/minha_ficha` (que avisa o que falta), `/niveis`, `/calcular_recursos` e os próprios passos da criação, na ordem. Os mestres passam direto por tudo isso. Se um mestre apagar um sorteio (`/mestre apagar`), a ficha do jogador volta a ficar incompleta até ele rolar de novo.
+A ficha só fica **pronta** com a raça e a classe social sorteadas (um 100 na classe social conta só depois que um mestre decide o Estado), a classe escolhida, o Rank de magia sorteado (se o personagem tem magia) e os 6 pontos de atributo da criação distribuídos. Enquanto não estiver pronta, o bot **bloqueia** `/rolar` e `/extrato_xp` (que usam o personagem em uso, ou o do campo `personagem:`) e `/historico` e `/rank` (que só abrem quando pelo menos um dos seus personagens estiver pronto). A mensagem de bloqueio mostra o passo a passo com o que já foi feito (✅), o próximo (▶️), o que ainda está fechado (🔒) e o que está com o mestre (⏳). Ficam sempre abertos: `/ajuda`, `/help`, `/personagem`, `/minha_ficha` (que avisa o que falta), `/niveis`, `/calcular_recursos` e os próprios passos da criação, na ordem. Os mestres passam direto por tudo isso. Se um mestre apagar um sorteio (`/mestre apagar`), a ficha do jogador volta a ficar incompleta até ele rolar de novo.
 
 Personagens que já existiam e ainda não têm classe e atributos também precisam completar a ficha pra usar os comandos bloqueados.
+
+**Quem tem magia:** só tem Rank de magia quem é **Vampiro** (de qualquer classe) ou das classes **Feiticeiros** e **Mestre de Forja**. Humano Mundano, por exemplo, não tem. O Dhampir só tem magia se a classe for uma dessas duas. Quem não tem magia não sorteia o Rank: o `/magia_inicial` explica o motivo e o passo simplesmente não vale pra esse personagem, então a ficha fica pronta sem ele. Como o Rank depende da raça e da classe, ele vem **depois** das duas. A ficha mostra "sem magia" pra quem não tem. Se um Rank já estava guardado de antes (por exemplo, de um Humano Mundano), ele continua lá, com um aviso na ficha, e um mestre pode tirar com `/mestre apagar`. Os mestres podem dar o Rank a quem não tem magia com `/mestre corrigir_magia`, e o bot avisa quando corrigir a raça ou a classe muda se o personagem tem magia.
 
 **Ajuda**
 
@@ -37,9 +40,9 @@ Personagens que já existiam e ainda não têm classe e atributos também precis
 
 **Sorteios de criação** (uma rolagem só por personagem)
 
-- `/magia_inicial` rola 1d100 e define o Rank de magia.
 - `/raca_inicial` rola 1d100 e sorteia a Raça.
 - `/classe_social` rola 1d100 e sorteia o Estado. Quem cai no 1º Estado rola outro 1d100 na hora, pra saber se é Alto ou Baixo Clero.
+- `/magia_inicial` rola 1d100 e define o Rank de magia, **só pra quem tem magia** e só depois da raça e da classe (a tabela do Rank está logo abaixo).
 
 | 1d100 | Rank de magia |
 |---|---|

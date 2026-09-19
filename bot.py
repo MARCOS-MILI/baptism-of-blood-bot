@@ -4,7 +4,7 @@ Jogadores:
   /rolar dado:1d20+3 [motivo] [personagem]   -> rola e salva no histórico
   /historico [usuario] [limite] [personagem] -> últimas rolagens de alguém (ou de um personagem)
   /personagem criar | usar | listar | excluir -> gerencia os personagens (limite de vagas por jogador)
-  /magia_inicial | /raca_inicial | /classe_social -> sorteios de criação, uma vez por personagem
+  /raca_inicial | /classe_social | /magia_inicial -> sorteios de criação, uma vez por personagem (a magia só pra quem tem)
   /classe [personagem]                       -> escolhe a classe (uma vez)
   /atributos [forca..alma] [personagem]      -> distribui os pontos de atributo (só aumenta)
   /minha_ficha [personagem]                  -> nível, XP, raça, classe, atributos, recursos, ranks
@@ -14,7 +14,8 @@ Jogadores:
   /calcular_recursos                         -> simula Vida, Sanidade, Mana e Estamina (por nível)
   /ajuda [comando]                           -> ensina a usar o bot e explica cada comando (também /help)
 
-Ordem da criação: /personagem criar, os três sorteios (em qualquer ordem), /classe e /atributos.
+Ordem da criação: /personagem criar, /raca_inicial e /classe_social (em qualquer ordem), /classe, /magia_inicial
+(só pra Vampiro e pras classes Feiticeiros e Mestre de Forja) e /atributos.
 Só com a ficha pronta abrem /rolar, /historico, /extrato_xp e /rank (os mestres passam direto).
 
 Mestres:
@@ -271,6 +272,49 @@ def _texto_definicao(personagem, campo: str, comando: str) -> str:
     return f"{valor}\n({origem})"
 
 
+_SEM_MAGIA = "só Vampiros, Feiticeiros e Mestres de Forja têm magia"
+
+
+def _texto_magia(personagem) -> str:
+    """O campo 'Rank de Magia' da ficha: depende de a raça e a classe terem magia."""
+    acesso = rules.magic_access(personagem["race"], personagem["class_name"])
+    if personagem["magic_rank"]:
+        texto = _texto_definicao(personagem, "magic_rank", "/magia_inicial")
+        if acesso == "nao":
+            texto += "\n⚠️ raça e classe sem magia, fala com um mestre"
+        return texto
+    if acesso == "nao":
+        return f"sem magia\n({_SEM_MAGIA})"
+    if acesso == "sim":
+        return "ainda não definido\n(use `/magia_inicial`)"
+    return "depende da raça e da classe\n(fica claro depois de escolher as duas)"
+
+
+def _magia_curta(personagem) -> str:
+    if personagem["magic_rank"]:
+        return personagem["magic_rank"]
+    return "sem magia" if rules.magic_access(personagem["race"], personagem["class_name"]) == "nao" else "sem rank"
+
+
+def _nota_magia(antes, depois) -> str | None:
+    """Pros mestres: avisa quando mudar a raça ou a classe muda se o personagem tem magia."""
+    a0 = rules.magic_access(antes["race"], antes["class_name"])
+    a1 = rules.magic_access(depois["race"], depois["class_name"])
+    if a0 == a1:
+        return None
+    nome = depois["name"]
+    if a1 == "sim" and not depois["magic_rank"]:
+        return f"Agora **{nome}** tem magia e precisa sortear o Rank de magia com `/magia_inicial`."
+    if a1 == "nao":
+        if depois["magic_rank"]:
+            return (
+                f"Com essa combinação **{nome}** não tem magia. O Rank de magia ({depois['magic_rank']}) "
+                "continua na ficha; use `/mestre apagar` se quiser tirar."
+            )
+        return f"Com essa combinação **{nome}** não tem magia."
+    return None
+
+
 def _resumo_estado(personagem) -> str | None:
     """'2º Estado (Nobreza)', '1º Estado (Clero), Alto Clero' ou 'aguardando o mestre'."""
     estado = personagem["social_class"]
@@ -363,7 +407,7 @@ def _embed_ficha(personagem, jogador: str) -> discord.Embed:
     embed.add_field(name="Nível", value=nivel_txt, inline=True)
     embed.add_field(name="Raça", value=_texto_definicao(personagem, "race", "/raca_inicial"), inline=True)
     embed.add_field(name="Classe Social", value=_texto_estado(personagem), inline=True)
-    embed.add_field(name="Rank de Magia", value=_texto_definicao(personagem, "magic_rank", "/magia_inicial"), inline=True)
+    embed.add_field(name="Rank de Magia", value=_texto_magia(personagem), inline=True)
     classe = personagem["class_name"]
     embed.add_field(
         name="Classe",
@@ -631,8 +675,9 @@ async def personagem_criar(interaction: discord.Interaction, nome: str):
         title="🎭 Personagem criado",
         description=(
             f"**{novo['name']}** agora é o personagem que você está usando ({usadas + 1} de {permitidas} vagas).\n"
-            "Próximo passo: os três sorteios (`/raca_inicial`, `/magia_inicial` e `/classe_social`, em qualquer ordem). "
-            "Depois vêm `/classe` e `/atributos`. O passo a passo completo está em `/ajuda`."
+            "Próximo passo: sortear a raça e a classe social (`/raca_inicial` e `/classe_social`, em qualquer ordem). "
+            "Depois vêm `/classe`, o Rank de magia (`/magia_inicial`, só pra quem tem magia) e `/atributos`. "
+            "O passo a passo completo está em `/ajuda`."
         ),
         color=discord.Color.dark_purple(),
     )
@@ -671,7 +716,7 @@ async def personagem_listar(interaction: discord.Interaction):
         marca = "▶️" if ativo and c["id"] == ativo["id"] else "▫️"
         linhas.append(
             f"{marca} **{c['name']}** · nível {c['level']} · {rules.fmt_xp(c['xp'])} XP\n"
-            f"　magia: {c['magic_rank'] or 'sem rank'} · raça: {c['race'] or 'sem raça'}"
+            f"　magia: {_magia_curta(c)} · raça: {c['race'] or 'sem raça'}"
             f" · estado: {_resumo_estado(c) or 'sem estado'}"
         )
     _, permitidas, _ = _vagas(uid)
@@ -753,6 +798,17 @@ async def _sortear_definicao(interaction: discord.Interaction, campo: str, perso
         )
         return
 
+    if campo == "magic_rank":
+        status = rules.creation_status(char)
+        if status["sem_magia"]:
+            await interaction.response.send_message(
+                ajuda.texto_sem_magia(char["name"], char["race"], char["class_name"], status), ephemeral=True
+            )
+            return
+        if ORDEM_DA_CRIACAO and rules.creation_missing_before("magia", status):
+            await interaction.response.send_message(ajuda.texto_falta_para("magia", status), ephemeral=True)
+            return
+
     # Daqui até salvar não tem nenhum 'await', então dois comandos seguidos do mesmo jogador
     # nunca se intercalam e não dá pra rolar duas vezes.
     resultado = dice.roll("1d100")
@@ -781,7 +837,7 @@ async def _sortear_definicao(interaction: discord.Interaction, campo: str, perso
     await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name="magia_inicial", description="Rola 1d100 e define o Rank de magia inicial do seu personagem.")
+@bot.tree.command(name="magia_inicial", description="Rola 1d100 e define o Rank de magia (só Vampiros, Feiticeiros e Mestres de Forja).")
 @app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 async def magia_inicial(interaction: discord.Interaction, personagem: str | None = None):
@@ -886,12 +942,21 @@ async def classe_escolher(interaction: discord.Interaction, classe: str, persona
         return
     db.set_class(char["id"], classe)
     b = rules.CLASSES[classe]
+    novo = db.get_character_by_id(char["id"])
+    status_novo = rules.creation_status(novo)
+    if status_novo["sem_magia"]:
+        magia = "Sua raça e sua classe não têm magia, então você não sorteia o Rank de magia. "
+    elif status_novo["magia_acesso"] == "sim" and not status_novo["magia_sorteada"]:
+        magia = "Sua raça ou sua classe tem magia. "
+    else:
+        magia = ""
+    proximo = ajuda.proximo_passo(status_novo) if ORDEM_DA_CRIACAO else "Agora distribua os pontos de atributo com `/atributos`."
     embed = discord.Embed(
         title=f"🎓 Classe de {char['name']}: {classe}",
         description=(
             f"Vantagem nas perícias: {rules.CLASS_SKILLS[classe]}\n"
             f"Bônus: Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}\n\n"
-            "Agora distribua os pontos de atributo com `/atributos`."
+            f"{magia}{proximo}"
         ),
         color=discord.Color.dark_green(),
     )
@@ -1314,12 +1379,13 @@ async def _corrigir(interaction: discord.Interaction, usuario: discord.Member, p
     antes = char[campo] or "nada"
     cfg["salvar"](char["id"], novo_valor, None)  # None = definido na mão, sem rolagem
     _auditar(interaction, usuario, char, f"corrigir_{campo}", f"{antes} -> {novo_valor}")
+    nota = _nota_magia(char, db.get_character_by_id(char["id"]))
 
     embed = discord.Embed(
         title="🛠️ Definição corrigida",
         description=(
             f"{interaction.user.display_name} definiu {_ROTULO_COM_ARTIGO[campo]} de **{char['name']}** "
-            f"({usuario.display_name}).\n**{antes}** → **{novo_valor}**"
+            f"({usuario.display_name}).\n**{antes}** → **{novo_valor}**" + (f"\n{nota}" if nota else "")
         ),
         color=discord.Color.orange(),
     )
@@ -1761,11 +1827,12 @@ async def mestre_corrigir_classe(
     antes = char["class_name"] or "nada"
     db.set_class(char["id"], classe)
     _auditar(interaction, usuario, char, "corrigir_class", f"{antes} -> {classe}")
+    nota = _nota_magia(char, db.get_character_by_id(char["id"]))
     embed = discord.Embed(
         title="🛠️ Definição corrigida",
         description=(
             f"{interaction.user.display_name} definiu a classe de **{char['name']}** ({usuario.display_name}).\n"
-            f"**{antes}** → **{classe}**"
+            f"**{antes}** → **{classe}**" + (f"\n{nota}" if nota else "")
         ),
         color=discord.Color.orange(),
     )

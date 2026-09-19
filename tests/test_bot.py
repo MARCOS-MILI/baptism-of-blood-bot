@@ -136,12 +136,18 @@ run(bot.rolar.callback(marcos, "1d20", "ataque", None)); assert "Kairon Flagon r
 run(bot.rolar.callback(marcos, "1d6", None, "Akari Amaya")); assert "Akari Amaya rolou 1d6" in txt(marcos)
 run(bot.rolar.callback(marcos, "1d6", None, "Fantasma")); assert "Não achei" in txt(marcos)
 run(bot.rolar.callback(marcos, "abc", None, None)); assert "inválida" in txt(marcos)
-run(bot.magia_inicial.callback(marcos, None)); assert "Magia Inicial de Kairon Flagon" in txt(marcos)
-run(bot.magia_inicial.callback(marcos, None)); assert "já tem Rank de Magia" in txt(marcos)
+run(bot.magia_inicial.callback(marcos, None)); assert "Ainda não dá pra usar `/magia_inicial`" in txt(marcos) and row(1, "Kairon Flagon")["magic_rank"] is None   # sem raça nem classe: fechado
 with dados(96): run(bot.raca_inicial.callback(marcos, None))                                                # 96 é Dhampir
 assert "Raça de Kairon Flagon" in txt(marcos) and "Raça: **Dhampir**" in txt(marcos) and row(1, "Kairon Flagon")["race"] == "Dhampir"
 run(bot.raca_inicial.callback(marcos, None)); assert "já tem Raça" in txt(marcos)
 run(bot.raca_inicial.callback(marcos, "Akari Amaya")); assert "Raça de Akari Amaya" in txt(marcos)
+# o Rank de magia vem depois da raça e da classe, e só pra quem tem magia (Dhampir só com classe mágica: Kairon é Mestre de Forja)
+with dados(20): run(bot.classe_social.callback(marcos, None))
+run(bot.magia_inicial.callback(marcos, None)); assert "Ainda não dá pra usar `/magia_inicial`" in txt(marcos) and "▶️ Escolher a classe: `/classe`" in txt(marcos)
+run(bot.classe_escolher.callback(marcos, "Mestre de Forja", None)); assert titulo(marcos).endswith("Mestre de Forja")
+with dados(50): run(bot.magia_inicial.callback(marcos, None))
+assert "Magia Inicial de Kairon Flagon" in txt(marcos) and row(1, "Kairon Flagon")["magic_rank"] == "Raro"
+run(bot.magia_inicial.callback(marcos, None)); assert "já tem Rank de Magia" in txt(marcos)
 run(bot.minha_ficha.callback(marcos, None)); assert "Ficha de Kairon Flagon" in txt(marcos) and "1d100:" in txt(marcos) and "Dhampir" in txt(marcos)
 run(bot.minha_ficha.callback(marcos, "Charles de Flagon")); assert "ainda não definido" in txt(marcos)
 run(bot.personagem_listar.callback(marcos)); assert "▶️ **Kairon Flagon** · nível 1 · 0 XP" in txt(marcos) and rodape(marcos).endswith("vagas usadas: 3 de 3")
@@ -230,7 +236,9 @@ c = row(40, "Raro Demais"); assert (c["social_class"], c["social_class_roll"], c
 run(bot.mestre_corrigir_estado.callback(gm, a40, "3", None)); c = row(40, "Raro Demais"); assert (c["social_class"], c["clergy"]) == ("3º Estado", None)
 run(bot.mestre_apagar.callback(gm, a40, "social_class", None)); assert "apagou a Classe Social de **Raro Demais**" in desc(gm) and "`/classe_social`" in desc(gm)
 z = novo(50, "Zé", "Zé Pleno")
-with dados(10, 20, 30): run(bot.magia_inicial.callback(z, None)); run(bot.raca_inicial.callback(z, None)); run(bot.classe_social.callback(z, None))
+with dados(10, 20): run(bot.raca_inicial.callback(z, None)); run(bot.classe_social.callback(z, None))
+db.set_class(row(50, "Zé Pleno")["id"], "Feiticeiros")
+with dados(30): run(bot.magia_inicial.callback(z, None))
 run(bot.mestre_apagar.callback(gm, alvo(50, "Zé"), "todas", None)); d = desc(gm)
 assert "o Rank de Magia, a Raça e a Classe Social" in d and "`/magia_inicial`, `/raca_inicial` e `/classe_social`" in d
 print("D. classe social OK")
@@ -455,15 +463,17 @@ db.DB_PATH = os.path.join(tmp, "ficha.db"); db.init_db()
 CAMPOS = ["Nível", "Raça", "Classe Social", "Rank de Magia", "Classe", "Atributos", "Recursos", "Ranks das perícias especiais"]
 def campos(i): return {f.name: f.value for f in sent(i)[1]["embed"].fields}
 def preparar(uid, nome, raca="Humano", classe="Caçador"):
-    """Sorteios feitos e classe escolhida (direto no banco): o personagem já pode distribuir atributos."""
+    """Sorteios feitos, classe escolhida e, se a combinação tem magia, o Rank de magia (direto no banco)."""
     c = row(uid, nome)["id"]
-    db.set_race(c, raca, 40); db.set_magic_rank(c, "Comum", 10); db.set_social_status(c, "3º Estado", 10)
+    db.set_race(c, raca, 40); db.set_social_status(c, "3º Estado", 10)
+    if rules.magic_access(raca, classe) == "sim": db.set_magic_rank(c, "Comum", 10)
     if classe: db.set_class(c, classe)
 ana = novo(100, "Ana", "Ana Ficha"); a100 = alvo(100, "Ana"); ficha = lambda: row(100, "Ana Ficha")
 
 # ficha nova: tudo zerado, e os campos novos ficam antes dos ranks, que continuam por último
 run(bot.minha_ficha.callback(ana, None)); assert [f.name for f in sent(ana)[1]["embed"].fields] == CAMPOS
 c = campos(ana); assert c["Classe"] == "ainda não definida\n(use `/classe`)" and c["Recursos"] == bot._SEM_CLASSE
+assert c["Rank de Magia"] == "depende da raça e da classe\n(fica claro depois de escolher as duas)"
 assert c["Atributos"] == "Força 0 · Destreza 0 · Vitalidade 0 · Razão 0 · Vontade 0 · Alma 0\nPontos de atributo: 0 de 6 usados (6 livres)"
 run(bot.atributos.callback(ana, None, None, None, None, None, None, None))                # sem números: só mostra
 assert sent(ana)[1]["ephemeral"] and titulo(ana) == "🧬 Atributos de Ana Ficha" and list(campos(ana)) == ["Atributos", "Recursos"]
@@ -471,12 +481,12 @@ assert sent(ana)[1]["ephemeral"] and titulo(ana) == "🧬 Atributos de Ana Ficha
 run(bot.minha_ficha.callback(ana, None)); e = sent(ana)[1]["embed"]
 assert e.description.startswith("⚠️ **Ficha incompleta.** Próximo passo: `/raca_inicial`") and "/ajuda" in e.description
 run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None)); print("  ", txt(ana).splitlines()[0])
-assert "Ainda não dá pra usar `/atributos`" in txt(ana) and "▶️ Sortear a raça: `/raca_inicial`" in txt(ana) and "🔒 Escolher a classe: depois dos sorteios" in txt(ana)
+assert "Ainda não dá pra usar `/atributos`" in txt(ana) and "▶️ Sortear a raça: `/raca_inicial`" in txt(ana) and "🔒 Escolher a classe: depois de sortear a raça e a classe social" in txt(ana)
 assert sent(ana)[1]["ephemeral"] and db.attributes_of(ficha())["forca"] == 0
 run(bot.classe_escolher.callback(ana, "Caçador", None)); assert "Ainda não dá pra usar `/classe`" in txt(ana) and ficha()["class_name"] is None
-# os três sorteios, em qualquer ordem, abrem a classe
-with dados(50, 20, 40): run(bot.magia_inicial.callback(ana, None)); run(bot.classe_social.callback(ana, None)); run(bot.raca_inicial.callback(ana, None))
-assert (ficha()["race"], ficha()["magic_rank"], ficha()["social_class"]) == ("Humano", "Raro", "3º Estado")
+# a raça e a classe social, em qualquer ordem, abrem a classe
+with dados(40, 20): run(bot.raca_inicial.callback(ana, None)); run(bot.classe_social.callback(ana, None))
+assert (ficha()["race"], ficha()["magic_rank"], ficha()["social_class"]) == ("Humano", None, "3º Estado")
 run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None))                          # sorteios feitos, mas ainda falta a classe
 assert "Ainda não dá pra usar `/atributos`" in txt(ana) and "▶️ Escolher a classe: `/classe`" in txt(ana) and db.attributes_of(ficha())["forca"] == 0
 run(bot.minha_ficha.callback(ana, None)); assert "Próximo passo: `/classe`" in sent(ana)[1]["embed"].description
@@ -488,6 +498,11 @@ assert "Bônus: Vida +35 · Sanidade +15 · Mana +5 · Estamina +20" in desc(ana
 run(bot.classe_escolher.callback(ana, "Sábio", None)); assert "já é da classe **Caçador**" in txt(ana) and ficha()["class_name"] == "Caçador"
 run(bot.minha_ficha.callback(ana, None)); c = campos(ana)
 assert c["Classe"] == "Caçador\n(vantagem em Religião e Luta ou Pontaria)"
+assert c["Rank de Magia"] == "sem magia\n(só Vampiros, Feiticeiros e Mestres de Forja têm magia)"
+n_antes = len(historico_de(100)); run(bot.magia_inicial.callback(ana, None)); m = txt(ana)
+assert m.startswith("🚫 **Ana Ficha** não sorteia o Rank de magia") and "essa combinação é Humano com Caçador" in m and sent(ana)[1]["ephemeral"]
+assert ficha()["magic_rank"] is None and len(historico_de(100)) == n_antes           # recusou sem rolar dado nenhum
+run(bot.minha_ficha.callback(ana, None))                                                   # a próxima checagem lê a última resposta
 assert c["Recursos"] == "❤️ Vida **35** · 🧠 Sanidade **15**\n🔮 Mana **5** · 💪 Estamina **20**"          # só o bônus da classe, ainda sem atributos
 assert "Próximo passo: `/atributos`" in sent(ana)[1]["embed"].description
 
@@ -712,8 +727,8 @@ for cmd in JOGO: assert tenta(cmd, p0) == bot._SEM_PERSONAGEM, cmd.name
 assert "/personagem criar" in bot._SEM_PERSONAGEM and "/ajuda" in bot._SEM_PERSONAGEM
 # criar o personagem aponta pro passo a passo
 run(bot.personagem_criar.callback(p0, "Recém Chegado")); print("  ", desc(p0).replace("\n", " "))
-assert "Próximo passo: os três sorteios (`/raca_inicial`, `/magia_inicial` e `/classe_social`, em qualquer ordem)." in desc(p0)
-assert "Depois vêm `/classe` e `/atributos`. O passo a passo completo está em `/ajuda`." in desc(p0)
+assert "Próximo passo: sortear a raça e a classe social (`/raca_inicial` e `/classe_social`, em qualquer ordem)." in desc(p0)
+assert "Depois vêm `/classe`, o Rank de magia (`/magia_inicial`, só pra quem tem magia) e `/atributos`. O passo a passo completo está em `/ajuda`." in desc(p0)
 # com o personagem criado, tudo de jogo fica fechado, e a mensagem diz o que fazer
 for cmd in JOGO:
     m = tenta(cmd, p0); assert m.startswith("🔒 A ficha de **Recém Chegado** ainda não está pronta, e esse comando só abre quando ela estiver."), cmd.name
@@ -721,14 +736,18 @@ for cmd in JOGO:
 print("  ", tenta(bot.rolar, p0).splitlines()[0])
 assert tenta(bot.rolar, p0, "Recém Chegado") and tenta(bot.extrato_xp, p0, "Recém Chegado")                  # pelo nome também fecha
 assert tenta(bot.rolar, p0, "Fantasma") is None                                                                # nome que não existe: o próprio comando avisa
-# passo a passo, um de cada vez, pelos comandos de verdade
+# passo a passo, um de cada vez, pelos comandos de verdade (Humano Sábio: não tem magia)
+run(bot.magia_inicial.callback(p0, None)); assert "Ainda não dá pra usar `/magia_inicial`" in txt(p0)                      # o Rank de magia só vem depois da raça e da classe
 with dados(40): run(bot.raca_inicial.callback(p0, None))
-m = tenta(bot.rolar, p0); assert "✅ Sortear a raça" in m and "▶️ Sortear o Rank de magia: `/magia_inicial`" in m
-with dados(50): run(bot.magia_inicial.callback(p0, None))
+m = tenta(bot.rolar, p0); assert "✅ Sortear a raça" in m and "▶️ Sortear a classe social: `/classe_social`" in m and "🔒 Escolher a classe: depois de sortear a classe social" in m
 with dados(20): run(bot.classe_social.callback(p0, None))
-m = tenta(bot.rolar, p0); assert "▶️ Escolher a classe: `/classe`" in m and "🔒 Distribuir os pontos de atributo: depois de escolher a classe" in m
+m = tenta(bot.rolar, p0); assert "▶️ Escolher a classe: `/classe`" in m and "🔒 Sortear o Rank de magia: depois de escolher a classe" in m
+assert "🔒 Distribuir os pontos de atributo: depois de escolher a classe e de sortear o Rank de magia" in m
 run(bot.classe_escolher.callback(p0, "Sábio", None))
+assert "Sua raça e sua classe não têm magia, então você não sorteia o Rank de magia." in desc(p0) and "Próximo passo: `/atributos`" in desc(p0)
 m = tenta(bot.rolar, p0); assert "▶️ Distribuir os pontos de atributo: `/atributos` (0 de 6 pontos usados)" in m and "Próximo passo: `/atributos`" in m
+assert "➖ Rank de magia: a sua raça e a sua classe não têm magia, então esse passo não vale pra você" in m
+run(bot.magia_inicial.callback(p0, None)); assert txt(p0).startswith("🚫 **Recém Chegado** não sorteia o Rank de magia") and row(200, "Recém Chegado")["magic_rank"] is None
 run(bot.atributos.callback(p0, None, None, None, None, 5, None, None)); assert titulo(p0).endswith("atualizados")            # 5 de 6: ainda fechado
 m = tenta(bot.rolar, p0); assert "(5 de 6 pontos usados)" in m
 for cmd in JOGO: assert tenta(cmd, p0) is not None
@@ -763,7 +782,7 @@ for cmd in JOGO: assert tenta(cmd, inter(8, "Jogador", roles=["Jogador"])) == bo
 
 # 100 na classe social: a ficha espera o mestre, e a classe fica fechada até ele decidir
 e6 = inter(206, "Seis"); run(bot.personagem_criar.callback(e6, "Sorte Grande")); a206 = alvo(206, "Seis")
-with dados(50, 100, 40): run(bot.magia_inicial.callback(e6, None)); run(bot.classe_social.callback(e6, None)); run(bot.raca_inicial.callback(e6, None))
+with dados(100, 40): run(bot.classe_social.callback(e6, None)); run(bot.raca_inicial.callback(e6, None))
 assert "⏳ Classe social: você tirou 100, então um mestre vai definir o seu Estado" in tenta(bot.rolar, e6)
 run(bot.classe_escolher.callback(e6, "Caçador", None)); print("  ", txt(e6))
 assert txt(e6) == ("Ainda não dá pra usar `/classe`: você tirou 100 no sorteio da classe social, então um mestre precisa definir o seu "
@@ -803,7 +822,9 @@ for chave, cmd in reais.items():
     assert ajuda.AJUDA[chave]["uso"].startswith("/" + chave)
 # quem tem bloqueio de ficha (ou exige um passo anterior) diz isso na ajuda
 for chave in ("rolar", "historico", "extrato_xp", "rank"): assert ajuda.AJUDA[chave]["requisito"].startswith("Só "), chave
-assert "depois dos três sorteios" in ajuda.AJUDA["classe"]["requisito"] and "depois de escolher a classe" in ajuda.AJUDA["atributos"]["requisito"]
+assert "depois de sortear a raça e a classe social" in ajuda.AJUDA["classe"]["requisito"]
+assert "depois de escolher a classe" in ajuda.AJUDA["atributos"]["requisito"] and "Rank de magia" in ajuda.AJUDA["atributos"]["requisito"]
+assert "só se a sua raça ou a sua classe tiver magia" in ajuda.AJUDA["magia_inicial"]["requisito"] and "Vampiro" in ajuda.AJUDA["magia_inicial"]["detalhes"]
 # os números e regras que a ajuda cita batem com o código
 assert "N × 1.000 XP" in ajuda.AJUDA["niveis"]["detalhes"] and "3 vagas" in ajuda.AJUDA["personagem criar"]["detalhes"] and "até 25" in ajuda.AJUDA["historico"]["detalhes"]
 assert bot.LIMITE_BASE == 3 and bot.LIMITE_MAXIMO == 10 and "teto é de 10" in ajuda.AJUDA["mestre vagas"]["detalhes"]
@@ -885,5 +906,109 @@ finally:
     bot.ORDEM_DA_CRIACAO = True
 for cmd in JOGO: assert tenta(cmd, novo0) is not None, cmd.name                                     # ligada de novo: volta a fechar
 print("N. reabrir a ficha e a chavinha OK")
+
+# ============================ O. quem tem magia: Vampiro (qualquer classe), Feiticeiros e Mestre de Forja ============================
+db.DB_PATH = os.path.join(tmp, "magia.db"); db.init_db()
+def montar(uid, jogador, personagem, raca=None, classe=None, estado="3º Estado"):
+    """Personagem criado, com raça, classe social e classe já definidas (direto no banco)."""
+    i = novo(uid, jogador, personagem); c = row(uid, personagem)["id"]
+    if raca: db.set_race(c, raca, 40)
+    if estado: db.set_social_status(c, estado, 10)
+    if classe: db.set_class(c, classe)
+    return i
+
+# quem TEM magia rola o Rank: Vampiro de qualquer classe, Feiticeiros e Mestre de Forja (Dhampir só com classe mágica)
+for uid, raca, classe in [(400, "Vampiro", "Mundano"), (401, "Vampiro", "Ladrão"), (402, "Humano", "Feiticeiros"),
+                          (403, "Humano", "Mestre de Forja"), (404, "Dhampir", "Feiticeiros"), (405, "Vampiro", "Feiticeiros")]:
+    i = montar(uid, f"J{uid}", f"P{uid}", raca, classe)
+    with dados(60): run(bot.magia_inicial.callback(i, None))
+    assert titulo(i) == f"✨ Magia Inicial de P{uid}" and row(uid, f"P{uid}")["magic_rank"] == "Raro" and not sent(i)[1].get("ephemeral"), (raca, classe)
+# quem NÃO tem magia é recusado, sem rolar dado nenhum e sem mexer no histórico
+for uid, raca, classe in [(410, "Humano", "Mundano"), (411, "Humano", "Caçador"), (412, "Humano", "Ladrão"), (413, "Humano", "Sábio"),
+                          (414, "Dhampir", "Sábio"), (415, "Dhampir", "Caçador")]:
+    i = montar(uid, f"J{uid}", f"P{uid}", raca, classe); n = len(historico_de(uid))
+    with dados(): run(bot.magia_inicial.callback(i, None))                                     # dados() vazio: rolar dado seria erro
+    m = txt(i)
+    assert m.startswith(f"🚫 **P{uid}** não sorteia o Rank de magia") and f"essa combinação é {raca} com {classe}." in m and sent(i)[1]["ephemeral"], (raca, classe)
+    assert "Próximo passo: `/atributos`" in m and row(uid, f"P{uid}")["magic_rank"] is None and len(historico_de(uid)) == n
+# o Rank de magia vem DEPOIS da raça e da classe: antes disso, fechado
+v = montar(420, "V", "Vampiro Sem Classe", "Vampiro", None)
+run(bot.magia_inicial.callback(v, None)); assert "Ainda não dá pra usar `/magia_inicial`" in txt(v) and "▶️ Escolher a classe: `/classe`" in txt(v)
+f = montar(421, "F", "Feiticeiro Sem Raça", None, "Feiticeiros")                                     # classe feita por um mestre, sem a raça
+run(bot.magia_inicial.callback(f, None)); assert "Ainda não dá pra usar `/magia_inicial`" in txt(f) and "▶️ Sortear a raça: `/raca_inicial`" in txt(f)
+sr = montar(422, "S", "Sem Raça Nem Classe", None, None, estado=None)
+run(bot.magia_inicial.callback(sr, None)); assert "Ainda não dá pra usar `/magia_inicial`" in txt(sr) and row(422, "Sem Raça Nem Classe")["magic_rank"] is None
+# já sorteou: continua dizendo que já tem
+m400 = inter(400, "J400"); run(bot.magia_inicial.callback(m400, None)); assert "já tem Rank de Magia: **Raro**" in txt(m400)
+
+# o /classe já diz se o personagem tem magia e qual é o próximo passo
+c1 = montar(430, "C1", "Classe Sem Magia", "Humano", None); run(bot.classe_escolher.callback(c1, "Sábio", None))
+assert "Sua raça e sua classe não têm magia, então você não sorteia o Rank de magia." in desc(c1) and "Próximo passo: `/atributos`" in desc(c1)
+c2 = montar(431, "C2", "Classe Vampira", "Vampiro", None); run(bot.classe_escolher.callback(c2, "Mundano", None))
+assert "Sua raça ou sua classe tem magia." in desc(c2) and "Próximo passo: `/magia_inicial`" in desc(c2) and "não têm magia" not in desc(c2)
+c3 = montar(432, "C3", "Classe Feiticeira", "Humano", None); run(bot.classe_escolher.callback(c3, "Feiticeiros", None))
+assert "Sua raça ou sua classe tem magia." in desc(c3) and "Próximo passo: `/magia_inicial`" in desc(c3)
+c4 = montar(433, "C4", "Classe Forjadora", "Humano", None); run(bot.classe_escolher.callback(c4, "Mestre de Forja", None)); assert "Próximo passo: `/magia_inicial`" in desc(c4)
+
+# a ficha e a lista de personagens mostram a situação de cada um
+e1 = montar(440, "E1", "Elegível", "Vampiro", "Mundano"); run(bot.minha_ficha.callback(e1, None))
+assert campos(e1)["Rank de Magia"] == "ainda não definido\n(use `/magia_inicial`)"; run(bot.personagem_listar.callback(e1)); assert "magia: sem rank" in desc(e1)
+e2 = montar(441, "E2", "Sem Magia", "Humano", "Mundano"); run(bot.minha_ficha.callback(e2, None))
+assert campos(e2)["Rank de Magia"] == "sem magia\n(só Vampiros, Feiticeiros e Mestres de Forja têm magia)"; run(bot.personagem_listar.callback(e2)); assert "magia: sem magia" in desc(e2)
+e3 = montar(442, "E3", "Indefinido", "Humano", None); run(bot.minha_ficha.callback(e3, None))
+assert campos(e3)["Rank de Magia"] == "depende da raça e da classe\n(fica claro depois de escolher as duas)"; run(bot.personagem_listar.callback(e3)); assert "magia: sem rank" in desc(e3)
+e4 = montar(443, "E4", "Dado Antigo", "Humano", "Mundano"); db.set_magic_rank(row(443, "Dado Antigo")["id"], "Raro", 62)      # Rank guardado de antes da regra
+run(bot.minha_ficha.callback(e4, None)); assert campos(e4)["Rank de Magia"] == "Raro\n(1d100: 62)\n⚠️ raça e classe sem magia, fala com um mestre"
+run(bot.personagem_listar.callback(e4)); assert "magia: Raro" in desc(e4)
+db.set_attributes(row(443, "Dado Antigo")["id"], {"vontade": 6}); assert tenta(bot.rolar, e4) is None                       # o dado antigo não trava a ficha
+run(bot.minha_ficha.callback(e4, None)); assert "Ficha incompleta" not in (sent(e4)[1]["embed"].description or "")
+
+# os mestres são avisados quando corrigir a raça ou a classe muda se o personagem tem magia
+g1 = montar(450, "G1", "Nota Um", "Humano", "Mundano"); a450 = alvo(450, "G1")
+run(bot.mestre_corrigir_raca.callback(gm, a450, "Vampiro", None)); assert "Agora **Nota Um** tem magia e precisa sortear o Rank de magia com `/magia_inicial`." in desc(gm)
+run(bot.mestre_corrigir_raca.callback(gm, a450, "Dhampir", None)); assert "Com essa combinação **Nota Um** não tem magia." in desc(gm) and "continua na ficha" not in desc(gm)   # sem Rank guardado
+run(bot.mestre_corrigir_raca.callback(gm, a450, "Humano", None)); assert "magia" not in desc(gm).split("→")[-1]                # nao -> nao: nada a avisar
+db.set_magic_rank(row(450, "Nota Um")["id"], "Comum", 10)
+run(bot.mestre_corrigir_raca.callback(gm, a450, "Vampiro", None)); assert "precisa sortear" not in desc(gm)                        # já tem o Rank: nada a sortear
+run(bot.mestre_corrigir_raca.callback(gm, a450, "Humano", None))
+assert "Com essa combinação **Nota Um** não tem magia. O Rank de magia (Comum) continua na ficha; use `/mestre apagar` se quiser tirar." in desc(gm)
+g2 = montar(451, "G2", "Nota Dois", "Humano", "Feiticeiros"); a451 = alvo(451, "G2")
+run(bot.mestre_corrigir_classe.callback(gm, a451, "Mestre de Forja", None)); assert "não tem magia" not in desc(gm) and "precisa sortear" not in desc(gm)   # continua com magia
+run(bot.mestre_corrigir_classe.callback(gm, a451, "Sábio", None)); assert "Com essa combinação **Nota Dois** não tem magia." in desc(gm)
+run(bot.mestre_corrigir_classe.callback(gm, a451, "Feiticeiros", None)); assert "Agora **Nota Dois** tem magia e precisa sortear o Rank de magia com `/magia_inicial`." in desc(gm)
+# o mestre pode passar por cima e dar o Rank a quem não tem magia (a ficha mostra o aviso), e depois apagar
+g3 = montar(452, "G3", "Exceção", "Humano", "Mundano"); a452 = alvo(452, "G3")
+run(bot.mestre_corrigir_magia.callback(gm, a452, "Lendário", None)); assert row(452, "Exceção")["magic_rank"] == "Lendário" and "não tem magia" not in desc(gm)
+run(bot.minha_ficha.callback(g3, None)); assert "⚠️ raça e classe sem magia, fala com um mestre" in campos(g3)["Rank de Magia"] and "definido por um mestre" in campos(g3)["Rank de Magia"]
+run(bot.mestre_apagar.callback(gm, a452, "magic_rank", None)); assert row(452, "Exceção")["magic_rank"] is None
+run(bot.minha_ficha.callback(g3, None)); assert campos(g3)["Rank de Magia"].startswith("sem magia")
+
+# de ponta a ponta pelos comandos: Vampiro Mundano precisa do Rank; Humano Sábio segue direto pros atributos
+vp = inter(460, "Vampira"); run(bot.personagem_criar.callback(vp, "Vampira Mundana"))
+with dados(90, 50): run(bot.raca_inicial.callback(vp, None)); run(bot.classe_social.callback(vp, None))
+run(bot.classe_escolher.callback(vp, "Mundano", None)); assert "Próximo passo: `/magia_inicial`" in desc(vp)
+run(bot.atributos.callback(vp, None, None, None, None, 6, None, None)); assert "Ainda não dá pra usar `/atributos`" in txt(vp) and "▶️ Sortear o Rank de magia: `/magia_inicial`" in txt(vp)
+assert "Sortear o Rank de magia" in tenta(bot.rolar, vp)
+with dados(70): run(bot.magia_inicial.callback(vp, None))
+assert row(460, "Vampira Mundana")["race"] == "Vampiro" and row(460, "Vampira Mundana")["magic_rank"] == "Raro"
+run(bot.atributos.callback(vp, None, None, None, None, 6, None, None)); assert titulo(vp).endswith("atualizados") and tenta(bot.rolar, vp) is None
+hs = inter(461, "Humano"); run(bot.personagem_criar.callback(hs, "Humano Sábio"))
+with dados(40, 50): run(bot.raca_inicial.callback(hs, None)); run(bot.classe_social.callback(hs, None))
+run(bot.classe_escolher.callback(hs, "Sábio", None)); assert "Próximo passo: `/atributos`" in desc(hs)
+run(bot.atributos.callback(hs, None, None, None, None, 6, None, None)); assert titulo(hs).endswith("atualizados") and tenta(bot.rolar, hs) is None      # pronto sem nunca ter magia
+assert row(461, "Humano Sábio")["magic_rank"] is None
+
+# chavinha desligada: quem tem raça ou classe indefinida pode rolar (como antes da ordem), mas a regra de quem NÃO tem magia continua
+bot.ORDEM_DA_CRIACAO = False
+try:
+    l1 = montar(470, "L1", "Livre Um", "Humano", None)
+    with dados(30): run(bot.magia_inicial.callback(l1, None))
+    assert row(470, "Livre Um")["magic_rank"] == "Comum"
+    l2 = montar(471, "L2", "Livre Dois", "Humano", "Mundano")
+    with dados(): run(bot.magia_inicial.callback(l2, None))
+    assert txt(l2).startswith("🚫 **Livre Dois** não sorteia o Rank de magia") and row(471, "Livre Dois")["magic_rank"] is None
+finally:
+    bot.ORDEM_DA_CRIACAO = True
+print("O. quem tem magia OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

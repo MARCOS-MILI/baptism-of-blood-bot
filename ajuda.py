@@ -22,8 +22,8 @@ AJUDA = {
         "uso": "/personagem criar nome:Kairon Flagon",
         "detalhes": (
             "É o primeiro passo de tudo. Cada jogador tem 3 vagas de personagem, e um mestre pode liberar "
-            "vagas extras. Depois de criar, faz os três sorteios, escolhe a classe e distribui os atributos. "
-            "O passo a passo inteiro aparece em `/ajuda`."
+            "vagas extras. Depois de criar, sorteia a raça e a classe social, escolhe a classe, sorteia o Rank de "
+            "magia (só quem tem magia) e distribui os atributos. O passo a passo inteiro aparece em `/ajuda`."
         ),
     },
     "personagem usar": {
@@ -65,7 +65,7 @@ AJUDA = {
             "Vale uma vez só; depois, só um mestre muda. Mostra a vantagem em perícias e o bônus de Vida, Sanidade, "
             "Mana e Estamina da classe."
         ),
-        "requisito": "Só depois dos três sorteios (raça, Rank de magia e classe social).",
+        "requisito": "Só depois de sortear a raça e a classe social.",
     },
     "atributos": {
         "grupo": "personagem",
@@ -76,7 +76,7 @@ AJUDA = {
             "níveis. Atributo só sobe (pra diminuir, chama um mestre), e o bot confere o total e os limites da raça. "
             "Os pontos que vêm de nível podem passar do limite de criação."
         ),
-        "requisito": "Só depois de escolher a classe. A ficha só fica pronta com os 6 pontos da criação distribuídos.",
+        "requisito": "Só depois de escolher a classe e, se você tiver magia, de sortear o Rank de magia. A ficha só fica pronta com os 6 pontos da criação distribuídos.",
     },
     # ------------------------------------------------------------------ sorteios
     "raca_inicial": {
@@ -87,17 +87,7 @@ AJUDA = {
             "De 1 a 85 é Humano, de 86 a 95 Vampiro e de 96 a 100 Dhampir. Vale uma vez por personagem e o resultado "
             "aparece pra todo mundo. Rolou errado? Só um mestre apaga."
         ),
-        "requisito": "Passo da criação. Os três sorteios podem ser feitos em qualquer ordem.",
-    },
-    "magia_inicial": {
-        "grupo": "sorteios",
-        "resumo": "sorteia o Rank de magia (1d100)",
-        "uso": "/magia_inicial",
-        "detalhes": (
-            "De 1 a 45 é Comum, de 46 a 75 Raro, de 76 a 95 Super Raro, de 96 a 99 Lendário e 100 é Mítico. "
-            "Vale uma vez por personagem e o resultado aparece pra todo mundo."
-        ),
-        "requisito": "Passo da criação. Os três sorteios podem ser feitos em qualquer ordem.",
+        "requisito": "Passo da criação. A raça e a classe social podem ser sorteadas em qualquer ordem.",
     },
     "classe_social": {
         "grupo": "sorteios",
@@ -108,7 +98,18 @@ AJUDA = {
             "outro 1d100 na hora: até 49 é Baixo Clero, de 50 pra cima é Alto Clero. Se der 100, o bot avisa os mestres "
             "e é um deles que define o seu Estado."
         ),
-        "requisito": "Passo da criação. Os três sorteios podem ser feitos em qualquer ordem.",
+        "requisito": "Passo da criação. A raça e a classe social podem ser sorteadas em qualquer ordem.",
+    },
+    "magia_inicial": {
+        "grupo": "sorteios",
+        "resumo": "sorteia o Rank de magia (1d100), só pra quem tem magia",
+        "uso": "/magia_inicial",
+        "detalhes": (
+            "Só tem magia quem é Vampiro (de qualquer classe) ou das classes Feiticeiros e Mestre de Forja. Quem não "
+            "tem não sorteia, e esse passo não vale pra ele. De 1 a 45 é Comum, de 46 a 75 Raro, de 76 a 95 Super Raro, "
+            "de 96 a 99 Lendário e 100 é Mítico. Vale uma vez por personagem, e o resultado aparece pra todo mundo."
+        ),
+        "requisito": "Só depois de sortear a raça e escolher a classe, e só se a sua raça ou a sua classe tiver magia.",
     },
     # ------------------------------------------------------------------ jogo
     "rolar": {
@@ -219,13 +220,16 @@ AJUDA = {
         "grupo": "mestre",
         "resumo": "define o Rank de magia na mão, sem rolar",
         "uso": "/mestre corrigir_magia usuario:@alguém rank:Raro",
-        "detalhes": "Aparece na ficha como definido por um mestre.",
+        "detalhes": "Aparece na ficha como definido por um mestre. Não confere se a raça e a classe dele têm magia.",
     },
     "mestre corrigir_raca": {
         "grupo": "mestre",
         "resumo": "define a raça na mão, sem rolar",
         "uso": "/mestre corrigir_raca usuario:@alguém raca:Dhampir",
-        "detalhes": "Aparece na ficha como definido por um mestre.",
+        "detalhes": (
+            "Aparece na ficha como definido por um mestre. Se a raça nova der magia (Vampiro) e o jogador ainda não "
+            "tiver sorteado o Rank de magia, o bot avisa, e ele passa a precisar do `/magia_inicial`."
+        ),
     },
     "mestre corrigir_estado": {
         "grupo": "mestre",
@@ -237,7 +241,11 @@ AJUDA = {
         "grupo": "mestre",
         "resumo": "define a classe na mão",
         "uso": "/mestre corrigir_classe usuario:@alguém classe:Sábio",
-        "detalhes": "Funciona mesmo depois de o jogador já ter escolhido, e mesmo que ele ainda não tenha feito os sorteios.",
+        "detalhes": (
+            "Funciona mesmo depois de o jogador já ter escolhido, e mesmo que ele ainda não tenha feito os sorteios. "
+            "Se a classe nova der magia (Feiticeiros ou Mestre de Forja) e ele ainda não tiver sorteado o Rank de "
+            "magia, o bot avisa, e ele passa a precisar do `/magia_inicial`."
+        ),
     },
     "mestre atributos": {
         "grupo": "mestre",
@@ -290,7 +298,7 @@ MESTRE_SUBGRUPOS = [
 
 # Só comandos, em ordem, pra sugerir no autocomplete quando a pessoa ainda não digitou nada.
 ORDEM_SUGESTAO = [
-    "personagem criar", "raca_inicial", "magia_inicial", "classe_social", "classe", "atributos", "minha_ficha",
+    "personagem criar", "raca_inicial", "classe_social", "classe", "magia_inicial", "atributos", "minha_ficha",
     "rolar", "niveis", "rank", "calcular_recursos", "historico", "extrato_xp", "personagem usar",
     "personagem listar", "personagem excluir", "ajuda",
 ]
@@ -299,23 +307,38 @@ ORDEM_SUGESTAO = [
 # ---------------------------------------------------------------------------
 # Passo a passo da criação
 # ---------------------------------------------------------------------------
+def _juntar(itens: list[str]) -> str:
+    """['a', 'b', 'c'] vira 'a, b e c'."""
+    if len(itens) <= 1:
+        return "".join(itens)
+    return ", ".join(itens[:-1]) + " e " + itens[-1]
+
+
 def _depois(passo_id: str, status: dict) -> str:
+    """'depois de sortear a raça e a classe social, escolher a classe...' (o que ainda falta antes desse passo)."""
     faltam = rules.creation_missing_before(passo_id, status)
     partes = []
-    if any(x in faltam for x in ("raca", "magia", "estado")):
-        partes.append("dos sorteios")
+    sorteios = [{"raca": "a raça", "estado": "a classe social"}[x] for x in faltam if x in ("raca", "estado")]
+    if sorteios:
+        partes.append("sortear " + _juntar(sorteios))
     if "classe" in faltam:
-        partes.append("de escolher a classe")
-    return "depois " + " e ".join(partes)
+        partes.append("escolher a classe")
+    if "magia" in faltam:
+        partes.append("sortear o Rank de magia")
+    # 'depois de sortear a raça e a classe social, de escolher a classe e de sortear o Rank de magia'
+    return "depois de " + _juntar([partes[0]] + [f"de {p}" for p in partes[1:]])
 
 
 def linhas_passo_a_passo(status: dict) -> list[str]:
-    """Um item por passo: ✅ feito, ▶️ próximo, ⬜ liberado, ⏳ com o mestre, 🔒 ainda fechado."""
+    """Um item por passo: ✅ feito, ▶️ próximo, ⬜ liberado, ⏳ com o mestre, 🔒 ainda fechado,
+    ➖ não vale pra você (Rank de magia de quem não tem magia)."""
     proximo = rules.creation_next_step(status)
     linhas = ["✅ Personagem criado"]
     for passo in rules.CREATION_STEPS:
         pid = passo["id"]
-        if status[pid]:
+        if pid == "magia" and status["sem_magia"] and not status["magia_sorteada"]:
+            linhas.append("➖ Rank de magia: a sua raça e a sua classe não têm magia, então esse passo não vale pra você")
+        elif status[pid]:
             linhas.append(f"✅ {passo['rotulo']}")
         elif pid == "estado" and status["aguardando_mestre"]:
             linhas.append("⏳ Classe social: você tirou 100, então um mestre vai definir o seu Estado")
@@ -337,8 +360,17 @@ def proximo_passo(status: dict) -> str:
     if proximo == "estado" and status["aguardando_mestre"]:
         return "Agora é com um mestre: fala com ele pra definir o seu Estado, e aí você segue."
     passo = next(p for p in rules.CREATION_STEPS if p["id"] == proximo)
-    dica = " (os três sorteios podem ser feitos em qualquer ordem)" if proximo in ("raca", "magia", "estado") else ""
+    dica = " (a raça e a classe social podem ser sorteadas em qualquer ordem)" if proximo in ("raca", "estado") else ""
     return f"Próximo passo: `{passo['comando']}`, pra {passo['rotulo'][0].lower() + passo['rotulo'][1:]}{dica}."
+
+
+def texto_sem_magia(nome: str, raca: str | None, classe: str | None, status: dict) -> str:
+    """Resposta de quando alguém sem magia tenta o /magia_inicial."""
+    return (
+        f"🚫 **{nome}** não sorteia o Rank de magia: só tem magia quem é Vampiro (de qualquer classe) ou das classes "
+        f"Feiticeiros e Mestre de Forja, e essa combinação é {raca} com {classe}. Esse passo não vale pra esse personagem.\n\n"
+        + proximo_passo(status)
+    )
 
 
 def texto_bloqueio(nome: str, status: dict) -> str:

@@ -150,33 +150,65 @@ assert rules.describe_attributes(V(forca=2, vitalidade=3, vontade=1)) == "Força
 assert rules.ATTRIBUTES == ("forca", "destreza", "vitalidade", "razao", "vontade", "alma") and set(rules.ATTRIBUTE_LABELS) == set(rules.ATTRIBUTES)
 print("5. atributos OK")
 
-# ---------- ordem da criação: sorteios (qualquer ordem), depois classe, depois atributos ----------
+# ---------- quem tem magia: Vampiro (qualquer classe) e as classes Feiticeiros e Mestre de Forja ----------
+assert rules.MAGIC_RACES == ("Vampiro",) and rules.MAGIC_CLASSES == ("Feiticeiros", "Mestre de Forja")
+assert set(rules.MAGIC_CLASSES) <= set(rules.CLASSES)
+com_magia = 0
+for raca in ("Humano", "Vampiro", "Dhampir"):                          # a tabela inteira: 3 raças x 6 classes
+    for classe in rules.CLASSES:
+        esperado = "sim" if raca == "Vampiro" or classe in ("Feiticeiros", "Mestre de Forja") else "nao"
+        assert rules.magic_access(raca, classe) == esperado, (raca, classe)
+        com_magia += esperado == "sim"
+assert com_magia == 10                                                    # 6 do Vampiro + 2 classes mágicas nas outras 2 raças
+assert rules.magic_access("Humano", "Mundano") == "nao"                   # o caso que não fazia sentido
+assert rules.magic_access("Dhampir", "Sábio") == "nao" and rules.magic_access("Dhampir", "Feiticeiros") == "sim"    # Dhampir só com classe mágica
+assert rules.magic_access("Vampiro", None) == "sim" and rules.magic_access(None, "Mestre de Forja") == "sim"        # uma das duas já basta
+assert [rules.magic_access(a, b) for a, b in (("Humano", None), (None, "Mundano"), (None, None))] == ["indefinido"] * 3
+print("6. quem tem magia OK")
+
+# ---------- ordem da criação: raça e classe social (qualquer ordem), classe, Rank de magia (só pra quem tem), atributos ----------
 base = dict(race=None, magic_rank=None, social_class=None, class_name=None, **{f"attr_{a}": 0 for a in rules.ATTRIBUTES})
 st = lambda **k: rules.creation_status({**base, **k})
-SORTEADOS = dict(race="Humano", magic_rank="Raro", social_class="3º Estado")
-assert [p["id"] for p in rules.CREATION_STEPS] == ["raca", "magia", "estado", "classe", "atributos"]
+SORTEIOS = dict(race="Humano", social_class="3º Estado")
+assert [p["id"] for p in rules.CREATION_STEPS] == ["raca", "estado", "classe", "magia", "atributos"]
 s0 = st()
-assert not s0["pronta"] and rules.creation_next_step(s0) == "raca"
-assert [rules.creation_missing_before(x, s0) for x in ("raca", "magia", "estado")] == [[], [], []]              # os três sorteios abrem de cara
-assert rules.creation_missing_before("classe", s0) == ["raca", "magia", "estado"]
-assert rules.creation_missing_before("atributos", s0) == ["raca", "magia", "estado", "classe"]                  # pré-requisitos dos pré-requisitos
-for feito in ("raca", "magia", "estado"):                                                                       # qualquer ordem entre os sorteios
-    parcial = st(**{"raca": dict(race="Humano"), "magia": dict(magic_rank="Raro"), "estado": dict(social_class="3º Estado")}[feito])
-    assert rules.creation_missing_before("classe", parcial) == [x for x in ("raca", "magia", "estado") if x != feito]
-s1 = st(**SORTEADOS)
-assert rules.creation_missing_before("classe", s1) == [] and rules.creation_missing_before("atributos", s1) == ["classe"] and rules.creation_next_step(s1) == "classe"
-s2 = st(**SORTEADOS, class_name="Sábio", attr_forca=2)
-assert rules.creation_next_step(s2) == "atributos" and s2["pontos_usados"] == 2 and not s2["atributos"] and not s2["pronta"]
-s3 = st(**SORTEADOS, class_name="Sábio", attr_forca=2, attr_vitalidade=3, attr_vontade=1)
-assert s3["pronta"] and rules.creation_next_step(s3) is None and s3["pontos_usados"] == 6
-assert st(**SORTEADOS, class_name="Sábio", attr_destreza=6)["pronta"]                                            # os 6 pontos valem em qualquer atributo
-assert not st(**SORTEADOS, class_name="Sábio", attr_forca=5)["pronta"]                                           # 5 de 6 ainda não
-# um 100 na classe social ainda não conta: quem decide é o mestre, e a classe fica fechada
-s4 = st(race="Humano", magic_rank="Raro", social_class=dice.SOCIAL_CLASS_MASTER)
+assert not s0["pronta"] and rules.creation_next_step(s0) == "raca" and s0["magia_acesso"] == "indefinido" and not s0["sem_magia"]
+assert [rules.creation_missing_before(x, s0) for x in ("raca", "estado")] == [[], []]                            # os dois sorteios abrem de cara
+assert rules.creation_missing_before("classe", s0) == ["raca", "estado"]
+assert rules.creation_missing_before("magia", s0) == ["raca", "estado", "classe"]                                # o Rank de magia vem depois da classe
+assert rules.creation_missing_before("atributos", s0) == ["raca", "estado", "classe", "magia"]                    # pré-requisitos dos pré-requisitos
+for feito, dados in (("raca", dict(race="Humano")), ("estado", dict(social_class="3º Estado"))):                # qualquer ordem entre os dois
+    assert rules.creation_missing_before("classe", st(**dados)) == [x for x in ("raca", "estado") if x != feito]
+s1 = st(**SORTEIOS)
+assert rules.creation_missing_before("classe", s1) == [] and rules.creation_missing_before("magia", s1) == ["classe"] and rules.creation_next_step(s1) == "classe"
+# classe SEM magia (Humano Mundano): o passo do Rank de magia não vale, e os atributos abrem direto
+s2 = st(**SORTEIOS, class_name="Mundano")
+assert s2["sem_magia"] and s2["magia"] and not s2["magia_sorteada"] and not s2["magia_indevida"] and s2["magia_acesso"] == "nao"
+assert rules.creation_missing_before("atributos", s2) == [] and rules.creation_next_step(s2) == "atributos" and not s2["pronta"]
+s3 = st(**SORTEIOS, class_name="Mundano", attr_forca=2, attr_vitalidade=3, attr_vontade=1)
+assert s3["pronta"] and rules.creation_next_step(s3) is None and s3["pontos_usados"] == 6                        # pronta sem nunca ter sorteado magia
+assert st(**SORTEIOS, class_name="Mundano", attr_destreza=6)["pronta"] and not st(**SORTEIOS, class_name="Mundano", attr_forca=5)["pronta"]
+# classe COM magia: o Rank de magia fica no caminho até ser sorteado
+for dados in (dict(race="Humano", class_name="Feiticeiros"), dict(race="Humano", class_name="Mestre de Forja"),
+              dict(race="Vampiro", class_name="Mundano"), dict(race="Vampiro", class_name="Ladrão"), dict(race="Dhampir", class_name="Feiticeiros")):
+    c = st(social_class="3º Estado", **dados)
+    assert c["magia_acesso"] == "sim" and not c["sem_magia"] and not c["magia"] and rules.creation_next_step(c) == "magia", dados
+    assert rules.creation_missing_before("atributos", c) == ["magia"] and not st(social_class="3º Estado", attr_forca=6, **dados)["pronta"]
+    assert st(social_class="3º Estado", magic_rank="Raro", attr_forca=6, **dados)["pronta"]
+c = st(**SORTEIOS, class_name="Feiticeiros", magic_rank="Raro")
+assert c["magia"] and c["magia_sorteada"] and rules.creation_next_step(c) == "atributos" and not c["pronta"]
+# Rank guardado de quem não tem magia (dado antigo): conta como feito, mas fica marcado
+ind = st(**SORTEIOS, class_name="Mundano", magic_rank="Raro")
+assert ind["magia"] and ind["sem_magia"] and ind["magia_sorteada"] and ind["magia_indevida"]
+assert not st(**SORTEIOS, class_name="Feiticeiros", magic_rank="Raro")["magia_indevida"]
+# Rank sorteado antes de saber a classe (dado antigo): vale, e a ficha não fica presa
+assert st(race="Humano", magic_rank="Raro")["magia"] and st(race="Humano", magic_rank="Raro")["magia_acesso"] == "indefinido"
+# um 100 na classe social ainda não conta: quem decide é o mestre, e a classe (e tudo depois) fica fechada
+s4 = st(race="Humano", social_class=dice.SOCIAL_CLASS_MASTER)
 assert s4["aguardando_mestre"] and not s4["estado"] and not s4["pronta"] and rules.creation_next_step(s4) == "estado"
-assert rules.creation_missing_before("classe", s4) == ["estado"]
+assert rules.creation_missing_before("classe", s4) == ["estado"] and rules.creation_missing_before("magia", s4) == ["estado", "classe"]
 assert not st(social_class="3º Estado")["aguardando_mestre"]
-# a mesma linha do banco serve (sqlite3.Row), e a ficha continua pronta em qualquer nível
+# a mesma linha do banco serve (sqlite3.Row)
 import sqlite3
 cn = sqlite3.connect(":memory:"); cn.row_factory = sqlite3.Row
 cn.execute("CREATE TABLE c (race, magic_rank, social_class, class_name, attr_forca, attr_destreza, attr_vitalidade, attr_razao, attr_vontade, attr_alma)")
