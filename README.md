@@ -18,6 +18,23 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 
 **Vagas de personagem:** cada jogador pode ter até 3 personagens. Os mestres podem liberar vagas extras, na mão (`/mestre vagas`), até 10 no total. Nomes iguais só não podem se repetir dentro dos personagens da mesma pessoa.
 
+**Ordem da criação e ficha pronta**
+
+A criação do personagem tem uma ordem, e o bot vai guiando:
+
+1. `/personagem criar`
+2. Os três sorteios, em qualquer ordem: `/raca_inicial`, `/magia_inicial` e `/classe_social`
+3. `/classe`, que só abre depois dos três sorteios
+4. `/atributos`, que só abre depois de escolher a classe
+
+A ficha só fica **pronta** com os três sorteios feitos (um 100 na classe social conta só depois que um mestre decide o Estado), a classe escolhida e os 6 pontos de atributo da criação distribuídos. Enquanto não estiver pronta, o bot **bloqueia** `/rolar` e `/extrato_xp` (que usam o personagem em uso, ou o do campo `personagem:`) e `/historico` e `/rank` (que só abrem quando pelo menos um dos seus personagens estiver pronto). A mensagem de bloqueio mostra o passo a passo com o que já foi feito (✅), o próximo (▶️), o que ainda está fechado (🔒) e o que está com o mestre (⏳). Ficam sempre abertos: `/ajuda`, `/help`, `/personagem`, `/minha_ficha` (que avisa o que falta), `/niveis`, `/calcular_recursos` e os próprios passos da criação, na ordem. Os mestres passam direto por tudo isso. Se um mestre apagar um sorteio (`/mestre apagar`), a ficha do jogador volta a ficar incompleta até ele rolar de novo.
+
+Personagens que já existiam e ainda não têm classe e atributos também precisam completar a ficha pra usar os comandos bloqueados.
+
+**Ajuda**
+
+- `/ajuda` (ou `/help`) mostra o seu passo a passo e a lista de comandos, com um resumo de cada um. Com `comando:` (por exemplo `/ajuda comando:atributos`), explica um comando com exemplo e diz quando dá pra usar. Os comandos de mestre só aparecem na lista pra quem é mestre.
+
 **Sorteios de criação** (uma rolagem só por personagem)
 
 - `/magia_inicial` rola 1d100 e define o Rank de magia.
@@ -117,7 +134,7 @@ Só quem tem o cargo `Mestre` ou a permissão de Gerenciar Servidor. Sem `person
 - `/mestre upar usuario:@alguém niveis:1 motivo:...` é um atalho: dá exatamente o XP que falta pro personagem subir (máximo 10).
 - `/mestre corrigir_nivel usuario:@alguém nivel:...` põe o personagem no começo de um nível, com o XP mínimo dele, pra consertar um erro.
 - `/mestre rank_pericia usuario:@alguém pericia:... rank:...` define o Rank (0 a 10) de uma perícia especial.
-- `/mestre apagar usuario:@alguém definicao:...` apaga Rank de magia, Raça, Classe social ou tudo isso, pro jogador poder rolar de novo. A rolagem antiga continua no histórico.
+- `/mestre apagar usuario:@alguém definicao:...` apaga Rank de magia, Raça, Classe social ou tudo isso, pro jogador poder rolar de novo. A rolagem antiga continua no histórico. Enquanto ele não rolar de novo, a ficha dele fica incompleta e os comandos de jogo dele fecham.
 - `/mestre corrigir_magia`, `/mestre corrigir_raca` e `/mestre corrigir_estado` definem o valor na mão, sem rolar. O `corrigir_estado` é o jeito de resolver o 100 do sorteio de Classe social.
 - `/mestre ficha usuario:@alguém personagem:...` mostra a ficha completa de um personagem de outro jogador (só o mestre vê).
 - `/mestre jogador usuario:@alguém` mostra quantos personagens a pessoa tem, quantas vagas usa, o XP de cada um e quantos personagens ela já excluiu.
@@ -178,6 +195,7 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 |---|---|
 | `DISCORD_TOKEN` | Token do bot (obrigatória) |
 | `MESTRE_ROLE` | Nome do cargo que usa `/mestre` (padrão: `Mestre`) |
+| `ORDEM_DA_CRIACAO` | Chavinha de segurança. Com `0`, o bot deixa de bloquear comandos por causa da ficha e tudo abre como era antes da ordem. Sem a variável, fica ligada. Dá pra mudar direto no Railway, sem deploy (só reinicia o bot) |
 | `LIMITE_PERSONAGENS` | Vagas de personagem que todo jogador tem (padrão: `3`) |
 | `LIMITE_MAXIMO_PERSONAGENS` | Teto de personagens por jogador, contando as vagas extras (padrão: `10`) |
 | `DB_PATH` | Caminho do arquivo do banco (opcional, ganha do Volume) |
@@ -186,10 +204,11 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 ## Arquivos
 
 - `bot.py`: os comandos.
+- `ajuda.py`: os textos do `/ajuda` (um por comando, com exemplo e requisito) e as mensagens de bloqueio da criação. Quando um comando novo entrar, ele precisa de uma entrada aqui: o `tests/test_bot.py` confere isso.
 - `dice.py`: notação de dados e as tabelas de sorteio (magia, raça, classe social, clero).
 - `rules.py`: regras do sistema (XP e níveis, ganhos por nível, classes, perícias especiais, cálculo de recursos). Se uma regra mudar no site, muda aqui.
 - `db.py`: banco SQLite (histórico, personagens, XP e extrato, vagas, ranks, personagens excluídos, registro das ações de mestre).
-- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_rules.py`, `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
+- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_rules.py`, `python tests/test_ajuda.py`, `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
 
 ## Bancos antigos
 

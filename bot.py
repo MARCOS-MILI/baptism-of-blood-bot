@@ -12,6 +12,10 @@ Jogadores:
   /extrato_xp [personagem]                   -> de onde veio o XP do personagem
   /rank [tipo] [limite]                      -> rank público de XP total (personagens ou jogadores)
   /calcular_recursos                         -> simula Vida, Sanidade, Mana e Estamina (por nível)
+  /ajuda [comando]                           -> ensina a usar o bot e explica cada comando (também /help)
+
+Ordem da criação: /personagem criar, os três sorteios (em qualquer ordem), /classe e /atributos.
+Só com a ficha pronta abrem /rolar, /historico, /extrato_xp e /rank (os mestres passam direto).
 
 Mestres:
   /mestre dar_xp | upar | corrigir_nivel | rank_pericia
@@ -35,6 +39,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
+import ajuda
 import db
 import dice
 import rules
@@ -51,6 +56,16 @@ LIMITE_MAXIMO = max(LIMITE_BASE, int(os.environ.get("LIMITE_MAXIMO_PERSONAGENS",
 MAX_VAGAS_EXTRAS = LIMITE_MAXIMO - LIMITE_BASE
 
 NOME_MIN, NOME_MAX = 2, 60
+
+
+def _flag_ligada(nome: str) -> bool:
+    """Variável de ambiente ligada por padrão. Só desliga com 0, false, nao, não ou off."""
+    return os.environ.get(nome, "1").strip().casefold() not in ("0", "false", "nao", "não", "off")
+
+
+# Chavinha de segurança: ORDEM_DA_CRIACAO=0 no Railway libera tudo de novo (como era antes da ordem),
+# sem precisar de deploy. Desligada, o bot não bloqueia nenhum comando por causa da ficha.
+ORDEM_DA_CRIACAO = _flag_ligada("ORDEM_DA_CRIACAO")
 
 
 class Arvore(app_commands.CommandTree):
@@ -111,9 +126,57 @@ def _cargo_mestre(guild: discord.Guild | None):
     return next((r for r in guild.roles if r.name.casefold() == cargo), None)
 
 
+class FichaIncompleta(app_commands.CheckFailure):
+    """Comando de jogo usado antes de a ficha estar pronta. A mensagem já vem pronta pra mostrar."""
+
+    def __init__(self, mensagem: str):
+        super().__init__(mensagem)
+        self.mensagem = mensagem
+
+
+_SEM_PERSONAGEM = "Você ainda não tem personagem. Começa por `/personagem criar`; o passo a passo está em `/ajuda`."
+
+
+async def _exigir_personagem_pronto(interaction: discord.Interaction) -> bool:
+    """Pra comandos que agem como o personagem (rolar, extrato de XP): o personagem usado precisa estar com a
+    ficha pronta. Os mestres passam direto."""
+    if not ORDEM_DA_CRIACAO or _eh_mestre(interaction):
+        return True
+    uid = str(interaction.user.id)
+    nome = getattr(interaction.namespace, "personagem", None)
+    if nome:
+        char = db.find_character(uid, nome)
+        if char is None:
+            return True  # o próprio comando avisa que não achou o personagem
+    else:
+        char = db.get_active_character(uid)
+        if char is None:
+            raise FichaIncompleta(_SEM_PERSONAGEM)
+    status = rules.creation_status(char)
+    if status["pronta"]:
+        return True
+    raise FichaIncompleta(ajuda.texto_bloqueio(char["name"], status))
+
+
+async def _exigir_algum_personagem_pronto(interaction: discord.Interaction) -> bool:
+    """Pra comandos que não usam um personagem (histórico, rank): vale ter pelo menos um com a ficha pronta."""
+    if not ORDEM_DA_CRIACAO or _eh_mestre(interaction):
+        return True
+    uid = str(interaction.user.id)
+    chars = db.list_characters(uid)
+    if not chars:
+        raise FichaIncompleta(_SEM_PERSONAGEM)
+    if any(rules.creation_status(c)["pronta"] for c in chars):
+        return True
+    ativo = db.get_active_character(uid) or chars[0]
+    raise FichaIncompleta(ajuda.texto_bloqueio(ativo["name"], rules.creation_status(ativo)))
+
+
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.CheckFailure):
+    if isinstance(error, FichaIncompleta):
+        msg = error.mensagem
+    elif isinstance(error, app_commands.CheckFailure):
         msg = f"⛔ Esse comando é só pra mestre (quem tem o cargo **{MESTRE_ROLE}** ou a permissão de Gerenciar Servidor)."
     else:
         nome = interaction.command.qualified_name if interaction.command else "?"
@@ -291,6 +354,9 @@ def _embed_ficha(personagem, jogador: str) -> discord.Embed:
     nivel, xp = personagem["level"], personagem["xp"]
     _, dentro, precisa = rules.xp_progress(xp)
     embed = discord.Embed(title=f"📖 Ficha de {personagem['name']}", color=discord.Color.dark_purple())
+    status = rules.creation_status(personagem)
+    if ORDEM_DA_CRIACAO and not status["pronta"]:
+        embed.description = f"⚠️ **Ficha incompleta.** {ajuda.proximo_passo(status)} Veja o passo a passo em `/ajuda`."
     nivel_txt = f"{nivel}/{rules.MAX_LEVEL}\n{rules.bar(nivel, rules.MAX_LEVEL)}\nXP total: {rules.fmt_xp(xp)}"
     if precisa is not None:
         nivel_txt += f"\nFaltam {rules.fmt_xp(precisa - dentro)} pro nível {nivel + 1}"
@@ -340,6 +406,7 @@ def _embed_ficha(personagem, jogador: str) -> discord.Embed:
     personagem="Opcional: rolar por outro personagem seu (padrão: o que você está usando)",
 )
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_exigir_personagem_pronto)
 async def rolar(interaction: discord.Interaction, dado: str, motivo: str | None = None, personagem: str | None = None):
     uid = str(interaction.user.id)
     try:
@@ -394,6 +461,7 @@ async def rolar(interaction: discord.Interaction, dado: str, motivo: str | None 
     personagem="Opcional: só as rolagens desse personagem",
 )
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_exigir_algum_personagem_pronto)
 async def historico(
     interaction: discord.Interaction,
     usuario: discord.Member | None = None,
@@ -563,7 +631,8 @@ async def personagem_criar(interaction: discord.Interaction, nome: str):
         title="🎭 Personagem criado",
         description=(
             f"**{novo['name']}** agora é o personagem que você está usando ({usadas + 1} de {permitidas} vagas).\n"
-            "Próximos passos: `/magia_inicial`, `/raca_inicial` e `/classe_social`."
+            "Próximo passo: os três sorteios (`/raca_inicial`, `/magia_inicial` e `/classe_social`, em qualquer ordem). "
+            "Depois vêm `/classe` e `/atributos`. O passo a passo completo está em `/ajuda`."
         ),
         color=discord.Color.dark_purple(),
     )
@@ -811,6 +880,10 @@ async def classe_escolher(interaction: discord.Interaction, classe: str, persona
             ephemeral=True,
         )
         return
+    status = rules.creation_status(char)
+    if ORDEM_DA_CRIACAO and rules.creation_missing_before("classe", status):
+        await interaction.response.send_message(ajuda.texto_falta_para("classe", status), ephemeral=True)
+        return
     db.set_class(char["id"], classe)
     b = rules.CLASSES[classe]
     embed = discord.Embed(
@@ -858,10 +931,9 @@ async def atributos(
         )
         return
 
-    if not char["race"]:
-        await interaction.response.send_message(
-            "Sorteia a raça primeiro com `/raca_inicial`: os limites de atributo dependem dela.", ephemeral=True
-        )
+    status = rules.creation_status(char)
+    if (ORDEM_DA_CRIACAO and rules.creation_missing_before("atributos", status)) or not char["race"]:
+        await interaction.response.send_message(ajuda.texto_falta_para("atributos", status), ephemeral=True)
         return
     atuais = db.attributes_of(char)
     baixaram = [rules.ATTRIBUTE_LABELS[n] for n, v in pedidos.items() if v < atuais[n]]
@@ -959,6 +1031,7 @@ async def niveis(interaction: discord.Interaction, personagem: str | None = None
 @bot.tree.command(name="extrato_xp", description="Mostra de onde veio o XP do seu personagem (últimas entradas).")
 @app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_exigir_personagem_pronto)
 async def extrato_xp(interaction: discord.Interaction, personagem: str | None = None):
     char, erro = _resolver(str(interaction.user.id), personagem)
     if erro:
@@ -998,6 +1071,7 @@ def _posicao(i: int) -> str:
     app_commands.Choice(name="Personagens", value="personagens"),
     app_commands.Choice(name="Jogadores (soma dos personagens)", value="jogadores"),
 ])
+@app_commands.check(_exigir_algum_personagem_pronto)
 async def rank(interaction: discord.Interaction, tipo: str = "personagens", limite: app_commands.Range[int, 3, 25] = 10):
     uid = str(interaction.user.id)
     if tipo == "jogadores":
@@ -1084,6 +1158,53 @@ async def calcular_recursos(
         "Destreza e Razão não entram."
     ))
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ---------------------------------------------------------------------------
+# Ajuda
+# ---------------------------------------------------------------------------
+
+async def _autocomplete_comando(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    return [
+        app_commands.Choice(name=f"/{nome}", value=nome)
+        for nome in ajuda.sugestoes(current, incluir_mestre=_eh_mestre(interaction))
+    ]
+
+
+async def _responder_ajuda(interaction: discord.Interaction, comando: str | None):
+    if comando:
+        chave, parecidos = ajuda.achar(comando)
+        if chave is None:
+            dica = (
+                " Quis dizer: " + ", ".join(f"`/{p}`" for p in parecidos) + "?"
+                if parecidos else " Use `/ajuda` pra ver a lista de comandos."
+            )
+            await interaction.response.send_message(f"Não achei nenhum comando com \"{comando}\".{dica}", ephemeral=True)
+            return
+        dados = ajuda.detalhe(chave)
+    else:
+        char = db.get_active_character(str(interaction.user.id))
+        dados = ajuda.visao_geral(
+            rules.creation_status(char) if char else None, char is not None, _eh_mestre(interaction)
+        )
+    embed = discord.Embed(title=dados["titulo"], description=dados["descricao"], color=discord.Color.blurple())
+    for nome, valor in dados["campos"]:
+        embed.add_field(name=nome, value=valor, inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="ajuda", description="Ensina a usar o bot e explica cada comando.")
+@app_commands.describe(comando="Opcional: o comando que você quer entender (por exemplo: atributos)")
+@app_commands.autocomplete(comando=_autocomplete_comando)
+async def ajuda_comando(interaction: discord.Interaction, comando: str | None = None):
+    await _responder_ajuda(interaction, comando)
+
+
+@bot.tree.command(name="help", description="Mesma coisa que /ajuda: ensina a usar o bot e explica cada comando.")
+@app_commands.describe(comando="Opcional: o comando que você quer entender (por exemplo: atributos)")
+@app_commands.autocomplete(comando=_autocomplete_comando)
+async def help_comando(interaction: discord.Interaction, comando: str | None = None):
+    await _responder_ajuda(interaction, comando)
 
 
 # ---------------------------------------------------------------------------

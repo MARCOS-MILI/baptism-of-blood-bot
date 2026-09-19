@@ -2,6 +2,8 @@
 especiais e cálculo de recursos. Tudo aqui segue o site e o documento do
 Baptism of Blood; se a regra mudar lá, muda aqui também."""
 
+import dice
+
 # ---------------------------------------------------------------------------
 # XP e níveis
 # ---------------------------------------------------------------------------
@@ -290,3 +292,65 @@ def validate_attributes(values: dict[str, int], level: int, race: str | None) ->
 
 def describe_attributes(values: dict[str, int]) -> str:
     return " · ".join(f"{ATTRIBUTE_LABELS[a]} {values.get(a, 0)}" for a in ATTRIBUTES)
+
+
+# ---------------------------------------------------------------------------
+# Ordem da criação do personagem
+# ---------------------------------------------------------------------------
+# Cada passo só abre depois dos que ele exige. Os três sorteios podem ser feitos em qualquer ordem.
+# Só com todos os passos feitos a ficha fica "pronta" e os comandos de jogo são liberados.
+CREATION_STEPS = [
+    {"id": "raca", "rotulo": "Sortear a raça", "comando": "/raca_inicial", "requer": []},
+    {"id": "magia", "rotulo": "Sortear o Rank de magia", "comando": "/magia_inicial", "requer": []},
+    {"id": "estado", "rotulo": "Sortear a classe social", "comando": "/classe_social", "requer": []},
+    {"id": "classe", "rotulo": "Escolher a classe", "comando": "/classe", "requer": ["raca", "magia", "estado"]},
+    {"id": "atributos", "rotulo": "Distribuir os pontos de atributo", "comando": "/atributos", "requer": ["classe"]},
+]
+_STEP_BY_ID = {p["id"]: p for p in CREATION_STEPS}
+
+
+def creation_status(personagem) -> dict:
+    """Situação de cada passo da criação. 'personagem' é a linha do banco (ou um dicionário) com
+    race, magic_rank, social_class, class_name e os attr_*. Um 100 no sorteio da classe social
+    ('Aguardando o mestre') ainda não conta como feito: quem decide é um mestre."""
+    usados = sum(personagem[f"attr_{a}"] for a in ATTRIBUTES)
+    estado = personagem["social_class"]
+    feitos = {
+        "raca": bool(personagem["race"]),
+        "magia": bool(personagem["magic_rank"]),
+        "estado": bool(estado) and estado != dice.SOCIAL_CLASS_MASTER,
+        "classe": bool(personagem["class_name"]),
+        "atributos": usados >= CREATION_ATTRIBUTE_POINTS,     # os pontos da criação; os de nível podem sobrar
+    }
+    return {
+        **feitos,
+        "aguardando_mestre": estado == dice.SOCIAL_CLASS_MASTER,
+        "pontos_usados": usados,
+        "pronta": all(feitos.values()),
+    }
+
+
+def _creation_requirements(step_id: str) -> set[str]:
+    """Tudo que precisa estar feito antes desse passo, contando os pré-requisitos dos pré-requisitos."""
+    pendentes, todos = list(_STEP_BY_ID[step_id]["requer"]), set()
+    while pendentes:
+        r = pendentes.pop()
+        if r not in todos:
+            todos.add(r)
+            pendentes.extend(_STEP_BY_ID[r]["requer"])
+    return todos
+
+
+def creation_missing_before(step_id: str, status: dict) -> list[str]:
+    """Os passos que ainda faltam antes de poder fazer esse, na ordem da criação (vazio = já pode)."""
+    exigidos = _creation_requirements(step_id)
+    return [p["id"] for p in CREATION_STEPS if p["id"] in exigidos and not status[p["id"]]]
+
+
+def creation_next_step(status: dict) -> str | None:
+    """O primeiro passo que ainda não foi feito e que já está liberado. None se a ficha está pronta.
+    Se só resta o sorteio da classe social e ele está com o mestre, devolve 'estado' mesmo assim."""
+    for passo in CREATION_STEPS:
+        if not status[passo["id"]] and not creation_missing_before(passo["id"], status):
+            return passo["id"]
+    return None

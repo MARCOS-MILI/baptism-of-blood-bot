@@ -84,7 +84,7 @@ def novo(uid, nome, personagem, quantos=1):
 
 # ============================ A. o que o Discord vai receber ============================
 raiz = {c.name: c for c in bot.bot.tree.get_commands()}
-assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","personagem","mestre"}, sorted(raiz)
+assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","personagem","mestre"}, sorted(raiz)
 pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
@@ -454,6 +454,11 @@ print("H. horário e Dhampir OK")
 db.DB_PATH = os.path.join(tmp, "ficha.db"); db.init_db()
 CAMPOS = ["Nível", "Raça", "Classe Social", "Rank de Magia", "Classe", "Atributos", "Recursos", "Ranks das perícias especiais"]
 def campos(i): return {f.name: f.value for f in sent(i)[1]["embed"].fields}
+def preparar(uid, nome, raca="Humano", classe="Caçador"):
+    """Sorteios feitos e classe escolhida (direto no banco): o personagem já pode distribuir atributos."""
+    c = row(uid, nome)["id"]
+    db.set_race(c, raca, 40); db.set_magic_rank(c, "Comum", 10); db.set_social_status(c, "3º Estado", 10)
+    if classe: db.set_class(c, classe)
 ana = novo(100, "Ana", "Ana Ficha"); a100 = alvo(100, "Ana"); ficha = lambda: row(100, "Ana Ficha")
 
 # ficha nova: tudo zerado, e os campos novos ficam antes dos ranks, que continuam por último
@@ -462,24 +467,37 @@ c = campos(ana); assert c["Classe"] == "ainda não definida\n(use `/classe`)" an
 assert c["Atributos"] == "Força 0 · Destreza 0 · Vitalidade 0 · Razão 0 · Vontade 0 · Alma 0\nPontos de atributo: 0 de 6 usados (6 livres)"
 run(bot.atributos.callback(ana, None, None, None, None, None, None, None))                # sem números: só mostra
 assert sent(ana)[1]["ephemeral"] and titulo(ana) == "🧬 Atributos de Ana Ficha" and list(campos(ana)) == ["Atributos", "Recursos"]
-# sem raça, não distribui (os limites dependem dela)
-run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None)); assert "Sorteia a raça primeiro" in txt(ana) and db.attributes_of(ficha())["forca"] == 0
-db.set_race(ficha()["id"], "Humano", 40)
+# a ordem da criação: /atributos e /classe ficam fechados enquanto faltam passos antes
+run(bot.minha_ficha.callback(ana, None)); e = sent(ana)[1]["embed"]
+assert e.description.startswith("⚠️ **Ficha incompleta.** Próximo passo: `/raca_inicial`") and "/ajuda" in e.description
+run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None)); print("  ", txt(ana).splitlines()[0])
+assert "Ainda não dá pra usar `/atributos`" in txt(ana) and "▶️ Sortear a raça: `/raca_inicial`" in txt(ana) and "🔒 Escolher a classe: depois dos sorteios" in txt(ana)
+assert sent(ana)[1]["ephemeral"] and db.attributes_of(ficha())["forca"] == 0
+run(bot.classe_escolher.callback(ana, "Caçador", None)); assert "Ainda não dá pra usar `/classe`" in txt(ana) and ficha()["class_name"] is None
+# os três sorteios, em qualquer ordem, abrem a classe
+with dados(50, 20, 40): run(bot.magia_inicial.callback(ana, None)); run(bot.classe_social.callback(ana, None)); run(bot.raca_inicial.callback(ana, None))
+assert (ficha()["race"], ficha()["magic_rank"], ficha()["social_class"]) == ("Humano", "Raro", "3º Estado")
+run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None))                          # sorteios feitos, mas ainda falta a classe
+assert "Ainda não dá pra usar `/atributos`" in txt(ana) and "▶️ Escolher a classe: `/classe`" in txt(ana) and db.attributes_of(ficha())["forca"] == 0
+run(bot.minha_ficha.callback(ana, None)); assert "Próximo passo: `/classe`" in sent(ana)[1]["embed"].description
 
-# 6 pontos no nível 1, direto no limite
-run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None)); print("  ", campos(ana)["Atributos"].replace("\n", " | "))
-assert titulo(ana) == "🧬 Atributos de Ana Ficha atualizados" and sent(ana)[1]["ephemeral"]
-assert campos(ana)["Atributos"] == "Força 2 · Destreza 0 · Vitalidade 3 · Razão 0 · Vontade 1 · Alma 0\nPontos de atributo: 6 de 6 usados" and campos(ana)["Recursos"] == bot._SEM_CLASSE
-assert db.attributes_of(ficha()) == {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 1, "alma": 0}
-
-# classe: vale uma vez, mostra bônus e vantagem, e os recursos aparecem sozinhos
+# classe: vale uma vez, mostra bônus e vantagem
 run(bot.classe_escolher.callback(ana, "Caçador", None)); print("  ", desc(ana).splitlines()[0:2])
 assert titulo(ana) == "🎓 Classe de Ana Ficha: Caçador" and "Vantagem nas perícias: Religião e Luta ou Pontaria" in desc(ana)
 assert "Bônus: Vida +35 · Sanidade +15 · Mana +5 · Estamina +20" in desc(ana) and "/atributos" in desc(ana) and sent(ana)[1]["ephemeral"]
 run(bot.classe_escolher.callback(ana, "Sábio", None)); assert "já é da classe **Caçador**" in txt(ana) and ficha()["class_name"] == "Caçador"
 run(bot.minha_ficha.callback(ana, None)); c = campos(ana)
 assert c["Classe"] == "Caçador\n(vantagem em Religião e Luta ou Pontaria)"
-assert c["Recursos"] == "❤️ Vida **50** · 🧠 Sanidade **20**\n🔮 Mana **8** · 💪 Estamina **35**"       # 15+35, 5+15, 3+5, 15+20
+assert c["Recursos"] == "❤️ Vida **35** · 🧠 Sanidade **15**\n🔮 Mana **5** · 💪 Estamina **20**"          # só o bônus da classe, ainda sem atributos
+assert "Próximo passo: `/atributos`" in sent(ana)[1]["embed"].description
+
+# 6 pontos no nível 1, direto no limite: a ficha fica pronta
+run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None)); print("  ", campos(ana)["Atributos"].replace("\n", " | "))
+assert titulo(ana) == "🧬 Atributos de Ana Ficha atualizados" and sent(ana)[1]["ephemeral"]
+assert campos(ana)["Atributos"] == "Força 2 · Destreza 0 · Vitalidade 3 · Razão 0 · Vontade 1 · Alma 0\nPontos de atributo: 6 de 6 usados"
+assert campos(ana)["Recursos"] == "❤️ Vida **50** · 🧠 Sanidade **20**\n🔮 Mana **8** · 💪 Estamina **35**"       # 15+35, 5+15, 3+5, 15+20
+assert db.attributes_of(ficha()) == {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 1, "alma": 0}
+run(bot.minha_ficha.callback(ana, None)); assert sent(ana)[1]["embed"].description is None and campos(ana)["Recursos"].startswith("❤️ Vida **50**")   # pronta: sem aviso
 assert rules.calculate_resources(vitalidade=3, forca=2, vontade=1, alma=0, classe="Caçador")["estamina"]["total"] == 35   # mesma conta do /calcular_recursos
 run(bot.classe_escolher.callback(ana, "Ladrão", "Fantasma")); assert "Não achei" in txt(ana)
 sp = inter(199, "Sem Personagem"); run(bot.classe_escolher.callback(sp, "Sábio", None)); assert "Você ainda não tem personagem" in txt(sp)
@@ -492,7 +510,7 @@ run(bot.atributos.callback(ana, None, None, None, None, None, 1, None)); assert 
 run(bot.atributos.callback(ana, None, None, None, None, None, 1, "Fantasma")); assert "Não achei" in txt(ana)
 
 # limite de criação do humano (3), só ultrapassável com ponto de nível
-lim = novo(102, "Lia", "Lia Limite"); db.set_race(row(102, "Lia Limite")["id"], "Humano", 1); alia = alvo(102, "Lia")
+lim = novo(102, "Lia", "Lia Limite"); preparar(102, "Lia Limite"); alia = alvo(102, "Lia")
 run(bot.atributos.callback(lim, 4, None, None, None, None, None, None)); print("  ", txt(lim)[:120])
 assert "O limite de criação de Humano é: Força 3, Destreza 3, Vitalidade 3, Razão 6." in txt(lim) and "você tem 0" in txt(lim) and row(102, "Lia Limite")["attr_forca"] == 0
 run(bot.atributos.callback(lim, None, None, None, 6, None, None, None)); assert titulo(lim).endswith("atualizados")             # Razão vai até 6 no humano
@@ -506,7 +524,7 @@ run(bot.atributos.callback(lim, None, None, None, None, None, None, None)); asse
 
 # Vampiro (limite 5) e Dhampir (sem limite por atributo, só o total)
 for uid, raca, nome in [(103, "Vampiro", "Vlad"), (104, "Dhampir", "Alu")]:
-    u = novo(uid, f"J{uid}", nome); db.set_race(row(uid, nome)["id"], raca, 96)
+    u = novo(uid, f"J{uid}", nome); preparar(uid, nome, raca)
     if raca == "Vampiro":
         run(bot.atributos.callback(u, 5, 1, None, None, None, None, None)); assert titulo(u).endswith("atualizados")
         run(bot.atributos.callback(u, 6, None, None, None, None, None, None)); assert "O limite de criação de Vampiro é: Força 5, Destreza 5, Vitalidade 5." in txt(u)
@@ -534,11 +552,12 @@ run(bot.mestre_atributos.callback(gm, am, 3, None, None, None, None, None, None)
 run(bot.mestre_atributos.callback(gm, am, 5, None, None, None, None, None, "Fantasma")); assert "não tem nenhum personagem chamado" in txt(gm)
 run(bot.mestre_atributos.callback(gm, alvo(777, "Novato"), 5, None, None, None, None, None, None)); assert "ainda não tem personagem" in txt(gm)
 # mestre passou dos pontos: a ficha mostra, e o jogador não consegue mexer até acertar
-run(bot.mestre_atributos.callback(gm, am, 9, None, None, None, None, None, None)); db.set_race(row(106, "Caio Mestrado")["id"], "Humano", 2)
+run(bot.mestre_atributos.callback(gm, am, 9, None, None, None, None, None, None)); preparar(106, "Caio Mestrado", classe=None)
 run(bot.minha_ficha.callback(m, None)); assert "Pontos de atributo: 11 de 6 usados (passou 5)" in campos(m)["Atributos"]
-run(bot.atributos.callback(m, None, None, None, None, None, 1, None)); assert "Você distribuiu 12 pontos" in txt(m) and row(106, "Caio Mestrado")["attr_alma"] == 0
-# mestre corrige a classe (inclusive depois do jogador já ter escolhido)
+run(bot.atributos.callback(m, None, None, None, None, None, 1, None)); assert "Ainda não dá pra usar `/atributos`" in txt(m) and row(106, "Caio Mestrado")["attr_alma"] == 0   # sem classe, fechado
+# o mestre define a classe (ele passa por cima da ordem), e aí o jogador pode tentar
 run(bot.mestre_corrigir_classe.callback(gm, am, "Sábio", None)); assert titulo(gm) == "🛠️ Definição corrigida" and "**nada** → **Sábio**" in desc(gm)
+run(bot.atributos.callback(m, None, None, None, None, None, 1, None)); assert "Você distribuiu 12 pontos" in txt(m) and row(106, "Caio Mestrado")["attr_alma"] == 0
 run(bot.mestre_corrigir_classe.callback(gm, am, "Ladrão", None)); assert "**Sábio** → **Ladrão**" in desc(gm) and row(106, "Caio Mestrado")["class_name"] == "Ladrão"
 run(bot.classe_escolher.callback(m, "Mundano", None)); assert "já é da classe **Ladrão**" in txt(m)
 run(bot.mestre_ficha.callback(gm, am, None)); cf = campos(gm); assert sent(gm)[1]["ephemeral"] and cf["Classe"].startswith("Ladrão") and "Vida" in cf["Recursos"]
@@ -638,7 +657,7 @@ assert sorted(db.get_level_attributes(ch()["id"])) == list(range(1, 10))
 
 # atributo da época pelos comandos: Vitalidade 3 nos níveis 1 a 3 e 4 a partir do 4 -> Vida 80, 100, 120
 v = novo(121, "Vida", "Vida Época"); av = alvo(121, "Vida"); vc = lambda: row(121, "Vida Época")
-db.set_race(vc()["id"], "Humano", 40); db.set_class(vc()["id"], "Caçador")
+preparar(121, "Vida Época")
 vida_de = lambda i: int(re.search(r"Vida \*\*(\d+)\*\*", campos(i)["Recursos"]).group(1))
 run(bot.atributos.callback(v, None, None, 3, None, None, None, None)); assert vida_de(v) == 50
 run(bot.mestre_dar_xp.callback(gm, av, 3000, None, None)); run(bot.minha_ficha.callback(v, None)); assert vida_de(v) == 80                   # nível 3
@@ -668,5 +687,203 @@ run(exclui_nivel()); assert row(120, "Nível Ficha") is None
 with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT COUNT(*) FROM level_attributes WHERE character_id = ?", (1,)).fetchone()[0] == 0
 assert sorted(db.get_level_attributes(vc()["id"])) == [1]                                       # e não mexeu no de ninguém mais
 print("K. recursos por nível OK")
+
+# ============================ L. a ordem: comandos de jogo só com a ficha pronta ============================
+import ajuda
+db.DB_PATH = os.path.join(tmp, "ordem.db"); db.init_db()
+async def checa(cmd, i):
+    """Roda os bloqueios do comando. Devolve None se passou, ou a mensagem do bloqueio."""
+    try:
+        return None if await cmd._check_can_run(i) else "falhou sem mensagem"
+    except bot.FichaIncompleta as e:
+        return e.mensagem
+def tenta(cmd, i, personagem=None):
+    i.namespace = NS(personagem=personagem)
+    return run(checa(cmd, i))
+JOGO = [bot.rolar, bot.extrato_xp, bot.historico, bot.rank]
+# só esses quatro têm bloqueio de ficha; criação, ficha, níveis, calculadora, personagens e ajuda ficam sempre abertos
+assert {c.name for c in bot.bot.tree.get_commands() if not isinstance(c, app_commands.Group) and c.checks} == {"rolar", "extrato_xp", "historico", "rank"}
+assert all(not c.checks for c in bot.personagem_grupo.commands)
+assert all(len(c.checks) == 1 for c in JOGO)
+
+# sem personagem nenhum
+p0 = inter(200, "Novo")
+for cmd in JOGO: assert tenta(cmd, p0) == bot._SEM_PERSONAGEM, cmd.name
+assert "/personagem criar" in bot._SEM_PERSONAGEM and "/ajuda" in bot._SEM_PERSONAGEM
+# criar o personagem aponta pro passo a passo
+run(bot.personagem_criar.callback(p0, "Recém Chegado")); print("  ", desc(p0).replace("\n", " "))
+assert "Próximo passo: os três sorteios (`/raca_inicial`, `/magia_inicial` e `/classe_social`, em qualquer ordem)." in desc(p0)
+assert "Depois vêm `/classe` e `/atributos`. O passo a passo completo está em `/ajuda`." in desc(p0)
+# com o personagem criado, tudo de jogo fica fechado, e a mensagem diz o que fazer
+for cmd in JOGO:
+    m = tenta(cmd, p0); assert m.startswith("🔒 A ficha de **Recém Chegado** ainda não está pronta, e esse comando só abre quando ela estiver."), cmd.name
+    assert "▶️ Sortear a raça: `/raca_inicial`" in m and "Próximo passo: `/raca_inicial`" in m and "`/ajuda`" in m and len(m) < 2000
+print("  ", tenta(bot.rolar, p0).splitlines()[0])
+assert tenta(bot.rolar, p0, "Recém Chegado") and tenta(bot.extrato_xp, p0, "Recém Chegado")                  # pelo nome também fecha
+assert tenta(bot.rolar, p0, "Fantasma") is None                                                                # nome que não existe: o próprio comando avisa
+# passo a passo, um de cada vez, pelos comandos de verdade
+with dados(40): run(bot.raca_inicial.callback(p0, None))
+m = tenta(bot.rolar, p0); assert "✅ Sortear a raça" in m and "▶️ Sortear o Rank de magia: `/magia_inicial`" in m
+with dados(50): run(bot.magia_inicial.callback(p0, None))
+with dados(20): run(bot.classe_social.callback(p0, None))
+m = tenta(bot.rolar, p0); assert "▶️ Escolher a classe: `/classe`" in m and "🔒 Distribuir os pontos de atributo: depois de escolher a classe" in m
+run(bot.classe_escolher.callback(p0, "Sábio", None))
+m = tenta(bot.rolar, p0); assert "▶️ Distribuir os pontos de atributo: `/atributos` (0 de 6 pontos usados)" in m and "Próximo passo: `/atributos`" in m
+run(bot.atributos.callback(p0, None, None, None, None, 5, None, None)); assert titulo(p0).endswith("atualizados")            # 5 de 6: ainda fechado
+m = tenta(bot.rolar, p0); assert "(5 de 6 pontos usados)" in m
+for cmd in JOGO: assert tenta(cmd, p0) is not None
+run(bot.atributos.callback(p0, None, None, None, None, 6, None, None))                                                       # 6 de 6: abriu tudo
+for cmd in JOGO: assert tenta(cmd, p0) is None, cmd.name
+assert tenta(bot.rolar, p0, "Recém Chegado") is None
+
+# dois personagens: vale o que está sendo usado (ou o que foi digitado)
+d2 = inter(201, "Dois"); run(bot.personagem_criar.callback(d2, "Pronta")); preparar(201, "Pronta"); db.set_attributes(row(201, "Pronta")["id"], {"vontade": 6})
+run(bot.personagem_criar.callback(d2, "Nova"))                                                                               # o novo vira o ativo
+assert "**Nova**" in tenta(bot.rolar, d2) and tenta(bot.rolar, d2, "Pronta") is None and "**Nova**" in tenta(bot.rolar, d2, "Nova")
+assert "**Nova**" in tenta(bot.extrato_xp, d2)
+assert tenta(bot.historico, d2) is None and tenta(bot.rank, d2) is None                                                      # tem um pronto: histórico e rank abrem
+run(bot.personagem_usar.callback(d2, "Pronta")); assert tenta(bot.rolar, d2) is None
+# só personagens incompletos: histórico e rank fecham, mostrando o que está em uso
+d3 = inter(203, "Três"); run(bot.personagem_criar.callback(d3, "Rascunho A")); run(bot.personagem_criar.callback(d3, "Rascunho B"))
+for cmd in (bot.historico, bot.rank): assert "**Rascunho B**" in tenta(cmd, d3), cmd.name
+
+# ficha incompleta por poucos pontos: continua fechada e diz quantos faltam
+d4 = inter(204, "Quatro"); run(bot.personagem_criar.callback(d4, "Meio Pronto")); preparar(204, "Meio Pronto"); db.set_attributes(row(204, "Meio Pronto")["id"], {"forca": 3})
+assert "(3 de 6 pontos usados)" in tenta(bot.rolar, d4)
+# em qualquer nível vale só os 6 pontos da criação
+d5 = inter(205, "Cinco"); run(bot.personagem_criar.callback(d5, "Veterano")); preparar(205, "Veterano"); db.set_attributes(row(205, "Veterano")["id"], {"vitalidade": 3, "vontade": 3})
+run(bot.mestre_dar_xp.callback(gm, alvo(205, "Cinco"), 10000, None, None)); assert row(205, "Veterano")["level"] == 5 and tenta(bot.rolar, d5) is None
+
+# mestres passam direto, mesmo sem personagem nenhum
+mm = inter(4, "Mestre Belmont", roles=["Mestre"]); adm = inter(6, "Admin", admin=True); ger = inter(7, "Gerente", manage=True)
+for quem in (mm, adm, ger):
+    for cmd in JOGO: assert tenta(cmd, quem) is None, (quem.user.display_name, cmd.name)
+# ...mas quem só tem um cargo parecido não passa
+for cmd in JOGO: assert tenta(cmd, inter(8, "Jogador", roles=["Jogador"])) == bot._SEM_PERSONAGEM
+
+# 100 na classe social: a ficha espera o mestre, e a classe fica fechada até ele decidir
+e6 = inter(206, "Seis"); run(bot.personagem_criar.callback(e6, "Sorte Grande")); a206 = alvo(206, "Seis")
+with dados(50, 100, 40): run(bot.magia_inicial.callback(e6, None)); run(bot.classe_social.callback(e6, None)); run(bot.raca_inicial.callback(e6, None))
+assert "⏳ Classe social: você tirou 100, então um mestre vai definir o seu Estado" in tenta(bot.rolar, e6)
+run(bot.classe_escolher.callback(e6, "Caçador", None)); print("  ", txt(e6))
+assert txt(e6) == ("Ainda não dá pra usar `/classe`: você tirou 100 no sorteio da classe social, então um mestre precisa definir o seu "
+                   "Estado primeiro. Fala com ele.") and row(206, "Sorte Grande")["class_name"] is None
+run(bot.mestre_corrigir_estado.callback(gm, a206, "3", None))
+run(bot.classe_escolher.callback(e6, "Caçador", None)); assert titulo(e6) == "🎓 Classe de Sorte Grande: Caçador"                # o mestre decidiu: destravou
+
+# o mestre passa por cima da ordem: define a classe e os atributos sem os sorteios
+g7 = inter(207, "Sete"); run(bot.personagem_criar.callback(g7, "Por Cima")); a207 = alvo(207, "Sete")
+run(bot.mestre_corrigir_classe.callback(gm, a207, "Ladrão", None)); assert row(207, "Por Cima")["class_name"] == "Ladrão"
+run(bot.mestre_atributos.callback(gm, a207, 2, None, 2, None, 2, None, None)); assert row(207, "Por Cima")["attr_forca"] == 2
+run(bot.atributos.callback(g7, None, None, 1, None, None, None, None)); assert "Ainda não dá pra usar `/atributos`" in txt(g7)   # o jogador segue a ordem: faltam os sorteios
+assert "✅ Escolher a classe" in txt(g7) and "✅ Distribuir os pontos de atributo" in txt(g7) and "▶️ Sortear a raça: `/raca_inicial`" in txt(g7)   # o que o mestre já fez aparece como feito
+
+# o tratador de erros mostra a mensagem do bloqueio, e não a de "só pra mestre"
+er = inter(208, "Erro"); er.command = bot.rolar
+run(bot.on_app_command_error(er, bot.FichaIncompleta("🔒 mensagem do bloqueio"))); assert sent(er)[0] == "🔒 mensagem do bloqueio" and sent(er)[1]["ephemeral"]
+er2 = inter(209, "Erro2"); er2.command = bot.mestre_upar
+run(bot.on_app_command_error(er2, app_commands.CheckFailure("x"))); assert "só pra mestre" in sent(er2)[0]
+print("L. ordem e bloqueio OK")
+
+
+# ============================ M. /ajuda ============================
+def todos_os_comandos():
+    for c in bot.bot.tree.get_commands():
+        if isinstance(c, app_commands.Group):
+            for sub in c.commands: yield f"{c.name} {sub.name}", sub
+        else: yield c.name, c
+reais = dict(todos_os_comandos())
+# todo comando de verdade tem ajuda (e o contrário), e os exemplos só usam opções que existem
+assert set(reais) - {"help"} == set(ajuda.AJUDA), sorted((set(reais) - {"help"}) ^ set(ajuda.AJUDA))
+for chave, cmd in reais.items():
+    if chave == "help": continue
+    opcoes = {p.name for p in cmd.parameters}
+    usadas = set(re.findall(r"(\w+):", ajuda.AJUDA[chave]["uso"]))
+    assert usadas <= opcoes, (chave, sorted(usadas - opcoes))
+    assert ajuda.AJUDA[chave]["uso"].startswith("/" + chave)
+# quem tem bloqueio de ficha (ou exige um passo anterior) diz isso na ajuda
+for chave in ("rolar", "historico", "extrato_xp", "rank"): assert ajuda.AJUDA[chave]["requisito"].startswith("Só "), chave
+assert "depois dos três sorteios" in ajuda.AJUDA["classe"]["requisito"] and "depois de escolher a classe" in ajuda.AJUDA["atributos"]["requisito"]
+# os números e regras que a ajuda cita batem com o código
+assert "N × 1.000 XP" in ajuda.AJUDA["niveis"]["detalhes"] and "3 vagas" in ajuda.AJUDA["personagem criar"]["detalhes"] and "até 25" in ajuda.AJUDA["historico"]["detalhes"]
+assert bot.LIMITE_BASE == 3 and bot.LIMITE_MAXIMO == 10 and "teto é de 10" in ajuda.AJUDA["mestre vagas"]["detalhes"]
+assert "6 pontos na criação" in ajuda.AJUDA["atributos"]["detalhes"] and rules.CREATION_ATTRIBUTE_POINTS == 6
+
+# payload: /ajuda e /help têm o campo comando, opcional e com autocomplete
+pay = {c.name: c.to_dict(bot.bot.tree) for c in bot.bot.tree.get_commands()}
+for nome in ("ajuda", "help"):
+    assert [(o["name"], o.get("required", False), o.get("autocomplete")) for o in pay[nome]["options"]] == [("comando", False, True)], nome
+    assert len(pay[nome]["description"]) <= 100 and len(pay[nome]["options"][0]["description"]) <= 100
+
+# /ajuda geral, em cada situação
+h = inter(210, "Ajuda")
+run(bot.ajuda_comando.callback(h, None)); e = sent(h)[1]["embed"]; print("  ", [f.name for f in e.fields])
+assert sent(h)[1]["ephemeral"] and e.title == "📖 Ajuda do bot" and "/ajuda comando:atributos" in e.description
+assert [f.name for f in e.fields] == ["Seu passo a passo", "Seu personagem", "Sorteios de criação", "Jogo (só com a ficha pronta)", "Consultas"]
+assert "Você ainda não tem personagem" in e.fields[0].value and "`/personagem criar`" in e.fields[0].value
+assert len(e) <= 6000 and all(len(f.value) <= 1024 for f in e.fields)
+assert "`/rolar` rola um dado e guarda no histórico" in e.fields[3].value and "`/classe` escolhe a classe do personagem" in e.fields[1].value
+run(bot.personagem_criar.callback(h, "Aprendiz")); run(bot.ajuda_comando.callback(h, None)); e = sent(h)[1]["embed"]
+assert "▶️ Sortear a raça: `/raca_inicial`" in e.fields[0].value and "Próximo passo:" in e.fields[0].value and "Comandos de mestre" not in [f.name for f in e.fields]
+preparar(210, "Aprendiz"); db.set_attributes(row(210, "Aprendiz")["id"], {"vontade": 6})
+run(bot.ajuda_comando.callback(h, None)); assert sent(h)[1]["embed"].fields[0].value == "✅ Ficha pronta. Todos os comandos estão liberados."
+mh = inter(4, "Mestre Belmont", roles=["Mestre"]); run(bot.ajuda_comando.callback(mh, None)); e = sent(mh)[1]["embed"]
+assert e.fields[-1].name == "Comandos de mestre" and "`/mestre dar_xp`" in e.fields[-1].value and "Você ainda não tem personagem" in e.fields[0].value
+assert len(e) <= 6000 and all(len(f.value) <= 1024 for f in e.fields)
+
+# /ajuda de um comando
+run(bot.ajuda_comando.callback(h, "atributos")); e = sent(h)[1]["embed"]
+assert sent(h)[1]["ephemeral"] and e.title == "📖 /atributos" and e.description.startswith("Distribui os pontos de atributo.")
+assert {f.name: f.value for f in e.fields}["Como usar"] == "`/atributos forca:2 vitalidade:3 vontade:1`" and "Só depois de escolher a classe" in {f.name: f.value for f in e.fields}["Quando dá pra usar"]
+run(bot.ajuda_comando.callback(h, "/ROLAR")); assert sent(h)[1]["embed"].title == "📖 /rolar"
+run(bot.ajuda_comando.callback(h, "dar_xp")); e = sent(h)[1]["embed"]; assert e.title == "📖 /mestre dar_xp" and e.fields[-1].name == "Quem usa"
+run(bot.ajuda_comando.callback(h, "ficha")); assert sent(h)[1]["embed"].title == "📖 /minha_ficha"                              # jogador tem preferência
+run(bot.ajuda_comando.callback(h, "personagem")); print("  ", txt(h)); assert txt(h).startswith('Não achei nenhum comando com "personagem". Quis dizer: `/personagem criar`') and sent(h)[1]["ephemeral"]
+run(bot.ajuda_comando.callback(h, "xyzabc")); assert txt(h) == 'Não achei nenhum comando com "xyzabc". Use `/ajuda` pra ver a lista de comandos.'
+# /help é a mesma coisa
+for arg in (None, "atributos", "rolar", "xyz"):
+    a, b = inter(211, "A"), inter(211, "A"); run(bot.ajuda_comando.callback(a, arg)); run(bot.help_comando.callback(b, arg))
+    assert txt(a) == txt(b) and sent(a)[1] == sent(b)[1] or (sent(a)[1]["embed"].to_dict() == sent(b)[1]["embed"].to_dict())
+# autocomplete: mestre só aparece pra mestre
+ch = run(bot._autocomplete_comando(inter(212, "J"), "atrib")); assert [(c.name, c.value) for c in ch] == [("/atributos", "atributos")]
+ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "atrib")); assert [c.value for c in ch] == ["atributos", "mestre atributos"]
+ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 17 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
+ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "")); assert len(ch) == 25 and all(len(c.name) <= 100 for c in ch)
+print("M. /ajuda OK")
+
+# ============================ N. reabrir a ficha e a chavinha ORDEM_DA_CRIACAO ============================
+db.DB_PATH = os.path.join(tmp, "chavinha.db"); db.init_db()
+# o mestre apaga um sorteio: a ficha volta a ficar incompleta e os comandos de jogo fecham até o jogador rolar de novo
+n1 = inter(300, "Reabre"); run(bot.personagem_criar.callback(n1, "Ficha Pronta")); preparar(300, "Ficha Pronta"); db.set_attributes(row(300, "Ficha Pronta")["id"], {"vontade": 6})
+assert tenta(bot.rolar, n1) is None and tenta(bot.rank, n1) is None
+a300 = alvo(300, "Reabre"); run(bot.mestre_apagar.callback(gm, a300, "race", None))
+m = tenta(bot.rolar, n1); assert m.startswith("🔒 A ficha de **Ficha Pronta**") and "▶️ Sortear a raça: `/raca_inicial`" in m
+assert tenta(bot.historico, n1) is not None and tenta(bot.rank, n1) is not None
+run(bot.atributos.callback(n1, None, None, None, None, None, 1, None)); assert "Ainda não dá pra usar `/atributos`" in txt(n1)     # e sem raça não distribui
+with dados(40): run(bot.raca_inicial.callback(n1, None))
+assert tenta(bot.rolar, n1) is None                                                                                                  # rolou de novo: reabriu
+assert "incompleta" in ajuda.AJUDA["mestre apagar"]["detalhes"] and "os comandos de jogo dele fecham" in ajuda.AJUDA["mestre apagar"]["detalhes"]
+
+# a chavinha: lê a variável de ambiente (só 0, false, nao, não e off desligam; sem nada, fica ligada)
+for valor, esperado in [(None, True), ("1", True), ("", True), ("sim", True), ("0", False), ("false", False), ("FALSE", False), (" off ", False), ("não", False), ("nao", False)]:
+    if valor is None: os.environ.pop("CHAVE_DE_TESTE", None)
+    else: os.environ["CHAVE_DE_TESTE"] = valor
+    assert bot._flag_ligada("CHAVE_DE_TESTE") is esperado, repr(valor)
+os.environ.pop("CHAVE_DE_TESTE", None); assert bot.ORDEM_DA_CRIACAO is True                                                          # ligada por padrão
+# desligada: tudo abre como antes da ordem (mas os passos continuam pedindo a raça, que os limites de atributo exigem)
+bot.ORDEM_DA_CRIACAO = False
+try:
+    novo0 = inter(301, "Livre"); run(bot.personagem_criar.callback(novo0, "Sem Ordem"))
+    for cmd in JOGO: assert tenta(cmd, novo0) is None, cmd.name                                     # ficha vazia e os quatro comandos abertos
+    assert tenta(bot.rolar, inter(302, "Sem Personagem")) is None                                    # nem personagem precisa
+    run(bot.minha_ficha.callback(novo0, None)); assert sent(novo0)[1]["embed"].description is None    # sem aviso de "ficha incompleta"
+    run(bot.classe_escolher.callback(novo0, "Sábio", None)); assert titulo(novo0) == "🎓 Classe de Sem Ordem: Sábio"                     # a classe não exige os sorteios
+    run(bot.atributos.callback(novo0, 2, None, None, None, None, None, None)); assert "Ainda não dá pra usar `/atributos`" in txt(novo0)   # sem raça, não
+    db.set_race(row(301, "Sem Ordem")["id"], "Humano", 40)
+    run(bot.atributos.callback(novo0, 2, None, None, None, None, None, None)); assert titulo(novo0).endswith("atualizados")            # com raça, vai, mesmo sem o resto
+finally:
+    bot.ORDEM_DA_CRIACAO = True
+for cmd in JOGO: assert tenta(cmd, novo0) is not None, cmd.name                                     # ligada de novo: volta a fechar
+print("N. reabrir a ficha e a chavinha OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")
