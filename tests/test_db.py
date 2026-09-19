@@ -397,4 +397,23 @@ for _ in range(500):
     assert linhas(i) == m["rows"] and all(n < ch["level"] for n in m["rows"]) and len(db.attributes_per_level(ch, pe)) == ch["level"]
 print("14. atributo da época OK (500 operações aleatórias batem com o modelo)")
 
+# ---------- 15. apagar o histórico de rolagens de um jogador ----------
+ph = novo_banco("historico.db")
+ca = db.create_character("1", "Com Rolagens", path=ph)["id"]; cb = db.create_character("1", "Outro Da Ana", path=ph)["id"]
+for i in range(5): db.log_roll("1", "Ana", "g", "1d20", [i + 1], i + 1, "teste", ca, "Com Rolagens", ph)        # com personagem
+for i in range(2): db.log_roll("1", "Ana", "g", "1d100", [40], 40, "raca_inicial", cb, "Outro Da Ana", ph)     # sorteio de criação
+for i in range(3): db.log_roll("1", "Ana", "g", "1d6", [2], 2, None, None, None, ph)                            # sem personagem
+for i in range(4): db.log_roll("2", "Beto", "g", "1d20", [7], 7, None, None, None, ph)
+db.add_xp(ca, 1500, "x", "9", "M", ph); db.set_race(cb, "Humano", 40, ph); db.set_class(ca, "Sábio", ph)
+assert (db.count_rolls("1", ph), db.count_rolls("2", ph), db.count_rolls("999", ph)) == (10, 4, 0)
+assert db.delete_rolls("1", ph) == 10                                                                            # devolve quantas eram
+assert db.count_rolls("1", ph) == 0 and db.get_history("1", 50, None, ph) == [] and db.get_history("1", 50, ca, ph) == []
+assert db.count_rolls("2", ph) == 4 and len(db.get_history("2", 50, None, ph)) == 4                              # o histórico de ninguém mais mexe
+a = db.get_character_by_id(ca, ph); b = db.get_character_by_id(cb, ph)                                            # ficha, XP e personagens ficam
+assert (a["xp"], a["level"], a["class_name"]) == (1500, 2, "Sábio") and b["race"] == "Humano" and len(db.list_characters("1", ph)) == 2
+assert len(db.get_xp_log(ca, 10, ph)) == 1
+assert db.delete_rolls("1", ph) == 0 and db.delete_rolls("999", ph) == 0                                          # de novo (ou quem não tem nada): 0
+db.log_roll("1", "Ana", "g", "1d20", [9], 9, None, ca, "Com Rolagens", ph); assert db.count_rolls("1", ph) == 1  # e o histórico volta a funcionar
+print("15. apagar histórico OK")
+
 print("\nTODOS OS TESTES DO BANCO PASSARAM")

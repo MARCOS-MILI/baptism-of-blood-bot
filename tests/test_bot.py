@@ -89,7 +89,7 @@ pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
 assert sorted(o["name"] for o in pay["personagem"]["options"]) == ["criar","excluir","listar","usar"]
-assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","atributos","corrigir_classe","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
+assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
 req = lambda opts: {o["name"] for o in opts if o.get("required")}
 assert req(pay["rolar"]["options"]) == {"dado"} and req(pay["raca_inicial"].get("options", [])) == set()
 assert req(sub_("mestre", "dar_xp")["options"]) == {"usuario", "quantidade"}
@@ -167,7 +167,7 @@ print("B. fluxo básico OK")
 # ============================ C. mestre: permissão e correções ============================
 assert bot._eh_mestre(inter(2,"Zé", admin=True)) and bot._eh_mestre(inter(2,"Zé", manage=True))
 assert bot._eh_mestre(inter(2,"Zé", roles=["mestre"])) and not bot._eh_mestre(inter(2,"Zé", roles=["Jogador"])) and not bot._eh_mestre(inter(2,"Zé"))
-todos = list(bot.mestre_grupo.commands); assert len(todos) == 15
+todos = list(bot.mestre_grupo.commands); assert len(todos) == 16
 for c in todos:                                                     # TODOS os comandos de mestre barram quem não é mestre
     p = inter(3, "Intruso")
     assert run(c._check_can_run(p)) is False, c.name
@@ -1010,5 +1010,69 @@ try:
 finally:
     bot.ORDEM_DA_CRIACAO = True
 print("O. quem tem magia OK")
+
+# ============================ P. /mestre apagar_historico ============================
+db.DB_PATH = os.path.join(tmp, "apagahist.db"); db.init_db()
+pay = {c.name: c.to_dict(bot.bot.tree) for c in bot.bot.tree.get_commands()}
+ah = sub_("mestre", "apagar_historico")
+assert [o["name"] for o in ah["options"]] == ["usuario"] and req(ah["options"]) == {"usuario"} and len(ah["description"]) <= 100
+assert "apagar_historico" in [o["name"] for o in pay["mestre"]["options"]]
+
+# a Ana tem rolagens de dois personagens, sorteios de criação e rolagens sem personagem; o Beto tem as dele
+ana = novo(500, "Ana", "Ana Um"); run(bot.personagem_criar.callback(ana, "Ana Dois")); a500 = alvo(500, "Ana")
+um, dois = row(500, "Ana Um")["id"], row(500, "Ana Dois")["id"]
+db.set_race(um, "Humano", 40, ); db.add_xp(um, 1500, "teste", "9", "M")
+for i in range(5): db.log_roll("500", "Ana", "g", "1d20", [i + 1], i + 1, "teste", um, "Ana Um")
+for i in range(3): db.log_roll("500", "Ana", "g", "1d100", [40], 40, "raca_inicial", dois, "Ana Dois")
+for i in range(2): db.log_roll("500", "Ana", "g", "1d6", [3], 3, None, None, None)
+beto = novo(501, "Beto", "Beto Solo"); a501 = alvo(501, "Beto")
+for i in range(4): db.log_roll("501", "Beto", "g", "1d20", [7], 7, None, None, None)
+assert (db.count_rolls("500"), db.count_rolls("501")) == (10, 4)
+
+# quem não tem rolagem: só avisa, sem botões
+vazio = novo(502, "Vazio", "Sem Rolagem"); run(bot.mestre_apagar_historico.callback(gm, alvo(502, "Vazio")))
+assert txt(gm) == "Vazio não tem nenhuma rolagem no histórico." and sent(gm)[1]["ephemeral"] and "view" not in sent(gm)[1]
+# um jogador com UMA rolagem: fala no singular
+db.log_roll("502", "Vazio", "g", "1d20", [4], 4, None, None, None)
+run(bot.mestre_apagar_historico.callback(gm, alvo(502, "Vazio"))); assert "**1 rolagem**" in desc(gm) and "**1 rolagens**" not in desc(gm)
+
+async def apagar_com_botoes():
+    u = inter(4, "Mestre Belmont", roles=["Mestre"]); await bot.mestre_apagar_historico.callback(u, a500)
+    kw = u.response.send_message.call_args.kwargs; view = kw["view"]; e = kw["embed"]
+    assert isinstance(view, bot.ConfirmarApagarHistorico) and kw["ephemeral"] and e.title == "🧹 Apagar o histórico de Ana?"
+    assert "**10 rolagens**" in e.description and "Não tem como desfazer" in e.description and "sorteios de criação" in e.description and "A ficha, o XP e os personagens não mudam" in e.description
+    assert db.count_rolls("500") == 10                                                       # só perguntou: nada apagado ainda
+    # quem não pediu não confirma
+    intruso = inter(999, "Intruso", roles=["Mestre"]); assert await view.interaction_check(intruso) is False
+    assert "Só quem pediu pode confirmar." in intruso.response.send_message.call_args.args[0] and db.count_rolls("500") == 10
+    # cancelar
+    cancela = inter(4, "Mestre Belmont", roles=["Mestre"]); assert await view.interaction_check(cancela) is True
+    await view.cancelar.callback(cancela); assert cancela.response.edit_message.call_args.kwargs["content"] == "Beleza, nada foi apagado." and db.count_rolls("500") == 10
+    # tempo esgotado
+    u2 = inter(4, "Mestre Belmont", roles=["Mestre"]); await bot.mestre_apagar_historico.callback(u2, a500); v2 = u2.response.send_message.call_args.kwargs["view"]
+    u2.edit_original_response = AsyncMock(); await v2.on_timeout()
+    assert u2.edit_original_response.call_args.kwargs["content"] == "Passou o tempo e nada foi apagado." and db.count_rolls("500") == 10
+    # o mestre perdeu o cargo nesses 60 segundos: não apaga
+    u3 = inter(4, "Mestre Belmont", roles=["Mestre"]); await bot.mestre_apagar_historico.callback(u3, a500); v3 = u3.response.send_message.call_args.kwargs["view"]
+    ex_mestre = inter(4, "Ex-Mestre"); await v3.confirmar.callback(ex_mestre)
+    assert "Você não é mais mestre aqui" in ex_mestre.response.edit_message.call_args.kwargs["content"] and db.count_rolls("500") == 10
+    # confirmar
+    ok = inter(4, "Mestre Belmont", roles=["Mestre"]); await view.confirmar.callback(ok)
+    assert ok.response.edit_message.call_args.kwargs["content"] == "🧹 O histórico de **Ana** foi apagado (10 rolagens)."
+    aviso = ok.followup.send.call_args.kwargs
+    assert aviso["embed"].title == "🧹 Histórico apagado" and "content" not in aviso and "allowed_mentions" not in aviso            # público, sem marcar ninguém
+    assert aviso["embed"].description == "Mestre Belmont apagou o histórico de rolagens de <@500> (10 rolagens). A ficha, o XP e os personagens continuam como estavam."
+    # um segundo clique (ou dois mestres) não quebra nem registra de novo
+    de_novo = inter(4, "Mestre Belmont", roles=["Mestre"]); await view.confirmar.callback(de_novo)
+    assert "já estava vazio" in de_novo.response.edit_message.call_args.kwargs["content"] and not de_novo.followup.send.called
+run(apagar_com_botoes())
+assert db.count_rolls("500") == 0 and db.count_rolls("501") == 4 and db.count_rolls("502") == 1                  # só a da Ana sumiu
+assert (row(500, "Ana Um")["xp"], row(500, "Ana Um")["race"]) == (1500, "Humano") and row(500, "Ana Dois") is not None  # ficha, XP e personagens ficam
+with sqlite3.connect(db.DB_PATH) as cn:
+    assert cn.execute("SELECT master_id, target_user_id, character_id, action, detail FROM master_actions WHERE action='apagar_historico'").fetchall() == [("4", "500", None, "apagar_historico", "10 rolagens")]
+h = inter(500, "Ana"); run(bot.historico.callback(h, None, 10, None)); assert txt(h) == "Nenhuma rolagem registrada pra Ana ainda." and sent(h)[1]["ephemeral"]
+db.log_roll("500", "Ana", "g", "1d20", [9], 9, "depois", um, "Ana Um"); assert db.count_rolls("500") == 1     # e o histórico volta a funcionar
+run(bot.mestre_apagar_historico.callback(gm, alvo(500, "Ana"))); assert "**1 rolagem**" in desc(gm)
+print("P. /mestre apagar_historico OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

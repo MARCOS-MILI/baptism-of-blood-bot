@@ -21,7 +21,7 @@ Só com a ficha pronta abrem /rolar, /historico, /extrato_xp e /rank (os mestres
 Mestres:
   /mestre dar_xp | upar | corrigir_nivel | rank_pericia
   /mestre apagar | corrigir_magia | corrigir_raca | corrigir_estado
-  /mestre ficha | jogador | vagas | excluir_personagem
+  /mestre ficha | jogador | vagas | excluir_personagem | apagar_historico
   /mestre atributos | corrigir_classe | exportar
 
 Setup rápido:
@@ -1748,6 +1748,102 @@ async def mestre_excluir_personagem(interaction: discord.Interaction, usuario: d
     await interaction.response.send_message(
         embed=_embed_aviso_exclusao(char, usuario.display_name), view=view, ephemeral=True
     )
+    view.origem = interaction
+
+
+def _rolagens(n: int) -> str:
+    return f"{n} {'rolagem' if n == 1 else 'rolagens'}"
+
+
+class ConfirmarApagarHistorico(discord.ui.View):
+    """Botões de confirmação pra apagar o histórico de rolagens de um jogador. Só quem pediu aperta."""
+
+    def __init__(self, executor, alvo):
+        super().__init__(timeout=60)
+        self.executor = executor
+        self.alvo_id = str(alvo.id)
+        self.alvo_nome = alvo.display_name
+        self.origem: discord.Interaction | None = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.executor.id:
+            await interaction.response.send_message("Só quem pediu pode confirmar.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Apagar histórico", style=discord.ButtonStyle.danger)
+    async def confirmar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        if not _eh_mestre(interaction):  # a permissão pode ter mudado nos 60 segundos
+            await interaction.response.edit_message(
+                content="Você não é mais mestre aqui, então nada foi apagado.", embed=None, view=None
+            )
+            return
+        apagadas = db.delete_rolls(self.alvo_id)
+        if not apagadas:
+            await interaction.response.edit_message(
+                content="Esse histórico já estava vazio, então nada foi apagado.", embed=None, view=None
+            )
+            return
+        db.log_master_action(
+            master_id=str(self.executor.id),
+            master_name=str(self.executor.display_name),
+            target_user_id=self.alvo_id,
+            character_id=None,
+            character_name=None,
+            action="apagar_historico",
+            detail=_rolagens(apagadas),
+        )
+        await interaction.response.edit_message(
+            content=f"🧹 O histórico de **{self.alvo_nome}** foi apagado ({_rolagens(apagadas)}).", embed=None, view=None
+        )
+        aviso = discord.Embed(
+            title="🧹 Histórico apagado",
+            description=(
+                f"{self.executor.display_name} apagou o histórico de rolagens de <@{self.alvo_id}> "
+                f"({_rolagens(apagadas)}). A ficha, o XP e os personagens continuam como estavam."
+            ),
+            color=discord.Color.orange(),
+        )
+        await interaction.followup.send(embed=aviso)
+
+    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary)
+    async def cancelar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(content="Beleza, nada foi apagado.", embed=None, view=None)
+
+    async def on_timeout(self):
+        if self.origem is not None:
+            try:
+                await self.origem.edit_original_response(
+                    content="Passou o tempo e nada foi apagado.", embed=None, view=None
+                )
+            except discord.HTTPException:
+                pass
+
+
+@mestre_grupo.command(name="apagar_historico", description="Apaga o histórico de rolagens de um jogador (pede confirmação).")
+@app_commands.describe(usuario="Jogador que vai ter o histórico de rolagens apagado")
+@app_commands.check(_eh_mestre)
+async def mestre_apagar_historico(interaction: discord.Interaction, usuario: discord.Member):
+    total = db.count_rolls(str(usuario.id))
+    if not total:
+        await interaction.response.send_message(
+            f"{usuario.display_name} não tem nenhuma rolagem no histórico.", ephemeral=True
+        )
+        return
+    embed = discord.Embed(
+        title=f"🧹 Apagar o histórico de {usuario.display_name}?",
+        description=(
+            f"Isso apaga **{_rolagens(total)}** do `/historico` de {usuario.display_name}, de todos os personagens "
+            "dele. Não tem como desfazer.\n\n"
+            "A ficha, o XP e os personagens não mudam. Mas as rolagens dos sorteios de criação (raça, magia e "
+            "classe social) também somem, e é por elas que dá pra ver se alguém rolou de novo."
+        ),
+        color=discord.Color.orange(),
+    )
+    view = ConfirmarApagarHistorico(interaction.user, usuario)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     view.origem = interaction
 
 

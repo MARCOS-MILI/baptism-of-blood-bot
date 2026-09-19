@@ -524,6 +524,19 @@ def get_history(user_id: str, limit: int = 10, character_id: int | None = None,
         ).fetchall()
 
 
+def count_rolls(user_id: str, path: str | None = None) -> int:
+    """Quantas rolagens o jogador tem no histórico (de todos os personagens, e as sem personagem)."""
+    with _connect(path) as conn:
+        return conn.execute("SELECT COUNT(*) FROM rolls WHERE user_id = ?", (user_id,)).fetchone()[0]
+
+
+def delete_rolls(user_id: str, path: str | None = None) -> int:
+    """Apaga TODO o histórico de rolagens do jogador e devolve quantas eram. Não mexe na ficha, no XP
+    nem nos personagens: as definições (raça, magia, Estado) ficam guardadas nos personagens."""
+    with _connect(path) as conn:
+        return conn.execute("DELETE FROM rolls WHERE user_id = ?", (user_id,)).rowcount
+
+
 # ---------------------------------------------------------------------------
 # Definições (Rank de magia, Raça, Classe social)
 # ---------------------------------------------------------------------------

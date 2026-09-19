@@ -274,6 +274,16 @@ AJUDA = {
         "uso": "/mestre vagas usuario:@alguém extras:2",
         "detalhes": "O número é o total de extras, não soma com o que já tinha. Além das 3 normais, o teto é de 10 personagens.",
     },
+    "mestre apagar_historico": {
+        "grupo": "mestre",
+        "resumo": "apaga o histórico de rolagens de um jogador",
+        "uso": "/mestre apagar_historico usuario:@alguém",
+        "detalhes": (
+            "Apaga todas as rolagens que o `/historico` mostra pra esse jogador, de todos os personagens dele, inclusive "
+            "as dos sorteios de criação (raça, magia e classe social). Pede confirmação com botões, avisa no canal e fica "
+            "registrado. Não mexe na ficha, no XP nem nos personagens, e não tem como desfazer."
+        ),
+    },
     "mestre excluir_personagem": {
         "grupo": "mestre",
         "resumo": "exclui pra sempre o personagem de outro jogador",
@@ -293,7 +303,7 @@ MESTRE_SUBGRUPOS = [
     ("XP e nível", ["dar_xp", "upar", "corrigir_nivel"]),
     ("Ficha", ["ficha", "atributos", "corrigir_classe", "rank_pericia"]),
     ("Sorteios", ["apagar", "corrigir_magia", "corrigir_raca", "corrigir_estado"]),
-    ("Jogadores", ["jogador", "vagas", "excluir_personagem", "exportar"]),
+    ("Jogadores", ["jogador", "vagas", "excluir_personagem", "apagar_historico", "exportar"]),
 ]
 
 # Só comandos, em ordem, pra sugerir no autocomplete quando a pessoa ainda não digitou nada.
