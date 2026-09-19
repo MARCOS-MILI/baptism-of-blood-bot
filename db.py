@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import rules
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -229,6 +229,21 @@ def init_db(path: str | None = None) -> None:
                 PRIMARY KEY (character_id, skill)
             )
         """)
+        # O 'atributo da época': os atributos que o personagem tinha em cada nível que ficou pra trás.
+        # O nível atual não tem linha e usa sempre os atributos atuais.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS level_attributes (
+                character_id INTEGER NOT NULL,
+                level INTEGER NOT NULL,
+                attr_forca INTEGER NOT NULL,
+                attr_destreza INTEGER NOT NULL,
+                attr_vitalidade INTEGER NOT NULL,
+                attr_razao INTEGER NOT NULL,
+                attr_vontade INTEGER NOT NULL,
+                attr_alma INTEGER NOT NULL,
+                PRIMARY KEY (character_id, level)
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS xp_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -271,10 +286,19 @@ def init_db(path: str | None = None) -> None:
             _migrar_definicoes_antigas(conn)
         if versao < 4:
             conn.execute("UPDATE characters SET race = ? WHERE race = ?", (_RACA_NOVA, _RACA_ANTIGA))
+        if versao < 6:
+            _migrar_v6(conn)
 
     # PRAGMA não aceita parâmetro, mas o valor aqui é uma constante nossa.
     with _connect(path) as conn:
         conn.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION)}")
+
+
+def _migrar_v6(conn: sqlite3.Connection) -> None:
+    """Só aditiva: quem já passou do nível 1 tem os níveis que ficaram pra trás congelados com os
+    atributos de hoje (mesma regra de pular se estiverem zerados). Pode rodar de novo sem estragar nada."""
+    for personagem in conn.execute("SELECT id, level FROM characters WHERE level > 1").fetchall():
+        _congelar_niveis(conn, personagem["id"], personagem["level"])
 
 
 def _migrar_definicoes_antigas(conn: sqlite3.Connection) -> None:
@@ -452,6 +476,7 @@ def delete_character(character_id: int, deleted_by_id: str, deleted_by_name: str
              deleted_by_id, deleted_by_name, _now()),
         )
         conn.execute("DELETE FROM character_ranks WHERE character_id = ?", (character_id,))
+        conn.execute("DELETE FROM level_attributes WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM xp_log WHERE character_id = ?", (character_id,))
         conn.execute("UPDATE rolls SET character_id = NULL WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM characters WHERE id = ?", (character_id,))
@@ -553,6 +578,61 @@ def set_social_status(character_id: int, estado: str, estado_roll: int | None,
 
 
 # ---------------------------------------------------------------------------
+# Atributo da época: cada nível guarda os atributos que o personagem tinha nele
+# ---------------------------------------------------------------------------
+_ATTR_COLUMNS = [f"attr_{a}" for a in rules.ATTRIBUTES]
+
+
+def _congelar_niveis(conn: sqlite3.Connection, character_id: int, ate_nivel: int) -> None:
+    """Grava os atributos ATUAIS nos níveis de 1 até ate_nivel - 1 que ainda não têm linha.
+    Se Força, Vitalidade, Vontade e Alma estão todos zerados (o jogador ainda não distribuiu os
+    pontos), não grava nada: esses níveis continuam usando os atributos atuais até congelarem de verdade."""
+    atuais = conn.execute(
+        f"SELECT {', '.join(_ATTR_COLUMNS)} FROM characters WHERE id = ?", (character_id,)
+    ).fetchone()
+    if atuais is None or not any(atuais[f"attr_{a}"] for a in rules.RESOURCE_ATTRIBUTES):
+        return
+    ja_tem = {r["level"] for r in conn.execute(
+        "SELECT level FROM level_attributes WHERE character_id = ?", (character_id,))}
+    valores = [atuais[c] for c in _ATTR_COLUMNS]
+    for nivel in range(1, ate_nivel):
+        if nivel not in ja_tem:
+            conn.execute(
+                f"INSERT INTO level_attributes (character_id, level, {', '.join(_ATTR_COLUMNS)})"
+                f" VALUES (?, ?, {', '.join('?' * len(_ATTR_COLUMNS))})",
+                [character_id, nivel, *valores],
+            )
+
+
+def _nivel_mudou(conn: sqlite3.Connection, character_id: int, antes: int, depois: int) -> None:
+    """Subiu: os níveis que ficaram pra trás congelam com os atributos de agora (se o mestre sobe vários
+    de uma vez, os do meio congelam com os atributos do momento da subida). Baixou: somem as linhas do
+    nível novo em diante, que voltam a usar os atributos atuais."""
+    if depois > antes:
+        _congelar_niveis(conn, character_id, depois)
+    elif depois < antes:
+        conn.execute("DELETE FROM level_attributes WHERE character_id = ? AND level >= ?", (character_id, depois))
+
+
+def get_level_attributes(character_id: int, path: str | None = None) -> dict[int, dict[str, int]]:
+    """Só os níveis que já têm linha (os que o personagem deixou pra trás)."""
+    with _connect(path) as conn:
+        linhas = conn.execute(
+            "SELECT * FROM level_attributes WHERE character_id = ? ORDER BY level", (character_id,)
+        ).fetchall()
+    return {l["level"]: {a: l[f"attr_{a}"] for a in rules.ATTRIBUTES} for l in linhas}
+
+
+def attributes_per_level(personagem, path: str | None = None) -> list[dict[str, int]]:
+    """Os atributos de cada nível, do 1 até o atual. O nível atual sempre usa os atributos atuais;
+    os que ficaram pra trás usam a linha congelada, ou os atuais se ainda não têm linha."""
+    atuais = attributes_of(personagem)
+    congelados = get_level_attributes(personagem["id"], path)
+    nivel = personagem["level"]
+    return [congelados.get(n, atuais) if n < nivel else atuais for n in range(1, nivel + 1)]
+
+
+# ---------------------------------------------------------------------------
 # XP e nível
 # ---------------------------------------------------------------------------
 
@@ -570,6 +650,7 @@ def add_xp(character_id: int, amount: int, reason: str | None = None,
         depois_xp = max(0, antes_xp + amount)
         depois_nivel = rules.level_for_xp(depois_xp)
         conn.execute("UPDATE characters SET xp = ?, level = ? WHERE id = ?", (depois_xp, depois_nivel, character_id))
+        _nivel_mudou(conn, character_id, antes_nivel, depois_nivel)
         if depois_xp != antes_xp:
             conn.execute(
                 "INSERT INTO xp_log (character_id, character_name, amount, xp_before, xp_after, level_before,"
@@ -588,7 +669,12 @@ def set_xp(character_id: int, xp: int, path: str | None = None) -> None:
     """Define o XP exato (sem passar pelo extrato) e o nível que ele dá."""
     xp = max(0, xp)
     with _connect(path) as conn:
-        conn.execute("UPDATE characters SET xp = ?, level = ? WHERE id = ?", (xp, rules.level_for_xp(xp), character_id))
+        atual = conn.execute("SELECT level FROM characters WHERE id = ?", (character_id,)).fetchone()
+        if not atual:
+            return
+        novo_nivel = rules.level_for_xp(xp)
+        conn.execute("UPDATE characters SET xp = ?, level = ? WHERE id = ?", (xp, novo_nivel, character_id))
+        _nivel_mudou(conn, character_id, atual["level"], novo_nivel)
 
 
 def set_level(character_id: int, level: int, path: str | None = None) -> None:

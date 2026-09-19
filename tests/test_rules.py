@@ -83,7 +83,7 @@ for nome, (vida, san, mana, est) in site.items():
     assert (r["vida"]["total"], r["sanidade"]["total"], r["mana"]["total"], r["estamina"]["total"]) == (5 + vida, 5 + san, 6 + mana, 6 + est), nome
 r = rules.calculate_resources(vitalidade=3, forca=2, vontade=2, alma=1, classe="Caçador")
 assert (r["vida"]["total"], r["sanidade"]["total"], r["mana"]["total"], r["estamina"]["total"]) == (50, 25, 14, 35)
-assert r["vida"] == {"base": 15, "bonus": 35, "total": 50}
+assert r["vida"] == {"por_nivel": 15, "base": 15, "bonus": 35, "total": 50}
 assert all(v["total"] == 0 for v in rules.calculate_resources(vitalidade=0, forca=0, vontade=0, alma=0, classe="Nenhuma").values())
 try:
     rules.calculate_resources(vitalidade=1, forca=1, vontade=1, alma=1, classe="Paladino")
@@ -93,6 +93,44 @@ except ValueError:
 assert rules.CLASS_CHOICES == ["Nenhuma", *site] and set(rules.CLASS_SKILLS) == set(site)
 assert rules.CLASS_SKILLS["Caçador"] == "Religião e Luta ou Pontaria" and rules.CLASS_SKILLS["Mundano"] == "duas à sua escolha"
 print("4. classes e recursos OK")
+
+# ---------- recursos por nível: a cada nível soma de novo; o bônus da classe entra uma vez só ----------
+TOTAIS = ("vida", "sanidade", "mana", "estamina")
+tot = lambda x: tuple(x[k]["total"] for k in TOTAIS)
+A = dict(forca=1, vitalidade=3, vontade=2, alma=1)
+# tabela do prompt: Caçador (bônus 35/15/5/20) com o mesmo atributo em todos os níveis
+for nivel, vals in {1: (50, 25, 14, 32), 5: (110, 65, 50, 80), 10: (185, 115, 95, 140)}.items():
+    assert tot(rules.calculate_resources(**A, classe="Caçador", nivel=nivel)) == vals, nivel
+    assert tot(rules.calculate_resources_by_level([A] * nivel, "Caçador")) == vals, nivel        # somando nível a nível dá o mesmo
+c5 = rules.calculate_resources(**A, classe="Caçador", nivel=5)
+assert c5["vida"] == {"por_nivel": 15, "base": 75, "bonus": 35, "total": 110}                    # 3 x 5 x 5 níveis = 75, mais 35 da classe
+assert c5["mana"] == {"por_nivel": 9, "base": 45, "bonus": 5, "total": 50}
+# o bônus da classe é uma vez só, não uma por nível
+assert rules.calculate_resources(**A, classe="Mundano", nivel=10)["vida"]["total"] == 150 + 10
+assert rules.calculate_resources(**A, classe="Nenhuma", nivel=10)["vida"]["total"] == 150
+# todas as classes e níveis: a soma nível a nível com atributo fixo bate com a conta direta
+for nome in rules.CLASSES:
+    for n in range(1, 11):
+        assert rules.calculate_resources(**A, classe=nome, nivel=n) == {
+            k: {**v, "por_nivel": rules.calculate_resources(**A, classe=nome)[k]["por_nivel"]}
+            for k, v in rules.calculate_resources_by_level([A] * n, nome).items()}, (nome, n)
+# atributo mudando: Vitalidade 3 nos níveis 1 a 3 e 4 a partir do 4 (só Vida, Caçador)
+vida = lambda lista: rules.calculate_resources_by_level(
+    [dict(forca=0, vitalidade=v, vontade=0, alma=0) for v in lista], "Caçador")["vida"]["total"]
+assert (vida([3, 3, 3]), vida([3, 3, 3, 4]), vida([3, 3, 3, 4, 4])) == (80, 100, 120)
+# o nível 1 é igual ao cálculo antigo (uma vez só)
+assert tot(rules.calculate_resources(vitalidade=3, forca=2, vontade=2, alma=1, classe="Caçador")) == (50, 25, 14, 35)
+assert rules.calculate_resources(**A, classe="Caçador", nivel=1) == rules.calculate_resources(**A, classe="Caçador")
+for ruim in (0, 11, -1):
+    try: rules.calculate_resources(**A, nivel=ruim); raise SystemExit("nível inválido deveria falhar")
+    except ValueError: pass
+for f in (lambda: rules.calculate_resources_by_level([]), lambda: rules.calculate_resources_by_level([A], "Paladino")):
+    try: f(); raise SystemExit("deveria falhar")
+    except ValueError: pass
+assert rules.RESOURCE_ATTRIBUTES == ("forca", "vitalidade", "vontade", "alma")               # Destreza e Razão não entram
+D = dict(forca=1, vitalidade=3, vontade=2, alma=1, destreza=9, razao=9)
+assert tot(rules.calculate_resources_by_level([D], "Caçador")) == (50, 25, 14, 32)
+print("4b. recursos por nível OK")
 
 # ---------- atributos: pontos e limites de criação ----------
 assert [rules.attribute_points_total(n) for n in range(1, 11)] == [6, 7, 7, 8, 8, 9, 9, 10, 10, 11]

@@ -57,15 +57,15 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 
 **Ficha, níveis e recursos**
 
-- `/minha_ficha personagem:...` mostra nível, XP (e quanto falta pro próximo nível), Raça, Classe social, Rank de magia, Classe, Atributos, os pontos de atributo usados e **Vida, Sanidade, Mana e Estamina já calculados**, mais os Ranks das perícias especiais. Só você vê a resposta.
+- `/minha_ficha personagem:...` mostra nível, XP (e quanto falta pro próximo nível), Raça, Classe social, Rank de magia, Classe, Atributos, os pontos de atributo usados e **Vida, Sanidade, Mana e Estamina já calculados, somando nível a nível**, mais os Ranks das perícias especiais. Só você vê a resposta.
 - `/niveis personagem:...` mostra o XP e as vantagens de cada nível, de 1 a 10, marcando o nível do seu personagem e o que vem no próximo.
 - `/extrato_xp personagem:...` mostra de onde veio o XP do personagem: as últimas 10 entradas, com motivo, mestre e horário.
 - `/rank tipo:personagens|jogadores limite:10` mostra o rank de XP total, **público** pra todo mundo. Em `jogadores`, cada um vale a soma do XP de todos os seus personagens. Quem tem 0 XP não aparece.
-- `/calcular_recursos classe:... vitalidade:... forca:... vontade:... alma:...` calcula Vida, Sanidade, Mana e Estamina com os números que você digitar, mostrando a conta. Serve pra simular ("e se eu colocar mais um ponto em Vitalidade?"); a `/minha_ficha` já mostra os valores reais do seu personagem.
+- `/calcular_recursos classe:... vitalidade:... forca:... vontade:... alma:... nivel:5` simula Vida, Sanidade, Mana e Estamina com os números que você digitar, mostrando a conta (por exemplo `Vitalidade 3 × 5 × 5 níveis = 75, mais 35 da classe`). O `nivel` vai de 1 a 10 e, sem ele, vale 1. A conta usa **o mesmo atributo em todos os níveis**, então é uma simulação; a conta exata, com o atributo que o personagem tinha em cada nível, é a da `/minha_ficha`.
 
 ## Regras que o bot segue
 
-**XP e nível:** nível máximo 10. Todo personagem começa no nível 1, com 0 XP. Pra sair do nível N são necessários N × 1.000 XP, e o XP é somado (não zera a cada nível). O nível sobe sozinho quando o XP chega no número da tabela; o XP que passa do necessário vale pro nível seguinte, e dá pra subir mais de um nível de uma vez. No nível 10 o XP continua contando, mas não sobe mais. Só os mestres dão XP, em roleplay importante, missão ou evento.
+**XP e nível:** nível máximo 10. Todo personagem começa no nível 1, com 0 XP. Pra sair do nível N são necessários N × 1.000 XP, e o XP é somado (não zera a cada nível). O nível sobe sozinho quando o XP chega no número da tabela; o XP que passa do necessário vale pro nível seguinte, e dá pra subir mais de um nível de uma vez. No nível 10 o XP continua contando, mas não sobe mais. Só os mestres dão XP: em roleplay importante, missão de mestre e desenvolvimento do personagem, sempre por roleplay e não por ação avulsa.
 
 | Nível | XP total pra chegar | Vantagens |
 |---|---|---|
@@ -84,7 +84,19 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 
 **Atributos** (igual ao site): são 6 (Força, Destreza, Vitalidade, Razão, Vontade e Alma). Na criação são 6 pontos pra distribuir, e cada 2 níveis (2, 4, 6, 8 e 10) dá +1 ponto, então o total é 6 + nível ÷ 2 (11 no nível 10). Limites de criação: Humano tem 3 em Força, Destreza e Vitalidade e 6 em Razão; Vampiro tem 5 em Força, Destreza e Vitalidade; Vontade e Alma não têm limite. O Dhampir ainda não tem limite definido, então pra ele o bot só confere o total. Os pontos que vêm de nível podem passar do limite de criação, e é assim que o bot confere: o que passar do limite tem que caber nos pontos de nível.
 
-**Recursos** (igual ao site): Vida = Vitalidade × 5, Sanidade = Vontade × 5, Mana = (Alma + Vontade) × 3, Estamina = (Força + Vitalidade) × 3, sempre mais o bônus da classe. O nível não dá Vida direto; o que aumenta a Vida são os pontos de atributo colocados em Vitalidade. Destreza e Razão não entram nessas contas.
+**Recursos** (igual ao site): **a cada nível** o personagem soma de novo o valor de cada recurso, calculado com os atributos que ele tinha naquele nível. Por nível: Vida = Vitalidade × 5, Sanidade = Vontade × 5, Mana = (Alma + Vontade) × 3, Estamina = (Força + Vitalidade) × 3. O bônus da classe entra **uma vez só**, no fim. No nível 1 a conta vale uma vez, e cada nível novo soma outra. Destreza e Razão não entram nessas contas.
+
+**Atributo da época:** o nível em que o personagem está sempre usa os atributos atuais. Quando ele sobe, o nível que ficou pra trás congela com os atributos daquele momento, e um aumento de atributo depois disso só vale daí pra frente. O ponto de atributo que vem ao subir de nível, se for distribuído logo com `/atributos`, já entra na conta do nível novo. Se o personagem ainda não distribuiu nada (Força, Vitalidade, Vontade e Alma zerados) na hora de subir, o bot não congela nada, e aquele nível continua usando os atributos atuais até congelar de verdade. Quando um mestre sobe vários níveis de uma vez, os níveis do meio congelam com os atributos do momento da subida. Se o nível baixa (XP negativo ou `/mestre corrigir_nivel`), os níveis do novo nível em diante deixam de estar congelados. O `/mestre atributos` só mexe no nível atual.
+
+Exemplo, Caçador (bônus Vida 35, Sanidade 15, Mana 5, Estamina 20) com Força 1, Vitalidade 3, Vontade 2 e Alma 1 em todos os níveis:
+
+| Nível | Vida | Sanidade | Mana | Estamina |
+|---|---|---|---|---|
+| 1 | 50 | 25 | 14 | 32 |
+| 5 | 110 | 65 | 50 | 80 |
+| 10 | 185 | 115 | 95 | 140 |
+
+Com a Vitalidade em 3 nos níveis 1 a 3 e em 4 a partir do nível 4, a Vida do Caçador fica 80 no nível 3, 100 no nível 4 e 120 no nível 5.
 
 | Classe | Vida | Sanidade | Mana | Estamina |
 |---|---|---|---|---|
@@ -95,7 +107,7 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 | Mundano | 10 | 15 | 10 | 10 |
 | Sábio | 15 | 35 | 20 | 5 |
 
-**Ranks das perícias especiais**: Ritualismo, Alquimia, Forja, Culinária e Fé têm Rank de 0 a 10. Quem dá um grau novo são os mestres.
+**Ranks das perícias especiais**: Ritualismo, Alquimia, Forja, Culinária e Fé têm Rank de 0 a 10. Quem dá um Rank novo são os mestres.
 
 ## Comandos de mestre
 
@@ -181,9 +193,10 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 
 ## Bancos antigos
 
-Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores: as colunas e tabelas novas são criadas, o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
+Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 6, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
 
 ## O que ainda falta
 
 - Integrar esse histórico com o site (hoje são dois sistemas separados, sem comunicação entre eles).
 - Disciplinas vampíricas (grau 0 a 5) ainda não aparecem na ficha do bot.
+- Pontos de perícia (25 na criação, +2 por nível) ainda não são controlados pelo bot.

@@ -40,7 +40,7 @@ db.init_db(p); db.init_db(p)                                              # roda
 with sqlite3.connect(p) as c:
     assert c.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     tabelas = {r[0] for r in c.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%'")}
-assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters"}, tabelas
+assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes"}, tabelas
 print("2. init_db OK")
 
 # ---------- 3. personagens ----------
@@ -170,9 +170,42 @@ assert (a["name"], a["magic_rank"], a["race"], a["level"], a["xp"], a["social_cl
 assert a["class_name"] is None and a["class_set_at"] is None and db.attributes_of(a) == {x: 0 for x in rules.ATTRIBUTES}                                # colunas novas, neutras
 assert len(db.get_history("7", 10, None, p4)) == 1 and db.get_skill_ranks(1, p4) == {"Forja": 3} and db.get_extra_slots("7", p4) == 2 and db.count_deleted("7", p4) == 1
 assert len(db.get_xp_log(1, 10, p4)) == 1 and db.get_player_names(p4) == {"7": "Marcos"}
-with sqlite3.connect(p4) as cn: assert cn.execute("PRAGMA user_version").fetchone()[0] == 5
+with sqlite3.connect(p4) as cn: assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
 db.set_class(1, "Caçador", p4); db.set_attributes(1, {"vitalidade": 3}, p4); assert db.attributes_of(db.get_character_by_id(1, p4))["vitalidade"] == 3   # já dá pra usar
 print("6d. v4 -> v5 (com dados) OK")
+
+# v5 (o que está em produção agora): quem já passou do nível 1 congela os níveis de trás com os atributos de hoje
+p5 = os.path.join(tmp, "v5.db"); L.create(p5, L.V5)
+INS = ("INSERT INTO characters (id, user_id, name, name_key, created_at, level, xp, class_name, attr_forca, attr_destreza,"
+       " attr_vitalidade, attr_razao, attr_vontade, attr_alma) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+with sqlite3.connect(p5) as cn:
+    cn.execute(INS, (1, "7", "Kairon Flagon", "kairon flagon", "2026-09-18T00:00:00+00:00", 4, 6000, "Caçador", 1, 0, 3, 0, 2, 1))   # nível 4, com atributos
+    cn.execute(INS, (2, "7", "Sem Pontos", "sem pontos", "2026-09-18T00:00:00+00:00", 4, 6000, "Sábio", 0, 2, 0, 3, 0, 0))           # nível 4, só Destreza e Razão (não contam)
+    cn.execute(INS, (3, "7", "Novato", "novato", "2026-09-18T00:00:00+00:00", 1, 0, None, 0, 0, 0, 0, 0, 0))                        # nível 1
+    cn.execute(INS, (4, "8", "No Máximo", "no máximo", "2026-09-18T00:00:00+00:00", 10, 45000, "Ladrão", 2, 0, 3, 0, 1, 1))        # nível 10
+    cn.execute("INSERT INTO rolls (user_id, username, guild_id, notation, rolls_json, total, purpose, created_at, character_id, character_name) VALUES ('7','Marcos','g','1d20','[17]',17,'ataque','2026-09-18T00:00:00+00:00',1,'Kairon Flagon')")
+    cn.execute("INSERT INTO xp_log (character_id, character_name, amount, xp_before, xp_after, level_before, level_after, reason, master_id, master_name, created_at) VALUES (1,'Kairon Flagon',6000,0,6000,1,4,'início','1','Mestre','2026-09-18T00:00:00+00:00')")
+    cn.execute("INSERT INTO players (user_id, display_name, extra_slots, updated_at) VALUES ('7','Marcos',1,'2026-09-18T00:00:00+00:00')")
+db.init_db(p5); db.init_db(p5)                                                                   # migra; repetir não estraga
+with sqlite3.connect(p5) as cn: assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 6
+k, sp, nv, mx = (db.get_character_by_id(i, p5) for i in (1, 2, 3, 4))
+assert (k["name"], k["level"], k["xp"], k["class_name"]) == ("Kairon Flagon", 4, 6000, "Caçador") and (mx["level"], mx["xp"]) == (10, 45000)      # nada mudou
+assert len(db.get_history("7", 10, None, p5)) == 1 and len(db.get_xp_log(1, 10, p5)) == 1 and db.get_extra_slots("7", p5) == 1
+atuais = {"forca": 1, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 2, "alma": 1}
+assert db.get_level_attributes(1, p5) == {1: atuais, 2: atuais, 3: atuais}                                # níveis 1 a 3 congelados, o 4 (atual) não tem linha
+assert db.get_level_attributes(2, p5) == {} and db.get_level_attributes(3, p5) == {}                        # zerado (só Destreza/Razão) e nível 1: nada
+assert sorted(db.get_level_attributes(4, p5)) == list(range(1, 10))                                        # nível 10: 9 linhas
+assert [len(db.attributes_per_level(x, p5)) for x in (k, sp, nv, mx)] == [4, 4, 1, 10]
+assert rules.calculate_resources_by_level(db.attributes_per_level(k, p5), "Caçador")["vida"]["total"] == 15 * 4 + 35
+with db._connect(p5) as cn:                                                                              # rodar a migração de novo à mão não duplica nem muda nada
+    db._migrar_v6(cn); db._migrar_v6(cn)
+assert db.get_level_attributes(1, p5) == {1: atuais, 2: atuais, 3: atuais} and sorted(db.get_level_attributes(4, p5)) == list(range(1, 10))
+with sqlite3.connect(p5) as cn: assert cn.execute("SELECT COUNT(*) FROM level_attributes").fetchone()[0] == 3 + 9
+db.add_xp(1, 4000, "pós-migração", "1", "Mestre", p5)                                                    # já funciona: o nível 4 congela ao ir pro 5
+assert sorted(db.get_level_attributes(1, p5)) == [1, 2, 3, 4]
+db.set_attributes(2, {"vitalidade": 2}, p5); db.add_xp(2, 4000, "pós-migração", "1", "Mestre", p5)         # quem estava zerado congela quando distribui e sobe
+assert sorted(db.get_level_attributes(2, p5)) == [1, 2, 3, 4] and db.get_level_attributes(2, p5)[1]["vitalidade"] == 2
+print("6e. v5 -> v6 (com dados) OK")
 
 # ---------- 7. XP: níveis, saltos, remoção, extrato ----------
 px = novo_banco("xp.db"); x = db.create_character("5", "Xis", path=px)["id"]
@@ -295,5 +328,73 @@ assert copia["name"] == "Copiado"; db.init_db(dest)
 try: db.export_copy(os.path.join(tmp, "nao_existe", "x.db"), pc); raise SystemExit("deveria falhar")
 except sqlite3.OperationalError: pass
 print("13. cópia de segurança OK")
+
+# ---------- 14. atributo da época: cada nível guarda os atributos que o personagem tinha ----------
+pe = novo_banco("epoca.db")
+def cria(nome, **attrs):
+    cid = db.create_character("1", nome, path=pe)["id"]; db.set_class(cid, "Caçador", pe)
+    if attrs: db.set_attributes(cid, attrs, pe)
+    return cid
+def linhas(cid): return db.get_level_attributes(cid, pe)
+def total(cid, recurso="vida"):
+    return rules.calculate_resources_by_level(db.attributes_per_level(db.get_character_by_id(cid, pe), pe), "Caçador")[recurso]["total"]
+
+# o exemplo do prompt: Vitalidade 3 nos níveis 1 a 3 e 4 a partir do nível 4 -> Vida 80, 100, 120
+a = cria("Época A", vitalidade=3)
+assert total(a) == 15 + 35 and linhas(a) == {}                                          # nível 1: uma vez só, sem linha
+db.add_xp(a, 3000, "nível 3", path=pe); assert total(a) == 80 and sorted(linhas(a)) == [1, 2]
+db.add_xp(a, 3000, "nível 4", path=pe); assert sorted(linhas(a)) == [1, 2, 3]
+db.set_attributes(a, {"vitalidade": 4}, pe)                                             # aumento depois de subir: só vale daí pra frente
+assert total(a) == 100 and [linhas(a)[n]["vitalidade"] for n in (1, 2, 3)] == [3, 3, 3]
+db.add_xp(a, 4000, "nível 5", path=pe); assert total(a) == 120 and sorted(linhas(a)) == [1, 2, 3, 4] and linhas(a)[4]["vitalidade"] == 4
+assert [x["vitalidade"] for x in db.attributes_per_level(db.get_character_by_id(a, pe), pe)] == [3, 3, 3, 4, 4]
+# baixar de nível (XP negativo, set_level ou set_xp) apaga as linhas do nível novo em diante
+db.add_xp(a, -4000, "volta pro 4", path=pe); assert db.get_character_by_id(a, pe)["level"] == 4 and sorted(linhas(a)) == [1, 2, 3] and total(a) == 100
+db.set_level(a, 2, pe); assert sorted(linhas(a)) == [1] and total(a) == 15 + 20 + 35      # o nível 2 (atual) passa a usar Vitalidade 4
+db.set_xp(a, 0, pe); assert linhas(a) == {} and db.get_character_by_id(a, pe)["level"] == 1
+db.set_xp(a, 500, pe); assert linhas(a) == {}                                           # mexer no XP sem mudar de nível não faz nada
+# atributos zerados na hora de subir: não congela, e o nível continua usando os atributos atuais até congelar de verdade
+b = cria("Época B"); db.add_xp(b, 1000, "nível 2", path=pe); assert linhas(b) == {}
+db.set_attributes(b, {"vitalidade": 3}, pe); assert total(b) == 15 * 2 + 35             # os dois níveis usam o atributo que ele distribuiu depois
+db.add_xp(b, 2000, "nível 3", path=pe); assert sorted(linhas(b)) == [1, 2]
+db.set_attributes(b, {"vitalidade": 4}, pe); assert total(b) == 15 * 2 + 20 + 35 and linhas(b)[1]["vitalidade"] == 3
+# só Destreza e Razão preenchidas não contam como 'distribuiu' (elas não entram nos recursos)
+c = cria("Época C", destreza=2, razao=3); db.add_xp(c, 1000, "nível 2", path=pe); assert linhas(c) == {}
+# subir vários níveis de uma vez: os do meio congelam com os atributos do momento da subida
+d = cria("Época D", vitalidade=3); db.add_xp(d, 10000, "salto pro 5", path=pe)
+assert sorted(linhas(d)) == [1, 2, 3, 4] and all(linhas(d)[n]["vitalidade"] == 3 for n in (1, 2, 3, 4))
+db.set_attributes(d, {"vitalidade": 5}, pe); antes = dict(linhas(d)); db.add_xp(d, 26000, "salto pro 9", path=pe)
+assert sorted(linhas(d)) == list(range(1, 9)) and {n: linhas(d)[n] for n in (1, 2, 3, 4)} == {n: antes[n] for n in (1, 2, 3, 4)}   # as de trás não são reescritas
+assert all(linhas(d)[n]["vitalidade"] == 5 for n in (5, 6, 7, 8))
+# set_attributes nunca mexe nas linhas; e uma linha perdida no nível atual é ignorada
+antes = dict(linhas(d)); db.set_attributes(d, {"vitalidade": 6, "forca": 2}, pe); assert linhas(d) == antes
+with sqlite3.connect(pe) as cn: cn.execute("INSERT INTO level_attributes VALUES (?, 9, 9, 9, 9, 9, 9, 9)", (d,))
+assert db.attributes_per_level(db.get_character_by_id(d, pe), pe)[-1]["vitalidade"] == 6
+# excluir o personagem apaga as linhas dele, e só as dele
+e = cria("Época E", vitalidade=2); db.add_xp(e, 3000, "nível 3", path=pe); assert sorted(linhas(e)) == [1, 2]
+fica = dict(linhas(d)); assert db.delete_character(e, "1", "Ana", pe)
+assert linhas(e) == {} and linhas(d) == fica
+with sqlite3.connect(pe) as cn: assert cn.execute("SELECT COUNT(*) FROM level_attributes WHERE character_id = ?", (e,)).fetchone()[0] == 0
+# 500 operações aleatórias contra um modelo simples e independente
+rng = random.Random(6); ids = [cria(f"Aleatório {i}") for i in range(3)]
+M = {i: {"xp": 0, "attrs": {x: 0 for x in rules.ATTRIBUTES}, "rows": {}} for i in ids}
+def modelo_mudou(m, antes, depois):
+    if depois > antes:
+        if any(m["attrs"][x] for x in rules.RESOURCE_ATTRIBUTES):
+            for n in range(1, depois): m["rows"].setdefault(n, dict(m["attrs"]))
+    elif depois < antes:
+        m["rows"] = {n: v for n, v in m["rows"].items() if n < depois}
+for _ in range(500):
+    i = rng.choice(ids); m = M[i]; antes = rules.level_for_xp(m["xp"]); op = rng.choice(["xp", "xp", "attr", "nivel"])
+    if op == "xp":
+        q = rng.randint(-8000, 12000); db.add_xp(i, q, path=pe); m["xp"] = max(0, m["xp"] + q); modelo_mudou(m, antes, rules.level_for_xp(m["xp"]))
+    elif op == "attr":
+        v = {x: rng.randint(0, 6) for x in rng.sample(rules.ATTRIBUTES, rng.randint(1, 3))}; db.set_attributes(i, v, pe); m["attrs"].update(v)
+    else:
+        n = rng.randint(1, 10); db.set_level(i, n, pe); m["xp"] = rules.xp_at_level_start(n); modelo_mudou(m, antes, n)
+    ch = db.get_character_by_id(i, pe)
+    assert (ch["xp"], ch["level"]) == (m["xp"], rules.level_for_xp(m["xp"]))
+    assert linhas(i) == m["rows"] and all(n < ch["level"] for n in m["rows"]) and len(db.attributes_per_level(ch, pe)) == ch["level"]
+print("14. atributo da época OK (500 operações aleatórias batem com o modelo)")
 
 print("\nTODOS OS TESTES DO BANCO PASSARAM")

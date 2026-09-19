@@ -137,7 +137,7 @@ def level_table_lines(current_level: int | None = None, race: str | None = None)
 
 
 # ---------------------------------------------------------------------------
-# Perícias especiais (grau/Rank de 1 a 10, concedido pelos mestres)
+# Perícias especiais (Rank de 0 a 10, concedido pelos mestres)
 # ---------------------------------------------------------------------------
 SPECIAL_SKILLS = ["Ritualismo", "Alquimia", "Forja", "Culinária", "Fé"]
 MAX_SKILL_RANK = 10
@@ -181,24 +181,60 @@ CLASS_SKILLS = {
 _SEM_BONUS = {"vida": 0, "sanidade": 0, "mana": 0, "estamina": 0}
 
 
-def calculate_resources(*, vitalidade: int, forca: int, vontade: int, alma: int,
-                        classe: str = CLASS_NONE) -> dict[str, dict[str, int]]:
-    """Vida = Vitalidade x5, Sanidade = Vontade x5, Mana = (Alma + Vontade) x3,
-    Estamina = (Força + Vitalidade) x3, sempre mais o bônus da classe.
-    Destreza e Razão não entram em nenhuma dessas contas."""
+# Atributos que entram nas contas de recursos. Destreza e Razão não entram.
+RESOURCE_ATTRIBUTES = ("forca", "vitalidade", "vontade", "alma")
+
+
+def _bonus_da_classe(classe: str) -> dict[str, int]:
     if classe != CLASS_NONE and classe not in CLASSES:
         raise ValueError(f"Classe desconhecida: {classe}")
-    bonus = _SEM_BONUS if classe == CLASS_NONE else CLASSES[classe]
-    base = {
+    return _SEM_BONUS if classe == CLASS_NONE else CLASSES[classe]
+
+
+def _base_por_nivel(vitalidade: int, forca: int, vontade: int, alma: int) -> dict[str, int]:
+    """O que cada recurso rende em UM nível: Vida = Vitalidade x5, Sanidade = Vontade x5,
+    Mana = (Alma + Vontade) x3, Estamina = (Força + Vitalidade) x3."""
+    return {
         "vida": vitalidade * 5,
         "sanidade": vontade * 5,
         "mana": (alma + vontade) * 3,
         "estamina": (forca + vitalidade) * 3,
     }
+
+
+def calculate_resources(*, vitalidade: int, forca: int, vontade: int, alma: int,
+                        classe: str = CLASS_NONE, nivel: int = 1) -> dict[str, dict[str, int]]:
+    """A cada nível o personagem soma de novo o valor de cada recurso, e o bônus da classe entra
+    uma vez só, no fim. Aqui o MESMO atributo vale em todos os níveis (é a conta do
+    /calcular_recursos). No nível 1 dá a conta de uma vez só. Pra conta exata, com o atributo que o
+    personagem tinha em cada nível, use calculate_resources_by_level."""
+    bonus = _bonus_da_classe(classe)
+    if not 1 <= nivel <= MAX_LEVEL:
+        raise ValueError(f"Nível fora de 1 a {MAX_LEVEL}: {nivel}")
+    por_nivel = _base_por_nivel(vitalidade, forca, vontade, alma)
     return {
-        nome: {"base": base[nome], "bonus": bonus[nome], "total": base[nome] + bonus[nome]}
-        for nome in base
+        nome: {
+            "por_nivel": por_nivel[nome],
+            "base": por_nivel[nome] * nivel,
+            "bonus": bonus[nome],
+            "total": por_nivel[nome] * nivel + bonus[nome],
+        }
+        for nome in por_nivel
     }
+
+
+def calculate_resources_by_level(attributes_per_level: list[dict[str, int]],
+                                 classe: str = CLASS_NONE) -> dict[str, dict[str, int]]:
+    """Soma nível a nível: cada item da lista são os atributos do nível 1, 2, 3... até o nível atual.
+    O bônus da classe entra uma vez só."""
+    if not attributes_per_level:
+        raise ValueError("Precisa de pelo menos um nível")
+    bonus = _bonus_da_classe(classe)
+    soma = {nome: 0 for nome in bonus}
+    for a in attributes_per_level:
+        for nome, valor in _base_por_nivel(a["vitalidade"], a["forca"], a["vontade"], a["alma"]).items():
+            soma[nome] += valor
+    return {nome: {"base": soma[nome], "bonus": bonus[nome], "total": soma[nome] + bonus[nome]} for nome in soma}
 
 
 # ---------------------------------------------------------------------------

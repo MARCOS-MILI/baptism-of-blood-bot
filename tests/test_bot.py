@@ -588,4 +588,85 @@ assert "file" not in kw and kw["ephemeral"] and "só aceita arquivo de até" in 
 with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT COUNT(*) FROM master_actions WHERE action='exportar'").fetchone()[0] == 1
 print("J. exportar OK")
 
+# ============================ K. recursos por nível, textos de XP e Rank ============================
+db.DB_PATH = os.path.join(tmp, "nivel.db"); db.init_db()
+pay = {c.name: c.to_dict(bot.bot.tree) for c in bot.bot.tree.get_commands()}
+def todas(d):
+    yield d["description"]
+    for o in d.get("options", []):
+        yield from todas(o) if "options" in o else [o["description"]]
+cr = pay["calcular_recursos"]; nv = opt(cr, "nivel")
+assert (nv["min_value"], nv["max_value"], nv.get("required", False)) == (1, 10, False) and "mesmo atributo em todos os níveis" in nv["description"]
+assert req(cr["options"]) == {"classe", "vitalidade", "forca", "vontade", "alma"} and "pelo nível" in cr["description"]
+assert pay["minha_ficha"]["description"] == "Mostra nível, XP, raça, classe, atributos, recursos e ranks do seu personagem."
+dx, up = sub_("mestre", "dar_xp"), sub_("mestre", "upar")
+assert "missão de mestre ou desenvolvimento" in dx["description"] and "por roleplay, não por ação avulsa" in opt(dx, "motivo")["description"]
+assert "missão de mestre" in opt(up, "motivo")["description"] and "RP marcante" not in opt(up, "motivo")["description"]
+assert "nenhum Rank" in opt(sub_("mestre", "rank_pericia"), "rank")["description"]
+assert not [t for d in pay.values() for t in todas(d) if "grau" in t.lower()]              # 'grau' ficou só pras Disciplinas, que o bot não tem
+
+# /calcular_recursos: soma por nível, com o mesmo atributo em todos os níveis
+calc = inter(70, "Calculista")
+run(bot.calcular_recursos.callback(calc, "Caçador", 3, 1, 2, 1, 5)); e = sent(calc)[1]["embed"]; print("  ", e.title, "|", e.description.splitlines()[0:2])
+assert e.title == "🧮 Recursos (Caçador, nível 5)" and sent(calc)[1]["ephemeral"]
+assert "**Vida: 110**\n　Vitalidade 3 × 5 × 5 níveis = 75, mais 35 da classe" in e.description
+assert "**Sanidade: 65**\n　Vontade 2 × 5 × 5 níveis = 50, mais 15 da classe" in e.description
+assert "**Mana: 50**\n　(Alma 1 + Vontade 2) × 3 × 5 níveis = 45, mais 5 da classe" in e.description
+assert "**Estamina: 80**\n　(Força 1 + Vitalidade 3) × 3 × 5 níveis = 60, mais 20 da classe" in e.description
+assert "Por nível" in e.footer.text and "a conta exata é a da /minha_ficha" in e.footer.text and "Destreza e Razão não entram" in e.footer.text and "`" not in e.footer.text
+run(bot.calcular_recursos.callback(calc, "Caçador", 3, 2, 2, 1)); e = sent(calc)[1]["embed"]      # sem nível: nível 1, igual ao cálculo antigo
+assert e.title == "🧮 Recursos (Caçador)" and "níveis" not in e.description
+assert "**Vida: 50**\n　Vitalidade 3 × 5 = 15, mais 35 da classe" in e.description and "**Estamina: 35**" in e.description
+run(bot.calcular_recursos.callback(calc, "Nenhuma", 3, 1, 2, 1, 10)); e = sent(calc)[1]["embed"]
+assert e.title == "🧮 Recursos (sem classe, nível 10)" and "**Vida: 150**\n　Vitalidade 3 × 5 × 10 níveis = 150" in e.description and "da classe" not in e.description
+run(bot.calcular_recursos.callback(calc, "Caçador", 3, 1, 2, 1, 10)); assert "**Vida: 185**" in sent(calc)[1]["embed"].description and "**Estamina: 140**" in sent(calc)[1]["embed"].description
+assert len(historico_de(70)) == 0 and db.list_characters("70") == []                             # a calculadora continua sem escrever nada
+
+# a ficha soma nível a nível: mesma tabela do prompt (Caçador, Força 1, Vitalidade 3, Vontade 2, Alma 1 em todos os níveis)
+f1 = novo(120, "Nivel", "Nível Ficha"); a120 = alvo(120, "Nivel"); ch = lambda: row(120, "Nível Ficha")
+db.set_race(ch()["id"], "Humano", 40); db.set_class(ch()["id"], "Caçador")
+db.set_attributes(ch()["id"], {"forca": 1, "vitalidade": 3, "vontade": 2, "alma": 1})
+run(bot.minha_ficha.callback(f1, None)); assert campos(f1)["Recursos"] == "❤️ Vida **50** · 🧠 Sanidade **25**\n🔮 Mana **14** · 💪 Estamina **32**"     # nível 1: uma vez só
+run(bot.mestre_dar_xp.callback(gm, a120, 10000, None, None))
+assert "Use `/atributos` pra distribuir os pontos de atributo. Distribui logo: o nível novo já conta com os atributos que você tiver." in desc(gm)
+run(bot.minha_ficha.callback(f1, None)); assert campos(f1)["Recursos"] == "❤️ Vida **110** · 🧠 Sanidade **65**\n🔮 Mana **50** · 💪 Estamina **80**"   # nível 5
+run(bot.mestre_dar_xp.callback(gm, a120, 35000, None, None))
+run(bot.minha_ficha.callback(f1, None)); assert campos(f1)["Recursos"] == "❤️ Vida **185** · 🧠 Sanidade **115**\n🔮 Mana **95** · 💪 Estamina **140**"  # nível 10
+run(bot.mestre_ficha.callback(gm, a120, None)); assert campos(gm)["Recursos"] == campos(f1)["Recursos"]                       # a ficha do mestre é a mesma conta
+run(bot.atributos.callback(f1, None, None, None, None, None, None, None)); assert campos(f1)["Recursos"] == campos(gm)["Recursos"]   # e a tela de /atributos também
+assert sorted(db.get_level_attributes(ch()["id"])) == list(range(1, 10))
+
+# atributo da época pelos comandos: Vitalidade 3 nos níveis 1 a 3 e 4 a partir do 4 -> Vida 80, 100, 120
+v = novo(121, "Vida", "Vida Época"); av = alvo(121, "Vida"); vc = lambda: row(121, "Vida Época")
+db.set_race(vc()["id"], "Humano", 40); db.set_class(vc()["id"], "Caçador")
+vida_de = lambda i: int(re.search(r"Vida \*\*(\d+)\*\*", campos(i)["Recursos"]).group(1))
+run(bot.atributos.callback(v, None, None, 3, None, None, None, None)); assert vida_de(v) == 50
+run(bot.mestre_dar_xp.callback(gm, av, 3000, None, None)); run(bot.minha_ficha.callback(v, None)); assert vida_de(v) == 80                   # nível 3
+run(bot.mestre_dar_xp.callback(gm, av, 3000, None, None)); run(bot.minha_ficha.callback(v, None)); assert vida_de(v) == 95                   # nível 4, ainda com Vitalidade 3
+run(bot.atributos.callback(v, None, None, 4, None, None, None, None)); assert vida_de(v) == 100                                              # distribuiu o ponto: só o nível 4 sente
+run(bot.minha_ficha.callback(v, None)); assert campos(v)["Recursos"] == "❤️ Vida **100** · 🧠 Sanidade **15**\n🔮 Mana **5** · 💪 Estamina **59**"
+run(bot.mestre_dar_xp.callback(gm, av, 4000, None, None)); run(bot.minha_ficha.callback(v, None)); assert vida_de(v) == 120                   # nível 5
+assert campos(v)["Recursos"] == "❤️ Vida **120** · 🧠 Sanidade **15**\n🔮 Mana **5** · 💪 Estamina **71**"
+run(bot.mestre_dar_xp.callback(gm, av, -4000, "engano", None)); run(bot.minha_ficha.callback(v, None)); assert vida_de(v) == 100                # baixou: some a linha do 4
+run(bot.mestre_corrigir_nivel.callback(gm, av, 2, None)); run(bot.minha_ficha.callback(v, None)); assert vida_de(v) == 15 + 20 + 35            # nível 2 usa Vitalidade 4
+run(bot.mestre_atributos.callback(gm, av, None, None, 6, None, None, None, None)); run(bot.minha_ficha.callback(v, None))
+assert vida_de(v) == 15 + 30 + 35                                                                                                          # o mestre só mexe no nível atual
+assert sorted(db.get_level_attributes(vc()["id"])) == [1]
+
+# textos: quem dá XP e o Rank das perícias
+run(bot.niveis.callback(f1, None)); assert "missão de mestre e desenvolvimento do personagem" in rodape(f1) and "sempre por roleplay e não por ação avulsa" in rodape(f1)
+r0 = novo(122, "Rank", "Sem Rank"); run(bot.minha_ficha.callback(r0, None)); assert campos(r0)["Ranks das perícias especiais"] == "nenhum Rank ainda"
+a122 = alvo(122, "Rank"); run(bot.mestre_rank_pericia.callback(gm, a122, "Forja", 3, None)); assert titulo(gm) == "⬆️ Forja: Rank 3/10" and "**0** → **3**" in desc(gm)
+run(bot.minha_ficha.callback(r0, None)); assert campos(r0)["Ranks das perícias especiais"] == "**Forja** 3/10 ▰▰▰▱▱▱▱▱▱▱"
+run(bot.mestre_rank_pericia.callback(gm, a122, "Forja", 0, None)); run(bot.minha_ficha.callback(r0, None)); assert campos(r0)["Ranks das perícias especiais"] == "nenhum Rank ainda"
+
+# excluir o personagem apaga as linhas de nível dele
+async def exclui_nivel():
+    u = inter(120, "Nivel"); await bot.personagem_excluir.callback(u, "Nível Ficha"); view = u.response.send_message.call_args.kwargs["view"]
+    await view.confirmar.callback(inter(120, "Nivel"))
+run(exclui_nivel()); assert row(120, "Nível Ficha") is None
+with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT COUNT(*) FROM level_attributes WHERE character_id = ?", (1,)).fetchone()[0] == 0
+assert sorted(db.get_level_attributes(vc()["id"])) == [1]                                       # e não mexeu no de ninguém mais
+print("K. recursos por nível OK")
+
 print("\nTODOS OS TESTES DO BOT PASSARAM")

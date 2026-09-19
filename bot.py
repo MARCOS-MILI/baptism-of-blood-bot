@@ -11,7 +11,7 @@ Jogadores:
   /niveis [personagem]                       -> XP e vantagens de cada nível
   /extrato_xp [personagem]                   -> de onde veio o XP do personagem
   /rank [tipo] [limite]                      -> rank público de XP total (personagens ou jogadores)
-  /calcular_recursos                         -> calcula Vida, Sanidade, Mana e Estamina
+  /calcular_recursos                         -> simula Vida, Sanidade, Mana e Estamina (por nível)
 
 Mestres:
   /mestre dar_xp | upar | corrigir_nivel | rank_pericia
@@ -244,14 +244,12 @@ def _barra_xp(xp: int) -> str:
 
 
 def _recursos_do_personagem(personagem):
-    """Vida, Sanidade, Mana e Estamina com os atributos e a classe guardados. None enquanto não tem classe."""
+    """Vida, Sanidade, Mana e Estamina somados nível a nível, com o atributo que o personagem tinha em cada
+    nível, mais o bônus da classe uma vez só. None enquanto não tem classe."""
     classe = personagem["class_name"]
     if not classe:
         return None
-    a = db.attributes_of(personagem)
-    return rules.calculate_resources(
-        vitalidade=a["vitalidade"], forca=a["forca"], vontade=a["vontade"], alma=a["alma"], classe=classe
-    )
+    return rules.calculate_resources_by_level(db.attributes_per_level(personagem), classe)
 
 
 def _texto_recursos(res) -> str:
@@ -324,7 +322,7 @@ def _embed_ficha(personagem, jogador: str) -> discord.Embed:
     ]
     embed.add_field(
         name="Ranks das perícias especiais",
-        value="\n".join(linhas) or "nenhum grau ainda",
+        value="\n".join(linhas) or "nenhum Rank ainda",
         inline=False,
     )
     embed.set_footer(text=f"jogador: {jogador}")
@@ -891,7 +889,7 @@ async def atributos(
 # Ficha, XP, níveis, rank e calculadora de recursos
 # ---------------------------------------------------------------------------
 
-@bot.tree.command(name="minha_ficha", description="Mostra nível, XP, raça, classe social e ranks do seu personagem.")
+@bot.tree.command(name="minha_ficha", description="Mostra nível, XP, raça, classe, atributos, recursos e ranks do seu personagem.")
 @app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 async def minha_ficha(interaction: discord.Interaction, personagem: str | None = None):
@@ -951,7 +949,8 @@ async def niveis(interaction: discord.Interaction, personagem: str | None = None
             inline=False,
         )
     embed.set_footer(text=(
-        "Os mestres dão XP em roleplay importante, missão ou evento. "
+        "Os mestres dão XP em roleplay importante, missão de mestre e desenvolvimento do personagem, "
+        "sempre por roleplay e não por ação avulsa. "
         "Pontos de atributo de nível podem passar do limite da raça."
     ))
     await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -1035,13 +1034,17 @@ async def rank(interaction: discord.Interaction, tipo: str = "personagens", limi
     await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name="calcular_recursos", description="Calcula Vida, Sanidade, Mana e Estamina pelos atributos e pela classe.")
+@bot.tree.command(
+    name="calcular_recursos",
+    description="Calcula Vida, Sanidade, Mana e Estamina pela classe, pelos atributos e pelo nível.",
+)
 @app_commands.describe(
-    classe="Sua classe (dá o bônus de cada recurso)",
+    classe="Sua classe (dá o bônus de cada recurso, uma vez só)",
     vitalidade="Seu atributo Vitalidade",
     forca="Seu atributo Força",
     vontade="Seu atributo Vontade",
     alma="Seu atributo Alma",
+    nivel="Nível do personagem, de 1 a 10 (padrão 1). A conta usa o mesmo atributo em todos os níveis",
 )
 @app_commands.choices(classe=[app_commands.Choice(name=n, value=n) for n in rules.CLASS_CHOICES])
 async def calcular_recursos(
@@ -1051,17 +1054,21 @@ async def calcular_recursos(
     forca: app_commands.Range[int, 0, 20],
     vontade: app_commands.Range[int, 0, 20],
     alma: app_commands.Range[int, 0, 20],
+    nivel: app_commands.Range[int, 1, 10] = 1,
 ):
-    res = rules.calculate_resources(vitalidade=vitalidade, forca=forca, vontade=vontade, alma=alma, classe=classe)
+    res = rules.calculate_resources(
+        vitalidade=vitalidade, forca=forca, vontade=vontade, alma=alma, classe=classe, nivel=nivel
+    )
     sem_classe = classe == rules.CLASS_NONE
+    por = "" if nivel == 1 else f" × {nivel} níveis"
 
     def linha(emoji: str, nome: str, chave: str, conta: str) -> str:
         r = res[chave]
         extra = "" if sem_classe else f", mais {r['bonus']} da classe"
-        return f"{emoji} **{nome}: {r['total']}**\n　{conta} = {r['base']}{extra}"
+        return f"{emoji} **{nome}: {r['total']}**\n　{conta}{por} = {r['base']}{extra}"
 
     embed = discord.Embed(
-        title=f"🧮 Recursos ({'sem classe' if sem_classe else classe})",
+        title=f"🧮 Recursos ({'sem classe' if sem_classe else classe}{'' if nivel == 1 else f', nível {nivel}'})",
         description="\n".join([
             linha("❤️", "Vida", "vida", f"Vitalidade {vitalidade} × 5"),
             linha("🧠", "Sanidade", "sanidade", f"Vontade {vontade} × 5"),
@@ -1071,8 +1078,10 @@ async def calcular_recursos(
         color=discord.Color.dark_green(),
     )
     embed.set_footer(text=(
-        "Cada ponto de Vitalidade dá +5 Vida e +3 Estamina. Vontade dá +5 Sanidade e +3 Mana. "
-        "Alma dá +3 Mana. Força dá +3 Estamina. Destreza e Razão não entram nessas contas."
+        "Por nível: cada ponto de Vitalidade dá +5 Vida e +3 Estamina, Vontade dá +5 Sanidade e +3 Mana, "
+        "Alma dá +3 Mana e Força dá +3 Estamina. Todo nível soma de novo, e o bônus da classe entra uma vez só. "
+        "Aqui o mesmo atributo vale em todos os níveis, então a conta exata é a da /minha_ficha. "
+        "Destreza e Razão não entram."
     ))
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -1280,7 +1289,10 @@ def _embed_xp(char, res: dict, motivo: str | None, mestre: str) -> discord.Embed
         g = rules.gains_between(antes, depois, char["race"])
         linhas.append(f"\nNível **{antes}** → **{depois}**\nGanhos: {rules.describe_gains(g)}")
         if g["atributo"]:
-            linhas.append(f"Use `/atributos` pra distribuir {'o ponto' if g['atributo'] == 1 else 'os pontos'} de atributo.")
+            linhas.append(
+                f"Use `/atributos` pra distribuir {'o ponto' if g['atributo'] == 1 else 'os pontos'} de atributo. "
+                "Distribui logo: o nível novo já conta com os atributos que você tiver."
+            )
         cor = discord.Color.green()
     elif depois < antes:
         titulo = f"⬇️ {char['name']} perdeu nível ({_mais(aplicado)} XP)"
@@ -1329,12 +1341,12 @@ async def _aplicar_xp(interaction: discord.Interaction, usuario: discord.Member,
 
 @mestre_grupo.command(
     name="dar_xp",
-    description="Dá XP a um personagem (roleplay importante, missão ou evento). O nível sobe sozinho.",
+    description="Dá XP por roleplay importante, missão de mestre ou desenvolvimento. O nível sobe sozinho.",
 )
 @app_commands.describe(
     usuario="Jogador dono do personagem",
     quantidade="Quanto XP dar (negativo tira, pra corrigir um engano)",
-    motivo="Opcional: o roleplay, a missão ou o evento",
+    motivo="Opcional: o roleplay, a missão ou o desenvolvimento (XP é por roleplay, não por ação avulsa)",
     personagem="Opcional: personagem dele (padrão: o que ele está usando)",
 )
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
@@ -1364,7 +1376,7 @@ async def mestre_dar_xp(
     usuario="Jogador dono do personagem",
     niveis="Quantos níveis subir (padrão 1)",
     personagem="Opcional: personagem dele (padrão: o que ele está usando)",
-    motivo="Opcional: RP marcante, missão secundária ou evento",
+    motivo="Opcional: o roleplay, a missão de mestre ou o desenvolvimento",
 )
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 @app_commands.check(_eh_mestre)
@@ -1423,7 +1435,7 @@ async def mestre_corrigir_nivel(
 @app_commands.describe(
     usuario="Jogador dono do personagem",
     pericia="Qual perícia especial",
-    rank="O Rank novo (0 = nenhum grau)",
+    rank="O Rank novo (0 = nenhum Rank)",
     personagem="Opcional: personagem dele (padrão: o que ele está usando)",
 )
 @app_commands.choices(pericia=[app_commands.Choice(name=n, value=n) for n in rules.SPECIAL_SKILLS])

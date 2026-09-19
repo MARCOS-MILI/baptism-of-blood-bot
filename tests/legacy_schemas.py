@@ -48,6 +48,21 @@ V4 = {
 }
 
 
+V5 = {
+    "user_version": 5,
+    "tables": [
+        'CREATE TABLE rolls ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, username TEXT NOT NULL, guild_id TEXT, notation TEXT NOT NULL, rolls_json TEXT NOT NULL, total INTEGER NOT NULL, purpose TEXT, created_at TEXT NOT NULL , character_id INTEGER, character_name TEXT)',
+        'CREATE TABLE characters ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, name TEXT NOT NULL, name_key TEXT NOT NULL, created_at TEXT NOT NULL, magic_rank TEXT, magic_rank_roll INTEGER, magic_rank_set_at TEXT, race TEXT, race_roll INTEGER, race_set_at TEXT, level INTEGER NOT NULL DEFAULT 1, social_class TEXT, social_class_roll INTEGER, social_class_set_at TEXT, clergy TEXT, clergy_roll INTEGER, clergy_set_at TEXT, xp INTEGER NOT NULL DEFAULT 0, class_name TEXT, class_set_at TEXT, attr_forca INTEGER NOT NULL DEFAULT 0, attr_destreza INTEGER NOT NULL DEFAULT 0, attr_vitalidade INTEGER NOT NULL DEFAULT 0, attr_razao INTEGER NOT NULL DEFAULT 0, attr_vontade INTEGER NOT NULL DEFAULT 0, attr_alma INTEGER NOT NULL DEFAULT 0, UNIQUE (user_id, name_key) )',
+        'CREATE TABLE user_state ( user_id TEXT PRIMARY KEY, active_character_id INTEGER )',
+        'CREATE TABLE master_actions ( id INTEGER PRIMARY KEY AUTOINCREMENT, master_id TEXT NOT NULL, master_name TEXT NOT NULL, target_user_id TEXT NOT NULL, character_id INTEGER, character_name TEXT, action TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL )',
+        'CREATE TABLE character_ranks ( character_id INTEGER NOT NULL, skill TEXT NOT NULL, skill_rank INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (character_id, skill) )',
+        'CREATE TABLE xp_log ( id INTEGER PRIMARY KEY AUTOINCREMENT, character_id INTEGER NOT NULL, character_name TEXT NOT NULL, amount INTEGER NOT NULL, xp_before INTEGER NOT NULL, xp_after INTEGER NOT NULL, level_before INTEGER NOT NULL, level_after INTEGER NOT NULL, reason TEXT, master_id TEXT, master_name TEXT, created_at TEXT NOT NULL )',
+        'CREATE TABLE players ( user_id TEXT PRIMARY KEY, display_name TEXT, extra_slots INTEGER NOT NULL DEFAULT 0, updated_at TEXT )',
+        'CREATE TABLE deleted_characters ( id INTEGER PRIMARY KEY AUTOINCREMENT, character_id INTEGER NOT NULL, user_id TEXT NOT NULL, name TEXT NOT NULL, snapshot_json TEXT NOT NULL, deleted_by_id TEXT, deleted_by_name TEXT, deleted_at TEXT NOT NULL )',
+    ],
+}
+
+
 def create(path: str, versao: dict) -> None:
     """Cria um banco vazio no formato de uma versão antiga."""
     conn = sqlite3.connect(path)
