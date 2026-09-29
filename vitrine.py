@@ -62,16 +62,40 @@ class Cartao:
         return {"embed": self.embed, **({"files": self.arquivos} if self.arquivos else {})}
 
 
-def _citar(texto: str) -> str:
-    return "\n".join(f"> {linha}" if linha.strip() else ">" for linha in texto.split("\n"))
+def _citar(texto: str, italico: bool = False) -> str:
+    """O texto em citação. Em itálico, cada linha vai entre asteriscos (os textos não usam asterisco)."""
+    def linha_certa(linha: str) -> str:
+        if not linha.strip():
+            return ">"
+        return f"> *{linha}*" if italico else f"> {linha}"
+    return "\n".join(linha_certa(linha) for linha in texto.split("\n"))
+
+
+def _rodape(jogador: str, tentativa: tuple[int, int] | None = None) -> str:
+    if tentativa is None:
+        return f"jogador: {jogador}"
+    usadas, total = tentativa
+    aviso = "última chance" if usadas >= total else f"tentativa {usadas} de {total}"
+    return f"jogador: {jogador} · {aviso}"
+
+
+def resultado_atual(personagem, campo: str) -> str:
+    """O resultado que o personagem tem hoje em 'race' ou 'social_class', escrito pra mostrar ao jogador."""
+    if campo == "race":
+        return personagem["race"]
+    estado = personagem["social_class"]
+    if estado == dice.SOCIAL_CLASS_MASTER:
+        return "a decidir pelo mestre"
+    titulo = lore.ESTADOS[estado]["titulo"]
+    return f"{titulo} ({personagem['clergy']})" if personagem["clergy"] else titulo
 
 
 def _montar(*, autor: str, titulo: str, cor: int, topo: str | None = None, texto: str | None = None,
-            campos: list[tuple[str, str, bool]] = (), imagem=None, miniatura=None,
+            italico: bool = False, campos: list[tuple[str, str, bool]] = (), imagem=None, miniatura=None,
             rodape: str | None = None) -> Cartao:
     embed = discord.Embed(title=titulo, color=cor)
     embed.set_author(name=autor)
-    partes = [p for p in (topo, _citar(texto) if texto else None) if p]
+    partes = [p for p in (topo, _citar(texto, italico) if texto else None) if p]
     if partes:
         embed.description = "\n\n".join(partes)
     for nome, valor, em_linha in campos:
@@ -122,17 +146,19 @@ def _em_jogo_da_raca(raca: str) -> str:
     return "\n".join(linhas)
 
 
-def cartao_raca(personagem: str, raca: str, rolagem: int, jogador: str) -> Cartao:
+def cartao_raca(personagem: str, raca: str, jogador: str, tentativa: tuple[int, int] | None = None) -> Cartao:
+    """O dado sorteado não aparece no cartão (só o resultado); ele continua valendo e vai pro histórico."""
     info = lore.RACAS[raca]
     return _montar(
         autor=f"{info['emoji']} Raça de {personagem}",
         titulo=raca,
         cor=info["cor"],
-        topo=f"🎲 1d100 = **{rolagem}**",
+        topo=lore.DIVISOR,
         texto=info["texto"],
+        italico=True,
         campos=[("Em jogo", _em_jogo_da_raca(raca), False)],
         imagem=achar_imagem("raca", raca),
-        rodape=f"jogador: {jogador}",
+        rodape=_rodape(jogador, tentativa),
     )
 
 
@@ -140,26 +166,27 @@ def cartao_raca(personagem: str, raca: str, rolagem: int, jogador: str) -> Carta
 # Classe social
 # ---------------------------------------------------------------------------
 
-def cartao_estado(personagem: str, estado: str, r1: int, jogador: str,
-                  clero: str | None = None, r2: int | None = None) -> Cartao:
+def cartao_estado(personagem: str, estado: str, jogador: str, clero: str | None = None,
+                  tentativa: tuple[int, int] | None = None) -> Cartao:
+    """Os dados (o do Estado e o do clero) não aparecem no cartão, só o resultado."""
     autor = f"⚜️ Classe Social de {personagem}"
-    topo = f"🎲 1d100 = **{r1}**"
     if estado == dice.SOCIAL_CLASS_MASTER:
         info = lore.ESTADO_MESTRE
         return _montar(
-            autor=autor, titulo=f"{info['emoji']} {info['titulo']}", cor=info["cor"], topo=topo,
-            texto=info["texto"], imagem=achar_imagem("estado", "mestre"), rodape=f"jogador: {jogador}",
+            autor=autor, titulo=f"{info['emoji']} {info['titulo']}", cor=info["cor"], topo=lore.DIVISOR,
+            texto=info["texto"], italico=True, imagem=achar_imagem("estado", "mestre"),
+            rodape=_rodape(jogador, tentativa),
         )
     info = lore.ESTADOS[estado]
     campos = []
     miniatura = None
     if clero:
-        topo += f"\n🎲 1d100 = **{r2}** → **{clero}**"
-        campos.append((clero, lore.CLERO[clero], False))
+        campos.append((f"✝ {clero}", lore.CLERO[clero], False))
         miniatura = achar_imagem("clero", clero.split()[0])
     return _montar(
-        autor=autor, titulo=info["titulo"], cor=info["cor"], topo=topo, texto=info["texto"], campos=campos,
-        imagem=achar_imagem("estado", estado[0]), miniatura=miniatura, rodape=f"jogador: {jogador}",
+        autor=autor, titulo=info["titulo"], cor=info["cor"], topo=lore.DIVISOR, texto=info["texto"], italico=True,
+        campos=campos, imagem=achar_imagem("estado", estado[0]), miniatura=miniatura,
+        rodape=_rodape(jogador, tentativa),
     )
 
 
@@ -173,7 +200,9 @@ def cartao_classe(personagem: str, classe: str, proximo: str, jogador: str | Non
         autor=f"🎓 Classe de {personagem}",
         titulo=classe,
         cor=lore.COR_CLASSE,
+        topo=lore.DIVISOR,
         texto=lore.CLASSES[classe],
+        italico=True,
         campos=[
             ("Vantagem nas perícias", rules.CLASS_SKILLS[classe], False),
             ("Bônus", f"Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}", False),
@@ -214,7 +243,7 @@ def previa_classe(personagem: str, classe: str) -> discord.Embed:
     b = rules.CLASSES[classe]
     embed = discord.Embed(
         title=f"🎓 {classe}",
-        description=f"{_citar(lore.CLASSES[classe])}\n\nSe for essa, aperta **Confirmar classe**. Vale uma vez só.",
+        description=f"{lore.DIVISOR}\n\n{_citar(lore.CLASSES[classe], True)}\n\nSe for essa, aperta **Confirmar classe**. Vale uma vez só.",
         color=lore.COR_CLASSE,
     )
     embed.set_author(name=f"Classe de {personagem}")
@@ -245,8 +274,9 @@ def cartao_magia(personagem: str, rank: str, rolagem: int, jogador: str) -> Cart
         autor=f"✨ Magia Inicial de {personagem}",
         titulo=f"Rank {rank}",
         cor=info["cor"],
-        topo=f"🎲 1d100 = **{rolagem}**\n{estrelas} · {_chance_do_rank(rank)}% de chance",
+        topo=f"{lore.DIVISOR_CURTO}\n🎲 1d100 = **{rolagem}**\n{estrelas} · {_chance_do_rank(rank)}% de chance",
         texto=lore.TEXTO_MAGIA,
+        italico=True,
         imagem=achar_imagem("magia", rank),
         rodape=f"jogador: {jogador}",
     )

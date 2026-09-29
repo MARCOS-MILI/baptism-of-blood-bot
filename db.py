@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import rules
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -83,6 +83,8 @@ _CHARACTER_COLUMNS = {
     "xp": "INTEGER NOT NULL DEFAULT 0",
     "class_name": "TEXT",
     "class_set_at": "TEXT",
+    "race_attempts": "INTEGER NOT NULL DEFAULT 0",
+    "social_class_attempts": "INTEGER NOT NULL DEFAULT 0",
     **{f"attr_{atributo}": "INTEGER NOT NULL DEFAULT 0" for atributo in rules.ATTRIBUTES},
 }
 
@@ -182,6 +184,8 @@ def init_db(path: str | None = None) -> None:
                 xp INTEGER NOT NULL DEFAULT 0,
                 class_name TEXT,
                 class_set_at TEXT,
+                race_attempts INTEGER NOT NULL DEFAULT 0,
+                social_class_attempts INTEGER NOT NULL DEFAULT 0,
                 attr_forca INTEGER NOT NULL DEFAULT 0,
                 attr_destreza INTEGER NOT NULL DEFAULT 0,
                 attr_vitalidade INTEGER NOT NULL DEFAULT 0,
@@ -200,6 +204,11 @@ def init_db(path: str | None = None) -> None:
             if coluna == "xp":
                 # Quem já existia começa no início do nível em que está: 1000 x (n-1) x n / 2.
                 conn.execute("UPDATE characters SET xp = ? * (level - 1) * level / 2", (rules.XP_STEP,))
+            elif coluna == "race_attempts":
+                # Quem já tinha raça sorteada já gastou uma das chances.
+                conn.execute("UPDATE characters SET race_attempts = 1 WHERE race IS NOT NULL")
+            elif coluna == "social_class_attempts":
+                conn.execute("UPDATE characters SET social_class_attempts = 1 WHERE social_class IS NOT NULL")
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_state (
@@ -541,13 +550,28 @@ def delete_rolls(user_id: str, path: str | None = None) -> int:
 # Definições (Rank de magia, Raça, Classe social)
 # ---------------------------------------------------------------------------
 
+_ATTEMPT_COLUMN = {"race": "race_attempts", "social_class": "social_class_attempts"}
+
+
+def _attempts_sql(campo: str, d100_result: int | None) -> tuple[str, list]:
+    """O pedaço do UPDATE que mexe nas chances. Sorteio de verdade (d100_result) gasta uma; valor definido
+    por mestre (None) fecha as chances, pra o jogador não trocar o que o mestre decidiu."""
+    coluna = _ATTEMPT_COLUMN.get(campo)
+    if coluna is None:
+        return "", []
+    if d100_result is None:
+        return f", {coluna} = ?", [rules.CREATION_ROLL_ATTEMPTS]
+    return f", {coluna} = {coluna} + 1", []
+
+
 def _set_definition(character_id: int, campo: str, valor: str, d100_result: int | None,
                     path: str | None) -> None:
     col_valor, col_roll, col_data = _DEFINITION_FIELDS[campo]
+    extra_sql, extra = _attempts_sql(campo, d100_result)
     with _connect(path) as conn:
         conn.execute(
-            f"UPDATE characters SET {col_valor} = ?, {col_roll} = ?, {col_data} = ? WHERE id = ?",
-            (valor, d100_result, _now(), character_id),
+            f"UPDATE characters SET {col_valor} = ?, {col_roll} = ?, {col_data} = ?{extra_sql} WHERE id = ?",
+            (valor, d100_result, _now(), *extra, character_id),
         )
 
 
@@ -568,8 +592,9 @@ def clear_definition(character_id: int, quais: str, path: str | None = None) -> 
     with _connect(path) as conn:
         for campo in _CLEAR_GROUPS[quais]:
             col_valor, col_roll, col_data = _DEFINITION_FIELDS[campo]
+            devolver = f", {_ATTEMPT_COLUMN[campo]} = 0" if campo in _ATTEMPT_COLUMN else ""
             conn.execute(
-                f"UPDATE characters SET {col_valor} = NULL, {col_roll} = NULL, {col_data} = NULL WHERE id = ?",
+                f"UPDATE characters SET {col_valor} = NULL, {col_roll} = NULL, {col_data} = NULL{devolver} WHERE id = ?",
                 (character_id,),
             )
 
@@ -580,13 +605,14 @@ def set_social_status(character_id: int, estado: str, estado_roll: int | None,
     """Grava o Estado e, se for 1º Estado, o Clero, na mesma operação.
     Sem clergy, o clero fica vazio. Rolls None significam que o mestre definiu na mão."""
     agora = _now()
+    extra_sql, extra = _attempts_sql("social_class", estado_roll)
     with _connect(path) as conn:
         conn.execute(
             "UPDATE characters SET social_class = ?, social_class_roll = ?, social_class_set_at = ?,"
-            " clergy = ?, clergy_roll = ?, clergy_set_at = ? WHERE id = ?",
+            f" clergy = ?, clergy_roll = ?, clergy_set_at = ?{extra_sql} WHERE id = ?",
             (estado, estado_roll, agora,
              clergy, clergy_roll if clergy else None, agora if clergy else None,
-             character_id),
+             *extra, character_id),
         )
 
 

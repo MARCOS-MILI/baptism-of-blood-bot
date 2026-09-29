@@ -843,7 +843,41 @@ DEFINICOES = {
 }
 
 
-async def _sortear_definicao(interaction: discord.Interaction, campo: str, personagem_nome: str | None):
+_PASSO_DO_CAMPO = {"race": "raca", "social_class": "estado"}
+_ROTULO_DO_CAMPO = {"race": "a Raça", "social_class": "a Classe Social"}
+
+
+def _texto_sem_chances(char, campo: str, bloqueio: str) -> str:
+    """Por que a raça ou a classe social não pode ser rolada de novo."""
+    nome, resultado = char["name"], vitrine.resultado_atual(char, campo)
+    if bloqueio == "mestre":
+        return (
+            f"**{nome}** tirou 100 no sorteio da Classe Social, então quem decide o Estado é o mestre. "
+            "Fala com um mestre."
+        )
+    if bloqueio == "classe":
+        return (
+            f"**{nome}** já escolheu a classe, então {_ROTULO_DO_CAMPO[campo]} não muda mais ({resultado}). "
+            "Fala com um mestre se precisar mudar."
+        )
+    return (
+        f"**{nome}** já usou as {rules.CREATION_ROLL_ATTEMPTS} chances de rolar {_ROTULO_DO_CAMPO[campo]} "
+        f"e ficou com **{resultado}**. Fala com um mestre se precisar de outra."
+    )
+
+
+async def _pedir_confirmacao(interaction, char, campo: str):
+    """Rolar de novo troca o resultado e não dá pra voltar: sempre pergunta antes."""
+    view = paineis.ConfirmarRepeticao(
+        interaction.user.id, char["id"], str(interaction.user.display_name), _PASSO_DO_CAMPO[campo]
+    )
+    await interaction.response.send_message(embed=view.embed(), view=view, ephemeral=True)
+    if hasattr(interaction, "edit_original_response"):
+        view.origem = interaction
+
+
+async def _sortear_definicao(interaction: discord.Interaction, campo: str, personagem_nome: str | None,
+                             repetir: bool = False):
     cfg = DEFINICOES[campo]
     uid = str(interaction.user.id)
 
@@ -853,14 +887,22 @@ async def _sortear_definicao(interaction: discord.Interaction, campo: str, perso
         return
 
     if char[campo]:
-        rolagem = char[f"{campo}_roll"]
-        detalhe = "definido por um mestre" if rolagem is None else f"resultado {rolagem} no 1d100"
-        await interaction.response.send_message(
-            f"**{char['name']}** já tem {cfg['rotulo']}: **{char[campo]}** ({detalhe}). "
-            "Fala com um mestre se precisar rolar de novo.",
-            ephemeral=True,
-        )
-        return
+        if campo == "magic_rank":  # a magia é uma rolagem só (vantagem é combinada com um mestre)
+            rolagem = char[f"{campo}_roll"]
+            detalhe = "definido por um mestre" if rolagem is None else f"resultado {rolagem} no 1d100"
+            await interaction.response.send_message(
+                f"**{char['name']}** já tem {cfg['rotulo']}: **{char[campo]}** ({detalhe}). "
+                "Fala com um mestre se precisar rolar de novo.",
+                ephemeral=True,
+            )
+            return
+        bloqueio = rules.reroll_block(char, campo)
+        if bloqueio:
+            await interaction.response.send_message(_texto_sem_chances(char, campo, bloqueio), ephemeral=True)
+            return
+        if not repetir:
+            await _pedir_confirmacao(interaction, char, campo)
+            return
 
     if campo == "magic_rank":
         status = rules.creation_status(char)
@@ -894,7 +936,9 @@ async def _sortear_definicao(interaction: discord.Interaction, campo: str, perso
 
     jogador = interaction.user.display_name
     if campo == "race":
-        cartao = vitrine.cartao_raca(char["name"], definido, valor, jogador)
+        novo = db.get_character_by_id(char["id"])
+        tentativa = (rules.attempts_used(novo, "race"), rules.CREATION_ROLL_ATTEMPTS)
+        cartao = vitrine.cartao_raca(char["name"], definido, jogador, tentativa)
     else:
         cartao = vitrine.cartao_magia(char["name"], definido, valor, jogador)
     await interaction.response.send_message(**cartao.kwargs())
@@ -918,25 +962,24 @@ async def raca_inicial(interaction: discord.Interaction, personagem: str | None 
 @app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 async def classe_social(interaction: discord.Interaction, personagem: str | None = None):
+    await _sortear_estado(interaction, personagem)
+
+
+async def _sortear_estado(interaction, personagem_nome: str | None, repetir: bool = False):
     uid = str(interaction.user.id)
-    char, erro = _resolver(uid, personagem)
+    char, erro = _resolver(uid, personagem_nome)
     if erro:
         await interaction.response.send_message(erro, ephemeral=True)
         return
 
     if char["social_class"]:
-        if char["social_class"] == dice.SOCIAL_CLASS_MASTER:
-            msg = (
-                f"**{char['name']}** tirou 100 no sorteio da Classe Social, então quem decide o Estado é o mestre. "
-                "Fala com um mestre."
-            )
-        else:
-            msg = (
-                f"**{char['name']}** já tem Classe Social: **{_resumo_estado(char)}**. "
-                "Fala com um mestre se precisar rolar de novo."
-            )
-        await interaction.response.send_message(msg, ephemeral=True)
-        return
+        bloqueio = rules.reroll_block(char, "social_class")
+        if bloqueio:
+            await interaction.response.send_message(_texto_sem_chances(char, "social_class", bloqueio), ephemeral=True)
+            return
+        if not repetir:
+            await _pedir_confirmacao(interaction, char, "social_class")
+            return
 
     # Sem 'await' daqui até salvar: o mesmo jogador não consegue rolar duas vezes ao mesmo tempo.
     guild_id = str(interaction.guild_id) if interaction.guild_id else None
@@ -965,7 +1008,9 @@ async def classe_social(interaction: discord.Interaction, personagem: str | None
         cargo = _cargo_mestre(interaction.guild)
         if cargo:
             ping = {"content": cargo.mention, "allowed_mentions": discord.AllowedMentions(roles=[cargo])}
-    cartao = vitrine.cartao_estado(char["name"], estado, r1.total, nome_jogador, clero, r2.total if r2 else None)
+    novo = db.get_character_by_id(char["id"])
+    tentativa = (rules.attempts_used(novo, "social_class"), rules.CREATION_ROLL_ATTEMPTS)
+    cartao = vitrine.cartao_estado(char["name"], estado, nome_jogador, clero, tentativa)
     await interaction.response.send_message(**ping, **cartao.kwargs())
 
 
@@ -2041,11 +2086,11 @@ async def _rolar_do_painel(coletor, notacao: str, motivo: str | None):
     await rolar.callback(coletor, dado=notacao, motivo=motivo, personagem=None)
 
 
-async def _painel_sortear(coletor, passo: str, nome: str):
+async def _painel_sortear(coletor, passo: str, nome: str, repetir: bool = False):
     if passo == "raca":
-        await _sortear_definicao(coletor, "race", nome)
+        await _sortear_definicao(coletor, "race", nome, repetir)
     elif passo == "estado":
-        await classe_social.callback(coletor, nome)
+        await _sortear_estado(coletor, nome, repetir)
     elif passo == "magia":
         await _sortear_definicao(coletor, "magic_rank", nome)
     else:

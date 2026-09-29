@@ -34,7 +34,7 @@ MSG_DE_OUTRA_PESSOA = "Esse painel é de outra pessoa. Abre o seu com `/minha_fi
 @dataclass
 class Ganchos:
     embed_ficha: Callable       # (personagem, jogador) -> discord.Embed
-    sortear: Callable           # async (coletor, passo, nome_do_personagem): 'raca', 'estado' ou 'magia'
+    sortear: Callable           # async (coletor, passo, nome_do_personagem, repetir=False): 'raca', 'estado' ou 'magia'
     escolher_classe: Callable   # async (coletor, classe, nome_do_personagem)
     atributos: Callable         # async (coletor, {atributo: valor}, nome_do_personagem)
     rolar: Callable             # async (coletor, notacao, motivo)
@@ -149,11 +149,18 @@ GRUPOS_ATRIBUTOS = {
 }
 
 
-def estado_do_passo(status: dict, passo: str, ordem_ligada: bool) -> str:
-    """'feito', 'nao_se_aplica', 'aguardando' (o mestre decide), 'travado' ou 'livre'."""
+_CAMPO_DO_PASSO = {"raca": "race", "estado": "social_class"}
+
+
+def estado_do_passo(status: dict, passo: str, ordem_ligada: bool, personagem=None) -> str:
+    """'feito', 'repetir' (feito, mas ainda dá pra rolar de novo), 'nao_se_aplica', 'aguardando' (o mestre
+    decide), 'travado' ou 'livre'."""
     if passo == "magia" and status["sem_magia"] and not status["magia_sorteada"]:
         return "nao_se_aplica"
     if status[passo]:
+        campo = _CAMPO_DO_PASSO.get(passo)
+        if campo and personagem is not None and rules.reroll_block(personagem, campo) is None:
+            return "repetir"
         return "feito"
     if passo == "estado" and status["aguardando_mestre"]:
         return "aguardando"
@@ -184,8 +191,12 @@ class PainelFicha(_Painel):
         ordem = GANCHOS.ordem_ligada()
 
         for passo, emoji, rotulo in _BOTOES_DE_PASSO:
-            situacao = estado_do_passo(status, passo, ordem)
-            if situacao == "feito":
+            situacao = estado_do_passo(status, passo, ordem, char)
+            if situacao == "repetir":
+                restam = rules.attempts_left(char, _CAMPO_DO_PASSO[passo])
+                botao = discord.ui.Button(label=f"{rotulo} ({restam})", emoji="🔄", style=discord.ButtonStyle.secondary, row=0)
+                botao.callback = functools.partial(self._clicou_passo, passo)
+            elif situacao == "feito":
                 botao = discord.ui.Button(label=rotulo, emoji="✅", style=discord.ButtonStyle.success, disabled=True, row=0)
             elif situacao == "nao_se_aplica":
                 botao = discord.ui.Button(label="Sem magia", emoji="➖", style=discord.ButtonStyle.secondary, disabled=True, row=0)
@@ -238,8 +249,16 @@ class PainelFicha(_Painel):
             self.passar_pra(escolha)
             await interaction.response.edit_message(embed=escolha.embed(), view=escolha)
             return
+        char = self.personagem()
+        campo = _CAMPO_DO_PASSO.get(passo)
+        if campo and char[campo]:  # já tem resultado: rolar de novo troca ele, então pergunta antes
+            if rules.reroll_block(char, campo) is None:
+                confirmar = ConfirmarRepeticao(self.dono_id, self.personagem_id, self.jogador, passo)
+                self.passar_pra(confirmar)
+                await interaction.response.edit_message(embed=confirmar.embed(), view=confirmar)
+                return
         coletor = Coletor(interaction)
-        await GANCHOS.sortear(coletor, passo, self.personagem()["name"])
+        await GANCHOS.sortear(coletor, passo, char["name"])
         await self._atualizar(interaction, coletor)
 
     # ---- atributos ----
@@ -319,6 +338,56 @@ class ModalAtributos(discord.ui.Modal):
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
         await _avisar_erro(interaction, error)
+
+
+# ---------------------------------------------------------------------------
+# Rolar de novo a raça ou a classe social (até 3 chances; a última vale)
+# ---------------------------------------------------------------------------
+class ConfirmarRepeticao(_Painel):
+    _ROTULO = {"raca": ("raça", "race"), "estado": ("classe social", "social_class")}
+
+    def __init__(self, dono_id: int, personagem_id: int, jogador: str, passo: str):
+        super().__init__(dono_id)
+        self.personagem_id = personagem_id
+        self.jogador = jogador
+        self.passo = passo
+        rolar = discord.ui.Button(label="Rolar de novo", emoji="🎲", style=discord.ButtonStyle.danger, row=0)
+        rolar.callback = self._rolar
+        manter = discord.ui.Button(label="Manter", emoji="✅", style=discord.ButtonStyle.success, row=0)
+        manter.callback = self._manter
+        self.add_item(rolar)
+        self.add_item(manter)
+
+    def personagem(self):
+        return db.get_character_by_id(self.personagem_id)
+
+    def embed(self) -> discord.Embed:
+        char = self.personagem()
+        rotulo, campo = self._ROTULO[self.passo]
+        usadas = rules.attempts_used(char, campo)
+        return discord.Embed(
+            title=f"🔄 Rolar a {rotulo} de novo?",
+            description=(
+                f"**{char['name']}** está com **{vitrine.resultado_atual(char, campo)}**.\n"
+                f"Rolar de novo **troca esse resultado** pelo novo, e não dá pra voltar atrás.\n\n"
+                f"Você já usou {usadas} de {rules.CREATION_ROLL_ATTEMPTS} chances. "
+                f"Rolando de novo, sobram {max(0, rules.CREATION_ROLL_ATTEMPTS - usadas - 1)}."
+            ),
+            color=discord.Color.orange(),
+        )
+
+    async def _voltar_pro_painel(self, interaction: discord.Interaction, coletor: Coletor | None = None) -> None:
+        painel = PainelFicha(self.dono_id, self.personagem_id, self.jogador)
+        self.passar_pra(painel)
+        await entregar(interaction, coletor or Coletor(interaction), GANCHOS.embed_ficha(painel.personagem(), self.jogador), painel)
+
+    async def _rolar(self, interaction: discord.Interaction) -> None:
+        coletor = Coletor(interaction)
+        await GANCHOS.sortear(coletor, self.passo, self.personagem()["name"], repetir=True)
+        await self._voltar_pro_painel(interaction, coletor)
+
+    async def _manter(self, interaction: discord.Interaction) -> None:
+        await self._voltar_pro_painel(interaction)
 
 
 # ---------------------------------------------------------------------------

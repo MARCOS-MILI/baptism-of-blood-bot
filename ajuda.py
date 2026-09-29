@@ -89,8 +89,10 @@ AJUDA = {
         "resumo": "sorteia a raça (1d100)",
         "uso": "/raca_inicial",
         "detalhes": (
-            "De 1 a 85 é Humano, de 86 a 95 Vampiro e de 96 a 100 Dhampir. Vale uma vez por personagem e o resultado "
-            "aparece pra todo mundo. Rolou errado? Só um mestre apaga."
+            "De 1 a 85 é Humano, de 86 a 95 Vampiro e de 96 a 100 Dhampir. Você tem até 3 chances por personagem: "
+            "se rolar de novo, o resultado novo troca o antigo (a última vale), e o bot sempre pergunta antes. As "
+            "chances acabam quando você usa as 3 ou quando escolhe a classe. O resultado aparece pra todo mundo. "
+            "Rolou errado? Só um mestre apaga e devolve as chances."
         ),
         "requisito": "Passo da criação. A raça e a classe social podem ser sorteadas em qualquer ordem.",
     },
@@ -101,7 +103,9 @@ AJUDA = {
         "detalhes": (
             "De 1 a 80 é 3º Estado (povo), de 81 a 91 é 2º (nobreza) e de 92 a 99 é 1º (clero). Quem cai no clero rola "
             "outro 1d100 na hora: até 49 é Baixo Clero, de 50 pra cima é Alto Clero. Se der 100, o bot avisa os mestres "
-            "e é um deles que define o seu Estado."
+            "e é um deles que define o seu Estado. Você tem até 3 chances por personagem: se rolar de novo, o resultado "
+            "novo troca o antigo (a última vale), e o bot sempre pergunta antes. As chances acabam quando você usa as 3 "
+            "ou quando escolhe a classe."
         ),
         "requisito": "Passo da criação. A raça e a classe social podem ser sorteadas em qualquer ordem.",
     },
@@ -112,7 +116,8 @@ AJUDA = {
         "detalhes": (
             "Só tem magia quem é Vampiro ou Dhampir (de qualquer classe) ou das classes Feiticeiros e Mestre de Forja. Quem não "
             "tem não sorteia, e esse passo não vale pra ele. De 1 a 45 é Comum, de 46 a 75 Raro, de 76 a 95 Super Raro, "
-            "de 96 a 99 Lendário e 100 é Mítico. Vale uma vez por personagem, e o resultado aparece pra todo mundo."
+            "de 96 a 99 Lendário e 100 é Mítico. Aqui é uma rolagem só por personagem (não tem rolar de novo), e o resultado "
+            "aparece pra todo mundo. Se você tem uma habilidade que dá vantagem, combina com um mestre."
         ),
         "requisito": "Só depois de sortear a raça e escolher a classe, e só se a sua raça ou a sua classe tiver magia.",
     },

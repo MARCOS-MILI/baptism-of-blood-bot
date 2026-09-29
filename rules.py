@@ -17,6 +17,9 @@ LEVELS_PER_ATTRIBUTE = 2        # a cada 2 níveis: +1 ponto de Atributo e uma h
 VAMPIRIC_RACES = ("Vampiro", "Dhampir")
 # Pontos de Disciplina na criação (o Dhampir começa com menos que o vampiro).
 INITIAL_DISCIPLINE_POINTS = {"Vampiro": 4, "Dhampir": 3}
+# Raça e classe social: cada personagem tem até 3 rolagens de cada uma (a última vale). A magia é uma só;
+# vantagem ao criar magia é combinada com um mestre, na mão.
+CREATION_ROLL_ATTEMPTS = 3
 DISCIPLINE_CREATION_MAX_GRADE = 3   # grau máximo de uma Disciplina na criação (os graus 4 e 5 só entram em jogo)
 
 
@@ -376,4 +379,33 @@ def creation_next_step(status: dict) -> str | None:
     for passo in CREATION_STEPS:
         if not status[passo["id"]] and not creation_missing_before(passo["id"], status):
             return passo["id"]
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Rolar de novo: raça e classe social (até 3 chances)
+# ---------------------------------------------------------------------------
+_COLUNA_DE_TENTATIVAS = {"race": "race_attempts", "social_class": "social_class_attempts"}
+CAMPOS_COM_CHANCES = tuple(_COLUNA_DE_TENTATIVAS)
+
+
+def attempts_used(personagem, campo: str) -> int:
+    """Quantas vezes o personagem já rolou esse campo ('race' ou 'social_class')."""
+    return personagem[_COLUNA_DE_TENTATIVAS[campo]]
+
+
+def attempts_left(personagem, campo: str) -> int:
+    return max(0, CREATION_ROLL_ATTEMPTS - attempts_used(personagem, campo))
+
+
+def reroll_block(personagem, campo: str) -> str | None:
+    """None se dá pra rolar de novo. Senão o motivo: 'classe' (o personagem já escolheu a classe, e o resto
+    da ficha depende da raça), 'mestre' (a classe social caiu no 100 e o mestre decide) ou 'tentativas'
+    (as chances acabaram)."""
+    if personagem["class_name"]:
+        return "classe"
+    if campo == "social_class" and personagem["social_class"] == dice.SOCIAL_CLASS_MASTER:
+        return "mestre"
+    if attempts_left(personagem, campo) == 0:
+        return "tentativas"
     return None

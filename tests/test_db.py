@@ -187,7 +187,7 @@ with sqlite3.connect(p5) as cn:
     cn.execute("INSERT INTO xp_log (character_id, character_name, amount, xp_before, xp_after, level_before, level_after, reason, master_id, master_name, created_at) VALUES (1,'Kairon Flagon',6000,0,6000,1,4,'início','1','Mestre','2026-09-18T00:00:00+00:00')")
     cn.execute("INSERT INTO players (user_id, display_name, extra_slots, updated_at) VALUES ('7','Marcos',1,'2026-09-18T00:00:00+00:00')")
 db.init_db(p5); db.init_db(p5)                                                                   # migra; repetir não estraga
-with sqlite3.connect(p5) as cn: assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 6
+with sqlite3.connect(p5) as cn: assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
 k, sp, nv, mx = (db.get_character_by_id(i, p5) for i in (1, 2, 3, 4))
 assert (k["name"], k["level"], k["xp"], k["class_name"]) == ("Kairon Flagon", 4, 6000, "Caçador") and (mx["level"], mx["xp"]) == (10, 45000)      # nada mudou
 assert len(db.get_history("7", 10, None, p5)) == 1 and len(db.get_xp_log(1, 10, p5)) == 1 and db.get_extra_slots("7", p5) == 1
@@ -206,6 +206,31 @@ assert sorted(db.get_level_attributes(1, p5)) == [1, 2, 3, 4]
 db.set_attributes(2, {"vitalidade": 2}, p5); db.add_xp(2, 4000, "pós-migração", "1", "Mestre", p5)         # quem estava zerado congela quando distribui e sobe
 assert sorted(db.get_level_attributes(2, p5)) == [1, 2, 3, 4] and db.get_level_attributes(2, p5)[1]["vitalidade"] == 2
 print("6e. v5 -> v6 (com dados) OK")
+
+# v6 (o que está em produção agora): raça e classe social ganham o contador de chances, sem perder nada
+p6 = os.path.join(tmp, "v6.db"); L.create(p6, L.V6)
+INS6 = ("INSERT INTO characters (id, user_id, name, name_key, created_at, level, xp, race, race_roll, social_class, social_class_roll,"
+        " clergy, clergy_roll, class_name, magic_rank, magic_rank_roll) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+with sqlite3.connect(p6) as cn:
+    cn.execute(INS6, (1, "7", "Completo", "completo", "2026-09-18T00:00:00+00:00", 4, 6000, "Vampiro", 90, "1º Estado", 95, "Alto Clero", 60, "Caçador", "Raro", 62))
+    cn.execute(INS6, (2, "7", "So Raca", "so raca", "2026-09-18T00:00:00+00:00", 1, 0, "Humano", 40, None, None, None, None, None, None, None))
+    cn.execute(INS6, (3, "8", "Novato", "novato", "2026-09-18T00:00:00+00:00", 1, 0, None, None, None, None, None, None, None, None, None))
+    cn.execute(INS6, (4, "8", "Cem", "cem", "2026-09-18T00:00:00+00:00", 1, 0, "Dhampir", 97, "Aguardando o mestre", 100, None, None, None, None, None))
+    cn.execute("INSERT INTO rolls (user_id, username, guild_id, notation, rolls_json, total, purpose, created_at, character_id, character_name) VALUES ('7','Marcos','g','1d20','[17]',17,'ataque','2026-09-18T00:00:00+00:00',1,'Completo')")
+    cn.execute("INSERT INTO players (user_id, display_name, extra_slots, updated_at) VALUES ('7','Marcos',1,'2026-09-18T00:00:00+00:00')")
+    cn.execute("INSERT INTO level_attributes VALUES (1, 1, 1, 0, 3, 0, 2, 1)")
+db.init_db(p6); db.init_db(p6)                                                                   # migra; repetir não estraga
+with sqlite3.connect(p6) as cn: assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
+por = {i: db.get_character_by_id(i, p6) for i in (1, 2, 3, 4)}
+assert [(por[i]["race_attempts"], por[i]["social_class_attempts"]) for i in (1, 2, 3, 4)] == [(1, 1), (1, 0), (0, 0), (1, 1)]   # quem já rolou gastou 1 chance
+assert (por[1]["race"], por[1]["race_roll"], por[1]["social_class"], por[1]["clergy"], por[1]["class_name"], por[1]["magic_rank"], por[1]["level"], por[1]["xp"]) == ("Vampiro", 90, "1º Estado", "Alto Clero", "Caçador", "Raro", 4, 6000)   # nada mudou
+assert len(db.get_history("7", 10, None, p6)) == 1 and db.get_extra_slots("7", p6) == 1 and sorted(db.get_level_attributes(1, p6)) == [1]
+assert rules.reroll_block(por[1], "race") == "classe" and rules.reroll_block(por[2], "race") is None and rules.attempts_left(por[2], "race") == 2
+assert rules.reroll_block(por[4], "social_class") == "mestre" and rules.attempts_left(por[3], "race") == 3
+db.set_race(2, "Vampiro", 90, p6); assert db.get_character_by_id(2, p6)["race_attempts"] == 2                                 # já dá pra usar
+with db._connect(p6) as cn: db.init_db(p6)                                                                                     # rodar de novo não zera nem soma
+assert db.get_character_by_id(2, p6)["race_attempts"] == 2 and db.get_character_by_id(1, p6)["race_attempts"] == 1
+print("6f. v6 -> v7 (com dados) OK")
 
 # ---------- 7. XP: níveis, saltos, remoção, extrato ----------
 px = novo_banco("xp.db"); x = db.create_character("5", "Xis", path=px)["id"]
@@ -415,5 +440,36 @@ assert len(db.get_xp_log(ca, 10, ph)) == 1
 assert db.delete_rolls("1", ph) == 0 and db.delete_rolls("999", ph) == 0                                          # de novo (ou quem não tem nada): 0
 db.log_roll("1", "Ana", "g", "1d20", [9], 9, None, ca, "Com Rolagens", ph); assert db.count_rolls("1", ph) == 1  # e o histórico volta a funcionar
 print("15. apagar histórico OK")
+
+# ---------- 16. chances de rolar raça e classe social (3 cada, a última vale) ----------
+pc = novo_banco("chances.db"); cid = db.create_character("1", "Rolador", path=pc)["id"]; outro = db.create_character("1", "Outro", path=pc)["id"]
+g = lambda i=cid: db.get_character_by_id(i, pc)
+assert rules.CREATION_ROLL_ATTEMPTS == 3 and (g()["race_attempts"], g()["social_class_attempts"]) == (0, 0)
+assert rules.attempts_left(g(), "race") == 3 and rules.reroll_block(g(), "race") is None
+for n, (raca, d) in enumerate([("Humano", 40), ("Vampiro", 90), ("Dhampir", 97)], 1):                  # cada sorteio de verdade gasta uma chance
+    db.set_race(cid, raca, d, pc); assert g()["race_attempts"] == n and g()["race"] == raca and g()["race_roll"] == d      # a última vale
+assert rules.attempts_left(g(), "race") == 0 and rules.reroll_block(g(), "race") == "tentativas"
+assert g()["social_class_attempts"] == 0 and g(outro)["race_attempts"] == 0                           # uma contagem não mexe na outra, nem no outro personagem
+db.set_social_status(cid, "3º Estado", 50, None, None, pc); assert g()["social_class_attempts"] == 1
+db.set_social_status(cid, "1º Estado", 95, "Alto Clero", 60, pc); assert g()["social_class_attempts"] == 2 and (g()["clergy"], g()["clergy_roll"]) == ("Alto Clero", 60)
+db.set_social_status(cid, "2º Estado", 85, None, None, pc); assert g()["social_class_attempts"] == 3 and g()["clergy"] is None      # trocou o Estado: o clero antigo some
+assert rules.reroll_block(g(), "social_class") == "tentativas"
+db.set_magic_rank(cid, "Raro", 62, pc); assert g()["magic_rank"] == "Raro" and (g()["race_attempts"], g()["social_class_attempts"]) == (3, 3)   # a magia não tem chances
+# o 100 da classe social gasta uma chance mas fecha: quem decide é o mestre
+db.clear_definition(cid, "social_class", pc); assert (g()["social_class_attempts"], g()["social_class"], g()["clergy"]) == (0, None, None)
+db.set_social_status(cid, "Aguardando o mestre", 100, None, None, pc); assert g()["social_class_attempts"] == 1 and rules.reroll_block(g(), "social_class") == "mestre"
+# valor definido por mestre (roll None) fecha as chances, mesmo com todas sobrando
+db.clear_definition(cid, "todas", pc); assert (g()["race_attempts"], g()["social_class_attempts"]) == (0, 0) and g()["magic_rank"] is None
+db.set_race(cid, "Vampiro", None, pc); assert g()["race_attempts"] == 3 and g()["race_roll"] is None and rules.reroll_block(g(), "race") == "tentativas"
+db.set_social_status(cid, "3º Estado", None, None, None, pc); assert g()["social_class_attempts"] == 3
+# escolher a classe fecha as chances que sobravam
+db.clear_definition(cid, "todas", pc); db.set_race(cid, "Humano", 40, pc); assert rules.reroll_block(g(), "race") is None
+db.set_class(cid, "Sábio", pc); assert rules.reroll_block(g(), "race") == "classe" and rules.reroll_block(g(), "social_class") == "classe" and rules.attempts_left(g(), "race") == 2
+db.clear_definition(cid, "race", pc); assert g()["race_attempts"] == 0 and g()["class_name"] == "Sábio"                # apagar só devolve as chances de quem foi apagado
+db.clear_definition(cid, "magic_rank", pc); assert g()["race_attempts"] == 0
+# excluir e criar de novo não herda nada
+db.set_race(cid, "Humano", 40, pc); db.delete_character(cid, "1", "Ana", pc); novo_id = db.create_character("1", "Rolador", path=pc)["id"]
+assert (g(novo_id)["race_attempts"], g(novo_id)["social_class_attempts"]) == (0, 0)
+print("16. chances de raça e classe social OK")
 
 print("\nTODOS OS TESTES DO BANCO PASSARAM")

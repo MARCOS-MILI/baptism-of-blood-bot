@@ -67,10 +67,10 @@ try:
         assert vitrine.achar_imagem("raca", "Dhampir")[1].endswith(".gif")           # o gif tem prioridade sobre o png
         lore.IMAGENS_URL["raca-dhampir"] = "https://exemplo.com/dhampir.gif"
         assert vitrine.achar_imagem("raca", "Dhampir") == ("url", "https://exemplo.com/dhampir.gif")   # o link direto ganha de tudo
-        c = vitrine.cartao_raca("Alu", "Dhampir", 97, "Ana")
+        c = vitrine.cartao_raca("Alu", "Dhampir", "Ana")
         assert c.embed.image.url == "https://exemplo.com/dhampir.gif" and c.arquivos == [] and "files" not in c.kwargs()
         del lore.IMAGENS_URL["raca-dhampir"]
-        c = vitrine.cartao_raca("Alu", "Dhampir", 97, "Ana")                            # agora o gif do arquivo, anexado
+        c = vitrine.cartao_raca("Alu", "Dhampir", "Ana")                            # agora o gif do arquivo, anexado
         assert [a.filename for a in c.arquivos] == ["raca-dhampir.gif"] and c.embed.image.url == "attachment://raca-dhampir.gif"
 finally:
     vitrine.PASTA_IMAGENS = pasta_original
@@ -91,11 +91,12 @@ def nomes(cartao): return [a.filename for a in cartao.arquivos]
 
 todos = []
 for raca in dice.RACES:
-    c = vitrine.cartao_raca("Kairon Flagon", raca, 50, "Marcos"); todos.append(c); e = c.embed
-    assert e.title == raca and e.author.name.endswith("Raça de Kairon Flagon") and e.footer.text == "jogador: Marcos"
-    assert e.description.startswith("🎲 1d100 = **50**\n\n> ") and lore.RACAS[raca]["texto"] in e.description
+    c = vitrine.cartao_raca("Kairon Flagon", raca, "Marcos", (1, 3)); todos.append(c); e = c.embed
+    assert e.title == raca and e.author.name.endswith("Raça de Kairon Flagon") and e.footer.text == "jogador: Marcos · tentativa 1 de 3"
+    assert e.description == f"{lore.DIVISOR}\n\n> *{lore.RACAS[raca]['texto']}*"                      # sem o dado: só o divisor e o texto
+    assert "🎲" not in e.description and "1d100" not in e.description
     assert e.color.value == lore.RACAS[raca]["cor"] and [f.name for f in e.fields] == ["Em jogo"]
-h, v, d = (vitrine.cartao_raca("X", r, 1, "J") for r in dice.RACES)
+h, v, d = (vitrine.cartao_raca("X", r, "J") for r in dice.RACES)
 assert nomes(h) == ["raca-humano.png"] and h.embed.image.url == "attachment://raca-humano.png"
 assert nomes(v) == ["raca-vampiro.png"] and nomes(d) == [] and d.embed.image.url is None
 assert "Sem Disciplinas" in h.embed.fields[0].value and "Razão até 6" in h.embed.fields[0].value and "Fraquezas" not in h.embed.fields[0].value
@@ -105,21 +106,21 @@ df = d.embed.fields[0].value
 assert "3 pontos de Disciplina na criação (grau máximo 3), pode usar as dez" in df and "Limites de atributo ainda a definir" in df and "Sem Sol e sem Fome" in df
 
 for estado, arq in (("3º Estado", "estado-3.png"), ("2º Estado", "estado-2.png"), ("1º Estado", "estado-1.png")):
-    c = vitrine.cartao_estado("Ana Ficha", estado, 50, "Ana"); todos.append(c); e = c.embed
+    c = vitrine.cartao_estado("Ana Ficha", estado, "Ana"); todos.append(c); e = c.embed
     assert e.title == lore.ESTADOS[estado]["titulo"] and e.author.name.endswith("Classe Social de Ana Ficha")
-    assert e.description == f"🎲 1d100 = **50**\n\n> {lore.ESTADOS[estado]['texto']}" and e.fields == []
+    assert e.description == f"{lore.DIVISOR}\n\n> *{lore.ESTADOS[estado]['texto']}*" and e.fields == [] and e.footer.text == "jogador: Ana"
     assert nomes(c) == [arq] and e.image.url == f"attachment://{arq}" and e.thumbnail.url is None
 for clero, r2 in (("Alto Clero", 63), ("Baixo Clero", 10)):
-    c = vitrine.cartao_estado("Padre", "1º Estado", 95, "Ana", clero, r2); todos.append(c); e = c.embed
-    assert e.title == "1º Estado · Clero" and e.description.startswith(f"🎲 1d100 = **95**\n🎲 1d100 = **{r2}** → **{clero}**\n\n> ")
-    assert [(f.name, f.value) for f in e.fields] == [(clero, lore.CLERO[clero])] and nomes(c) == ["estado-1.png"]
-c = vitrine.cartao_estado("Rara", dice.SOCIAL_CLASS_MASTER, 100, "Ana"); todos.append(c); e = c.embed
-assert e.title == "🎲 Resultado especial" and "Quem decide o Estado desse personagem é o mestre" in e.description and nomes(c) == []
+    c = vitrine.cartao_estado("Padre", "1º Estado", "Ana", clero, (2, 3)); todos.append(c); e = c.embed
+    assert e.title == "1º Estado · Clero" and "🎲" not in e.description and "1d100" not in e.description and "**" not in e.description   # nenhum dos dois dados aparece
+    assert [(f.name, f.value) for f in e.fields] == [(f"✝ {clero}", lore.CLERO[clero])] and nomes(c) == ["estado-1.png"] and e.footer.text == "jogador: Ana · tentativa 2 de 3"
+c = vitrine.cartao_estado("Rara", dice.SOCIAL_CLASS_MASTER, "Ana", None, (3, 3)); todos.append(c); e = c.embed
+assert e.title == "🎲 Resultado especial" and "Quem decide o Estado desse personagem é o mestre" in e.description and nomes(c) == [] and "100" not in e.description and e.footer.text.endswith("última chance")
 
 for classe in rules.CLASSES:
     c = vitrine.cartao_classe("Ana Ficha", classe, "Próximo passo: `/atributos`, pra distribuir os pontos de atributo.", "Ana"); todos.append(c); e = c.embed
     b = rules.CLASSES[classe]
-    assert e.title == classe and e.description == f"> {lore.CLASSES[classe]}" and nomes(c) == []
+    assert e.title == classe and e.description == f"{lore.DIVISOR}\n\n> *{lore.CLASSES[classe]}*" and nomes(c) == []
     assert [f.name for f in e.fields] == ["Vantagem nas perícias", "Bônus", "Continue a criação"]
     assert e.fields[0].value == rules.CLASS_SKILLS[classe]
     assert e.fields[1].value == f"Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}"
@@ -129,6 +130,7 @@ for rank in dice.MAGIC_RANKS:
 chances = {r: vitrine._chance_do_rank(r) for r in dice.MAGIC_RANKS}
 assert chances == {"Comum": 45, "Raro": 30, "Super Raro": 20, "Lendário": 4, "Mítico": 1} and sum(chances.values()) == 100
 assert "★☆☆☆☆ · 45% de chance" in vitrine.cartao_magia("A", "Comum", 10, "J").embed.description
+assert "🎲 1d100 = **10**" in vitrine.cartao_magia("A", "Comum", 10, "J").embed.description and vitrine.cartao_magia("A", "Comum", 10, "J").embed.description.startswith(lore.DIVISOR_CURTO)
 assert "★★★★★ · 1% de chance" in vitrine.cartao_magia("A", "Mítico", 100, "J").embed.description
 assert "★★★☆☆ · 20% de chance" in vitrine.cartao_magia("A", "Super Raro", 80, "J").embed.description
 for c in todos: confere_limites(c.embed)
@@ -195,7 +197,7 @@ print("7. dados escritos no chat OK:", len(casos), "casos")
 # ---------- 8. prévia de classe e resumo da ficha (mensagens privadas: nunca levam anexo) ----------
 for classe in rules.CLASSES:
     e = vitrine.previa_classe("Ana Ficha", classe); confere_limites(e)
-    assert e.title == f"🎓 {classe}" and e.author.name == "Classe de Ana Ficha" and e.description.startswith(f"> {lore.CLASSES[classe][:40]}")
+    assert e.title == f"🎓 {classe}" and e.author.name == "Classe de Ana Ficha" and e.description.startswith(f"{lore.DIVISOR}\n\n> *{lore.CLASSES[classe][:40]}")
     assert "Confirmar classe" in e.description and [f.name for f in e.fields] == ["Vantagem nas perícias", "Bônus"] and e.image.url is None
 lore.IMAGENS_URL["classe-cacador"] = "https://exemplo.com/cacador.gif"
 try:
@@ -209,5 +211,17 @@ assert vitrine.resumo_da_ficha(dict(race="Humano", class_name=None, level=2)) ==
 assert vitrine.cor_da_ficha(dict(race="Dhampir", class_name=None, level=1)) == lore.RACAS["Dhampir"]["cor"]
 assert vitrine.miniatura_da_ficha(dict(race="Humano")) is None and vitrine.miniatura_da_ficha(dict(race=None)) is None    # arquivo de assets/ não vira miniatura
 print("8. prévia de classe e resumo da ficha OK")
+
+# ---------- 9. enfeites, itálico, rodapé com a tentativa e o resultado atual ----------
+assert all("*" not in t for t in tudo)                                                                  # os textos não têm asterisco (senão quebrava o itálico)
+assert vitrine._citar("um\n\ndois", True) == "> *um*\n>\n> *dois*" and vitrine._citar("um") == "> um"
+assert vitrine._rodape("Ana") == "jogador: Ana" and vitrine._rodape("Ana", (1, 3)) == "jogador: Ana · tentativa 1 de 3"
+assert vitrine._rodape("Ana", (2, 3)) == "jogador: Ana · tentativa 2 de 3" and vitrine._rodape("Ana", (3, 3)) == "jogador: Ana · última chance"
+assert lore.DIVISOR.startswith("✦") and lore.DIVISOR.endswith("✦") and len(lore.DIVISOR) <= 30 and len(lore.DIVISOR_CURTO) < len(lore.DIVISOR)
+assert vitrine.resultado_atual(dict(race="Vampiro"), "race") == "Vampiro"
+assert vitrine.resultado_atual(dict(social_class="3º Estado", clergy=None), "social_class") == "3º Estado · Camponeses"
+assert vitrine.resultado_atual(dict(social_class="1º Estado", clergy="Alto Clero"), "social_class") == "1º Estado · Clero (Alto Clero)"
+assert vitrine.resultado_atual(dict(social_class=dice.SOCIAL_CLASS_MASTER, clergy=None), "social_class") == "a decidir pelo mestre"
+print("9. enfeites, rodapé e resultado atual OK")
 
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

@@ -16,6 +16,11 @@ outro lugar), coloque em IMAGENS_URL abaixo; o link tem que apontar direto pra i
 # Chave: "<tipo>-<nome>" no mesmo formato do nome do arquivo. Valor: link direto da imagem.
 IMAGENS_URL: dict[str, str] = {}
 
+# ENFEITES dos cartões. Dá pra trocar por emojis do seu servidor (os animados também): cola o código do emoji,
+# tipo <a:fogo:123456789012345678>. O divisor abre o texto de cada cartão.
+DIVISOR = "✦ ━━━━━━━ ⚜️ ━━━━━━━ ✦"
+DIVISOR_CURTO = "✦ ━━━ ⚜️ ━━━ ✦"
+
 # ---------------------------------------------------------------------------
 # Raças (sorteio de 1d100)
 # ---------------------------------------------------------------------------
