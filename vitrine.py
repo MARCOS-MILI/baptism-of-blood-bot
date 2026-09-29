@@ -184,6 +184,52 @@ def cartao_classe(personagem: str, classe: str, proximo: str, jogador: str | Non
     )
 
 
+def resumo_da_ficha(personagem) -> str:
+    """A linha do topo da ficha: raça, classe e nível de relance (só o que o personagem já tem)."""
+    partes = []
+    raca = personagem["race"]
+    if raca in lore.RACAS:
+        partes.append(f"{lore.RACAS[raca]['emoji']} {raca}")
+    if personagem["class_name"]:
+        partes.append(f"🎓 {personagem['class_name']}")
+    partes.append(f"Nível {personagem['level']}")
+    return " · ".join(partes)
+
+
+def cor_da_ficha(personagem) -> int:
+    """A cor da raça, ou o roxo de sempre enquanto a raça não foi sorteada."""
+    raca = personagem["race"]
+    return lore.RACAS[raca]["cor"] if raca in lore.RACAS else discord.Color.dark_purple().value
+
+
+def miniatura_da_ficha(personagem) -> str | None:
+    """Link direto da imagem da raça (IMAGENS_URL), se existir. A ficha é privada e não leva anexo."""
+    imagem = achar_imagem("raca", personagem["race"]) if personagem["race"] else None
+    return imagem[1] if imagem and imagem[0] == "url" else None
+
+
+def previa_classe(personagem: str, classe: str) -> discord.Embed:
+    """A classe como prévia, pro menu de escolha do painel. É mensagem privada, que não leva anexo: só usa
+    imagem se for um link direto (IMAGENS_URL)."""
+    b = rules.CLASSES[classe]
+    embed = discord.Embed(
+        title=f"🎓 {classe}",
+        description=f"{_citar(lore.CLASSES[classe])}\n\nSe for essa, aperta **Confirmar classe**. Vale uma vez só.",
+        color=lore.COR_CLASSE,
+    )
+    embed.set_author(name=f"Classe de {personagem}")
+    embed.add_field(name="Vantagem nas perícias", value=rules.CLASS_SKILLS[classe], inline=False)
+    embed.add_field(
+        name="Bônus",
+        value=f"Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}",
+        inline=False,
+    )
+    imagem = achar_imagem("classe", classe)
+    if imagem and imagem[0] == "url":
+        embed.set_image(url=imagem[1])
+    return embed
+
+
 # ---------------------------------------------------------------------------
 # Rank de magia
 # ---------------------------------------------------------------------------

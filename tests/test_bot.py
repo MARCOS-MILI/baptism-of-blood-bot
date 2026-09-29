@@ -22,6 +22,7 @@ from discord import app_commands
 import bot
 import db
 import dice
+import lore
 import rules
 
 tmp = tempfile.mkdtemp()
@@ -38,6 +39,7 @@ def inter(uid, nome, roles=(), admin=False, manage=False):
     i.user.roles = [NS(name=r) for r in roles]
     i.guild_id = 999
     i.response.send_message = AsyncMock(); i.response.edit_message = AsyncMock(); i.response.is_done = MagicMock(return_value=False)
+    i.response.send_modal = AsyncMock(); i.edit_original_response = AsyncMock()
     i.followup.send = AsyncMock()
     i.namespace = NS()
     i.guild = NS(roles=[])
@@ -84,7 +86,7 @@ def novo(uid, nome, personagem, quantos=1):
 
 # ============================ A. o que o Discord vai receber ============================
 raiz = {c.name: c for c in bot.bot.tree.get_commands()}
-assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","personagem","mestre"}, sorted(raiz)
+assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","dados","personagem","mestre"}, sorted(raiz)
 pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
@@ -868,7 +870,7 @@ for arg in (None, "atributos", "rolar", "xyz"):
 # autocomplete: mestre só aparece pra mestre
 ch = run(bot._autocomplete_comando(inter(212, "J"), "atrib")); assert [(c.name, c.value) for c in ch] == [("/atributos", "atributos")]
 ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "atrib")); assert [c.value for c in ch] == ["atributos", "mestre atributos"]
-ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 17 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
+ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 18 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
 ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "")); assert len(ch) == 25 and all(len(c.name) <= 100 for c in ch)
 print("M. /ajuda OK")
 
@@ -1244,5 +1246,271 @@ try:
 finally:
     bot.bot.run, os.execv, bot.TOKEN, db.init_db = orig; bot.DADOS_POR_TEXTO = True; os.environ.pop("DADOS_POR_TEXTO", None)
 print("Q. cartões, dados por texto e partida segura OK")
+
+# ============================ R. painéis com botões ============================
+import paineis
+LOOP = asyncio.new_event_loop(); runp = LOOP.run_until_complete      # um laço só: as telas (View) vivem entre um clique e outro
+db.DB_PATH = os.path.join(tmp, "paineis.db"); db.init_db()
+
+def botao(view, rotulo, emoji=None):
+    achados = [b for b in view.children if isinstance(b, discord.ui.Button) and b.label == rotulo and (emoji is None or str(b.emoji) == emoji)]
+    assert len(achados) == 1, (rotulo, emoji, [(b.label, str(b.emoji)) for b in view.children if isinstance(b, discord.ui.Button)])
+    return achados[0]
+def estado(view): return {b.label: (str(b.emoji), b.disabled) for b in view.children if isinstance(b, discord.ui.Button)}
+def seletor(view):
+    achados = [c for c in view.children if isinstance(c, discord.ui.Select)]; return achados[0] if achados else None
+def confere_componentes(view):
+    """Cabe nas regras do Discord: até 5 linhas, 5 botões por linha, menu sozinho na linha, textos curtos."""
+    linhas = {}
+    for c in view.children:
+        assert c.row is not None and 0 <= c.row <= 4, c
+        linhas.setdefault(c.row, []).append(c)
+        if isinstance(c, discord.ui.Button): assert len(c.label or "") <= 80
+        else:
+            assert len(c.options) <= 25 and len(c.placeholder or "") <= 150
+            for o in c.options: assert len(o.label) <= 100 and len(o.description or "") <= 100 and len(o.value) <= 100
+    for r, itens in linhas.items():
+        assert len(itens) <= 5 and (len(itens) == 1 or not any(isinstance(x, discord.ui.Select) for x in itens)), (r, itens)
+    assert len(view.children) <= 25
+def enviada(i): return sent(i)[1]["view"]
+def editada(i): return i.response.edit_message.call_args.kwargs
+def followups(i): return [(a[0], kw) for a, kw in i.followup.send.call_args_list]
+def clique(view, rotulo, uid, nome, emoji=None, **extras):
+    c = inter(uid, nome, **extras); runp(botao(view, rotulo, emoji).callback(c)); return c
+
+# --- criar o personagem já entrega o painel ---
+u = inter(800, "Ana"); runp(bot.personagem_criar.callback(u, "Ana Painel"))
+kw = sent(u)[1]; painel = kw["view"]
+assert isinstance(painel, paineis.PainelFicha) and kw["ephemeral"] and painel.origem is u and painel.dono_id == 800 and "Ou é só clicar nos botões aqui embaixo." in desc(u)
+confere_componentes(painel)
+assert estado(painel) == {"Raça": ("🩸", False), "Classe social": ("⚜️", False), "Classe": ("🔒", True), "Magia": ("🔒", True),
+                          "Físicos": ("🧬", True), "Mentais": ("🧠", True), "Dados": ("🎲", False), "Níveis": ("📈", False), "Ajuda": ("❓", False)}
+assert seletor(painel) is None and botao(painel, "Raça").style == discord.ButtonStyle.primary                 # 1 personagem: sem menu de troca
+
+# --- clicar em Raça: o painel se atualiza e o cartão sai público ---
+with dados(50): c1 = clique(painel, "Raça", 800, "Ana")
+assert c1.response.edit_message.call_count == 1 and c1.followup.send.call_count == 1 and painel.is_finished()
+nova = editada(c1)["view"]; assert isinstance(nova, paineis.PainelFicha) and nova is not painel and nova.origem is u
+assert editada(c1)["embed"].title == "📖 Ficha de Ana Painel" and "⚠️ **Ficha incompleta.**" in editada(c1)["embed"].description
+(conteudo, fk), = followups(c1)
+assert conteudo is None and fk["embed"].title == "Humano" and [f.filename for f in fk["files"]] == ["raca-humano.png"] and "ephemeral" not in fk    # público, com a imagem
+assert row(800, "Ana Painel")["race"] == "Humano" and [h["purpose"] for h in historico_de(800)] == ["raca_inicial"]
+assert estado(nova)["Raça"] == ("✅", True) and estado(nova)["Classe"] == ("🔒", True) and botao(nova, "Raça").style == discord.ButtonStyle.success
+# clicar de novo em algo que já foi feito (painel velho): a regra do comando responde, o painel só se atualiza
+c1b = clique(nova, "Raça", 800, "Ana") if not botao(nova, "Raça").disabled else None
+assert c1b is None                                                                                        # o botão já vem desligado
+
+# --- Classe social, depois a escolha da classe com confirmação ---
+with dados(50): c2 = clique(nova, "Classe social", 800, "Ana")
+assert followups(c2)[0][1]["embed"].title == "3º Estado · Camponeses" and [f.filename for f in followups(c2)[0][1]["files"]] == ["estado-3.png"]
+nova2 = editada(c2)["view"]; assert estado(nova2)["Classe"] == ("🎓", False) and estado(nova2)["Classe social"] == ("✅", True)
+c3 = clique(nova2, "Classe", 800, "Ana")
+esc = editada(c3)["view"]; assert isinstance(esc, paineis.EscolhaDeClasse) and c3.followup.send.call_count == 0 and nova2.is_finished()
+e = editada(c3)["embed"]; assert e.title == "🎓 Escolha a classe de Ana Painel" and [f.name for f in e.fields] == list(rules.CLASSES) and "uma vez só" in e.description
+confere_componentes(esc); sel = seletor(esc)
+assert [o.value for o in sel.options] == list(rules.CLASSES) and sel.options[0].description == "Vantagem: Religião e Luta ou Pontaria" and botao(esc, "Confirmar classe").disabled
+assert esc.origem is u
+c4 = inter(800, "Ana"); sel._values = ["Caçador"]; runp(sel.callback(c4))                                 # escolher no menu só mostra a prévia
+e = editada(c4)["embed"]; assert e.title == "🎓 Caçador" and "Os caçadores devotam" in e.description and "Confirmar classe" in e.description
+assert row(800, "Ana Painel")["class_name"] is None and not botao(esc, "Confirmar classe").disabled and c4.followup.send.call_count == 0
+assert [o.value for o in seletor(esc).options if o.default] == ["Caçador"]
+c4b = inter(800, "Ana"); seletor(esc)._values = ["Paladino"]; runp(seletor(esc).callback(c4b))              # uma classe que não existe é recusada
+assert "Não conheço essa classe" in c4b.response.send_message.call_args.args[0] and row(800, "Ana Painel")["class_name"] is None
+c4c = clique(esc, "Voltar", 800, "Ana"); assert isinstance(editada(c4c)["view"], paineis.PainelFicha) and esc.is_finished()   # voltar não escolhe nada
+assert row(800, "Ana Painel")["class_name"] is None
+esc = paineis.EscolhaDeClasse(800, row(800, "Ana Painel")["id"], "Ana"); esc.origem = u; seletor(esc)._values = ["Caçador"]
+runp(seletor(esc).callback(inter(800, "Ana")))
+c5 = clique(esc, "Confirmar classe", 800, "Ana")
+(conteudo, fk), = followups(c5); assert fk["ephemeral"] is True and fk["embed"].title == "Caçador" and "files" not in fk                # a classe continua privada
+assert row(800, "Ana Painel")["class_name"] == "Caçador"
+nova3 = editada(c5)["view"]; assert isinstance(nova3, paineis.PainelFicha)
+assert estado(nova3)["Classe"] == ("✅", True) and estado(nova3)["Sem magia"] == ("➖", True) and estado(nova3)["Físicos"] == ("🧬", False)   # Humano Caçador: sem magia; atributos liberados
+
+# --- atributos: dois formulários de três campos ---
+c6 = clique(nova3, "Físicos", 800, "Ana")
+modal = c6.response.send_modal.call_args.args[0]
+assert isinstance(modal, paineis.ModalAtributos) and modal.title == "Atributos físicos de Ana Painel" and list(modal.campos) == ["forca", "destreza", "vitalidade"]
+assert [c.label for c in modal.campos.values()] == [f"{n} (só dá pra aumentar)" for n in ("Força", "Destreza", "Vitalidade")] and all(c.default == "0" for c in modal.campos.values())
+assert len(modal.title) <= 45 and all(len(c.label) <= 45 for c in modal.campos.values())
+def enviar_modal(modal, valores, uid=800, nome="Ana"):
+    for chave, v in valores.items(): modal.campos[chave]._value = v
+    i = inter(uid, nome); runp(modal.on_submit(i)); return i
+for ruim in ({"forca": "abc", "destreza": "0", "vitalidade": "0"}, {"forca": "-1", "destreza": "0", "vitalidade": "0"}, {"forca": "25", "destreza": "0", "vitalidade": "0"}, {"forca": "", "destreza": "0", "vitalidade": "0"}, {"forca": "2.5", "destreza": "0", "vitalidade": "0"}):
+    i = enviar_modal(modal, ruim); assert "use um número de 0 a 20" in i.response.send_message.call_args.args[0] and i.response.send_message.call_args.kwargs["ephemeral"] and i.response.edit_message.call_count == 0
+assert db.attributes_of(row(800, "Ana Painel")) == {a: 0 for a in rules.ATTRIBUTES}
+i = enviar_modal(modal, {"forca": "0", "destreza": "0", "vitalidade": "0"})                              # nada mudou
+assert followups(i)[0][0] == "Nada mudou: **Ana Painel** já tem esses valores." and followups(i)[0][1]["ephemeral"] and i.response.edit_message.call_count == 1
+nova3 = editada(i)["view"]; c6 = clique(nova3, "Físicos", 800, "Ana"); modal = c6.response.send_modal.call_args.args[0]
+i = enviar_modal(modal, {"forca": "2", "destreza": "0", "vitalidade": "3"})
+(conteudo, fk), = followups(i); assert fk["ephemeral"] is True and fk["embed"].title == "🧬 Atributos de Ana Painel atualizados"
+assert db.attributes_of(row(800, "Ana Painel")) == {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 0, "alma": 0} and "Pontos de atributo: 5 de 6 usados" in fk["embed"].fields[0].value
+nova4 = editada(i)["view"]; assert estado(nova4)["Físicos"] == ("🧬", False) and "⚠️ **Ficha incompleta.**" in editada(i)["embed"].description       # falta 1 ponto
+c7 = clique(nova4, "Mentais", 800, "Ana"); modal2 = c7.response.send_modal.call_args.args[0]
+assert modal2.title == "Atributos mentais de Ana Painel" and list(modal2.campos) == ["razao", "vontade", "alma"]
+i = enviar_modal(modal2, {"razao": "0", "vontade": "1", "alma": "1"})                                    # 7 pontos no total: o mesmo aviso do /atributos
+(aviso, kw_aviso), = followups(i); assert "Você distribuiu 7 pontos de atributo, mas no nível 1 o total é 6." in aviso and kw_aviso["ephemeral"] is True
+assert db.attributes_of(row(800, "Ana Painel"))["vontade"] == 0
+nova4 = editada(i)["view"]
+i = enviar_modal(paineis.ModalAtributos(nova4, "fisicos"), {"forca": "1", "destreza": "0", "vitalidade": "3"})    # diminuir não pode
+assert "Só dá pra aumentar atributo, e Força ficaria menor do que já está." in followups(i)[0][0] and db.attributes_of(row(800, "Ana Painel"))["forca"] == 2
+nova4 = editada(i)["view"]
+c8 = clique(nova4, "Mentais", 800, "Ana"); modal2 = c8.response.send_modal.call_args.args[0]
+i = enviar_modal(modal2, {"razao": "0", "vontade": "1", "alma": "0"})                                    # o último ponto: a ficha fica pronta
+assert db.attributes_of(row(800, "Ana Painel"))["vontade"] == 1 and rules.creation_status(row(800, "Ana Painel"))["pronta"]
+pronto4 = editada(i)["view"]; assert estado(pronto4)["Físicos"] == ("🧬", True) and estado(pronto4)["Mentais"] == ("🧠", True)   # sem ponto sobrando, os botões desligam
+assert not (editada(i)["embed"].description or "").startswith("⚠️")
+confere_componentes(pronto4)
+
+# --- só o dono mexe; o tempo esgotado desliga tudo; erro vira aviso ---
+intruso = inter(999, "Intruso"); assert runp(pronto4.interaction_check(intruso)) is False
+assert intruso.response.send_message.call_args.args[0] == paineis.MSG_DE_OUTRA_PESSOA and intruso.response.send_message.call_args.kwargs["ephemeral"]
+assert runp(pronto4.interaction_check(inter(800, "Ana"))) is True
+runp(pronto4.on_timeout()); assert all(b.disabled for b in pronto4.children) and u.edit_original_response.call_count == 1 and u.edit_original_response.call_args.kwargs["view"] is pronto4
+u.edit_original_response = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=404, reason="x"), "mensagem apagada")); runp(pronto4.on_timeout())   # mensagem já apagada: não estoura
+err = inter(800, "Ana"); runp(pronto4.on_error(err, RuntimeError("falhou"), None)); assert err.response.send_message.call_args.args[0] == paineis.MSG_ERRO and err.response.send_message.call_args.kwargs["ephemeral"]
+err2 = inter(800, "Ana"); err2.response.is_done = MagicMock(return_value=True); runp(pronto4.on_error(err2, RuntimeError("falhou"), None)); assert err2.followup.send.call_args.args[0] == paineis.MSG_ERRO
+c = inter(800, "Ana"); runp(modal2.on_error(c, RuntimeError("x"))); assert c.response.send_message.call_args.args[0] == paineis.MSG_ERRO
+
+# --- atalhos: dados, níveis e ajuda ---
+painel = paineis.PainelFicha(800, row(800, "Ana Painel")["id"], "Ana"); painel.origem = u
+c = clique(painel, "Dados", 800, "Ana"); bandeja = enviada(c)
+assert isinstance(bandeja, paineis.BandejaDados) and sent(c)[1]["ephemeral"] and bandeja.origem is c and "## 1d20" in sent(c)[1]["embed"].description
+c = clique(painel, "Níveis", 800, "Ana"); (_, fk), = followups(c); assert fk["ephemeral"] and fk["embed"].title == "📈 XP e vantagens de cada nível" and c.response.edit_message.call_count == 1
+assert "▶️ **Nível 1**" in fk["embed"].description
+c = clique(editada(c)["view"], "Ajuda", 800, "Ana"); (_, fk), = followups(c); assert fk["ephemeral"] and fk["embed"].title == "📖 Ajuda do bot" and "escreve `d20+5` no chat" in fk["embed"].description
+
+# --- trocar de personagem pelo menu ---
+runp(bot.personagem_criar.callback(inter(800, "Ana"), "Ana Segunda"))
+outro = novo(801, "Beto", "Beto Alheio")
+um = row(800, "Ana Painel"); dois = row(800, "Ana Segunda")
+uu = inter(800, "Ana"); runp(bot.minha_ficha.callback(uu, "Ana Painel")); pv = enviada(uu)
+assert isinstance(pv, paineis.PainelFicha) and pv.personagem_id == um["id"] and pv.origem is uu and sent(uu)[1]["ephemeral"] and titulo(uu) == "📖 Ficha de Ana Painel"
+confere_componentes(pv); sel = seletor(pv)
+assert [o.label for o in sel.options] == ["Ana Painel", "Ana Segunda"] and [o.default for o in sel.options] == [True, False] and sel.options[0].description == "nível 1 · Humano"
+assert sel.options[1].description == "nível 1 · sem raça"
+c = inter(800, "Ana"); sel._values = [str(dois["id"])]; runp(sel.callback(c))
+assert editada(c)["embed"].title == "📖 Ficha de Ana Segunda" and db.get_active_character("800")["name"] == "Ana Segunda" and [o.default for o in seletor(editada(c)["view"]).options] == [False, True]
+c = inter(800, "Ana"); alheio = row(801, "Beto Alheio"); seletor(pv)._values = [str(alheio["id"])]; runp(seletor(pv).callback(c))   # nunca troca pra personagem de outra pessoa
+assert followups(c)[0][0] == "Não achei esse personagem. Abre o painel de novo com `/minha_ficha`." and db.get_active_character("800")["name"] == "Ana Segunda"
+c = inter(800, "Ana"); seletor(pv)._values = ["99999"]; runp(seletor(pv).callback(c)); assert "Não achei esse personagem" in followups(c)[0][0]        # id que não existe
+c = inter(800, "Ana"); runp(bot.minha_ficha.callback(c, "Fantasma")); assert "Não achei nenhum personagem" in txt(c) and "view" not in sent(c)[1]      # sem personagem: sem painel
+
+# --- a classe social 100: o botão fica esperando o mestre, e o aviso ao cargo Mestre sai junto ---
+m = novo(802, "Caio", "Caio Cem"); pv = paineis.PainelFicha(802, row(802, "Caio Cem")["id"], "Caio"); pv.origem = m
+cem = inter(802, "Caio"); cem.guild = NS(roles=[NS(id=555, name="Mestre", mention="<@&555>")])
+with dados(100): runp(botao(pv, "Classe social").callback(cem))
+(conteudo, fk), = followups(cem); assert fk["embed"].title == "🎲 Resultado especial" and conteudo == "<@&555>" and fk["allowed_mentions"].roles == [cem.guild.roles[0]] and "ephemeral" not in fk
+v = editada(cem)["view"]; assert estado(v)["Classe social"] == ("⏳", True) and estado(v)["Classe"] == ("🔒", True)
+# --- quem tem magia vê o botão de Rank de magia ---
+vp = novo(803, "Vlad", "Vlad Vampiro"); preparar(803, "Vlad Vampiro", "Vampiro", "Mundano"); db.clear_definition(row(803, "Vlad Vampiro")["id"], "magic_rank")
+pv = paineis.PainelFicha(803, row(803, "Vlad Vampiro")["id"], "Vlad"); pv.origem = vp
+assert estado(pv)["Magia"] == ("✨", False) and estado(pv)["Físicos"] == ("🧬", True)                     # a magia vem antes dos atributos
+with dados(70): c = clique(pv, "Magia", 803, "Vlad")
+assert followups(c)[0][1]["embed"].title == "Rank Raro" and "ephemeral" not in followups(c)[0][1]
+v = editada(c)["view"]; assert estado(v)["Magia"] == ("✅", True) and estado(v)["Físicos"] == ("🧬", False)
+# --- com a chavinha da ordem desligada, os passos ficam todos abertos (menos atributos, que precisam da raça) ---
+bot.ORDEM_DA_CRIACAO = False
+try:
+    lv = novo(804, "Livre", "Livre Painel"); pv = paineis.PainelFicha(804, row(804, "Livre Painel")["id"], "Livre")
+    assert estado(pv) == {"Raça": ("🩸", False), "Classe social": ("⚜️", False), "Classe": ("🎓", False), "Magia": ("✨", False), "Físicos": ("🧬", True), "Mentais": ("🧠", True),
+                          "Dados": ("🎲", False), "Níveis": ("📈", False), "Ajuda": ("❓", False)}
+finally:
+    bot.ORDEM_DA_CRIACAO = True
+
+# --- Coletor ---
+cc = paineis.Coletor(inter(800, "Ana")); runp(cc.response.send_message("oi", embed=1, ephemeral=True)); runp(cc.response.send_message(embed=2)); cc.avisar("psiu")
+assert cc.mensagens == [("oi", {"embed": 1, "ephemeral": True}), (None, {"embed": 2}), ("psiu", {"ephemeral": True})] and cc.response.is_done() is False
+assert cc.guild_id == 999 and cc.user.id == 800 and cc.namespace.__dict__ == {}
+
+# --- bandeja de dados ---
+db.set_attributes(row(800, "Ana Painel")["id"], {"vontade": 6}); preparar(800, "Ana Painel"); db.set_active_character("800", row(800, "Ana Painel")["id"])
+d = inter(800, "Ana"); runp(bot.dados_comando.callback(d)); kw = sent(d)[1]; tray = kw["view"]
+assert isinstance(tray, paineis.BandejaDados) and kw["ephemeral"] and tray.origem is d and kw["embed"].title == "🎲 Bandeja de dados"
+assert kw["embed"].description.startswith("## 1d20\n") and [(f.name, f.value) for f in kw["embed"].fields] == [("Motivo", "nenhum (aperta 📝 pra escrever um)"), ("Rolando como", "Ana Painel")]
+confere_componentes(tray); assert {b.label: b.row for b in tray.children if b.label in ("d4", "d12", "d20", "d100", "Rolar", "+5", "Motivo")} == {"d4": 0, "d12": 0, "d20": 1, "d100": 1, "Rolar": 1, "+5": 2, "Motivo": 3}
+assert botao(tray, "d20").style == discord.ButtonStyle.primary and botao(tray, "d6").style == discord.ButtonStyle.secondary
+assert botao(tray, "Dado", "➖").disabled and not botao(tray, "Dado", "➕").disabled and botao(tray, "Zerar").disabled
+def bd(i): return editada(i)["embed"].description.split("\n")[0]
+c = clique(tray, "d6", 800, "Ana"); assert bd(c) == "## 1d6" and botao(tray, "d6").style == discord.ButtonStyle.primary and botao(tray, "d20").style == discord.ButtonStyle.secondary
+c = clique(tray, "Dado", 800, "Ana", "➕"); c = clique(tray, "Dado", 800, "Ana", "➕"); assert bd(c) == "## 3d6" and not botao(tray, "Dado", "➖").disabled
+c = clique(tray, "+5", 800, "Ana"); assert bd(c) == "## 3d6+5" and not botao(tray, "Zerar").disabled
+c = clique(tray, "-1", 800, "Ana"); assert bd(c) == "## 3d6+4"
+c = clique(tray, "-5", 800, "Ana"); c = clique(tray, "-5", 800, "Ana"); assert bd(c) == "## 3d6-6"
+c = clique(tray, "Zerar", 800, "Ana"); assert bd(c) == "## 3d6" and botao(tray, "Zerar").disabled
+for _ in range(9): c = clique(tray, "Dado", 800, "Ana", "➕") if not botao(tray, "Dado", "➕").disabled else c
+assert bd(c) == "## 10d6" and botao(tray, "Dado", "➕").disabled and tray.qtd == 10                        # teto de 10 dados
+for _ in range(9): c = clique(tray, "Dado", 800, "Ana", "➖")
+assert tray.qtd == 1 and botao(tray, "Dado", "➖").disabled
+for _ in range(8): c = clique(tray, "+5", 800, "Ana")
+assert tray.mod == 30 and bd(c) == "## 1d6+30"                                                              # teto de +30
+for _ in range(14): c = clique(tray, "-5", 800, "Ana")
+assert tray.mod == -30 and bd(c) == "## 1d6-30"
+c = clique(tray, "Zerar", 800, "Ana"); c = clique(tray, "d20", 800, "Ana")
+# motivo pelo formulário
+c = clique(tray, "Motivo", 800, "Ana"); mm = c.response.send_modal.call_args.args[0]
+assert isinstance(mm, paineis.ModalMotivo) and mm.title == "Motivo da rolagem" and mm.campo.max_length == 80 and not mm.campo.required
+mm.campo._value = "  ataque com a espada  "; c = inter(800, "Ana"); runp(mm.on_submit(c))
+assert tray.motivo == "ataque com a espada" and dict((f.name, f.value) for f in editada(c)["embed"].fields)["Motivo"] == "ataque com a espada"
+mm2 = runp(botao(tray, "Motivo").callback(inter(800, "Ana"))); mm2 = paineis.ModalMotivo(tray); assert mm2.campo.default == "ataque com a espada"
+mm2.campo._value = "   "; runp(mm2.on_submit(inter(800, "Ana"))); assert tray.motivo is None
+mm.campo._value = "ataque com a espada"; runp(mm.on_submit(inter(800, "Ana")))
+runp(tray.on_timeout()); assert all(b.disabled for b in tray.children); tray._montar()                     # (só pra seguir usando a mesma bandeja)
+# rolar: sai público no nome do personagem, com o motivo, e vai pro histórico
+c = clique(tray, "Dado", 800, "Ana", "➕"); c = clique(tray, "+5", 800, "Ana"); c = clique(tray, "-1", 800, "Ana")
+antes = len(historico_de(800))
+with fixo(4): c = clique(tray, "Rolar", 800, "Ana", "🎲")
+assert c.response.edit_message.call_count == 1 and editada(c)["view"] is tray and editada(c)["embed"].description.startswith("## 2d20+4")
+(_, fk), = followups(c); assert "ephemeral" not in fk and fk["embed"].title == "🎲 Ana Painel rolou 2d20+4" and fk["embed"].footer.text == "ataque com a espada · jogador: Ana"
+assert historico_texto(800)[-1] == ("2d20+4", "ataque com a espada", "Ana Painel", 8) and len(historico_de(800)) == antes + 1
+c = clique(tray, "Rolar", 800, "Ana", "🎲")                                                               # pode rolar de novo com a mesma bandeja (dados de verdade)
+assert "natural" not in followups(c)[0][1]["embed"].description and len(historico_de(800)) == antes + 2   # 2d20 nunca ganha o destaque de natural
+# sem personagem ou com a ficha incompleta: bloqueia com a mesma mensagem do /rolar, sem rolar nada
+sem = paineis.BandejaDados(805, "Sem Nada")
+with dados(): c = clique(sem, "Rolar", 805, "Sem Nada", "🎲")
+assert followups(c)[0][0].startswith("Você ainda não tem personagem.") and followups(c)[0][1]["ephemeral"] and db.count_rolls("805") == 0 and c.response.edit_message.call_count == 1
+novo(806, "Meio", "Meio Painel"); meio = paineis.BandejaDados(806, "Meio")
+with dados(): c = clique(meio, "Rolar", 806, "Meio", "🎲")
+assert followups(c)[0][0].startswith("🔒 A ficha de **Meio Painel**") and followups(c)[0][1]["ephemeral"] and db.count_rolls("806") == 0
+# mestre passa direto, mesmo sem personagem
+mest = paineis.BandejaDados(807, "Mestre Bandeja")
+with fixo(9): c = clique(mest, "Rolar", 807, "Mestre Bandeja", "🎲", roles=["Mestre"])
+assert followups(c)[0][1]["embed"].title == "🎲 Mestre Bandeja rolou 1d20" and historico_texto(807) == [("1d20", None, None, 9)]
+# só o dono usa a bandeja
+assert runp(tray.interaction_check(inter(999, "Intruso"))) is False and runp(tray.interaction_check(inter(800, "Ana"))) is True
+# 20 natural na bandeja
+solo = paineis.BandejaDados(800, "Ana")
+try:
+    dice.roll = lambda n: dice.RollResult(n, [20], 0, 20)
+    c = clique(solo, "Rolar", 800, "Ana", "🎲"); assert "🌟 **20 natural!**" in followups(c)[0][1]["embed"].description
+finally:
+    dice.roll = real_roll
+# a ajuda conhece os botões e o /dados
+assert "botões" in ajuda.AJUDA["minha_ficha"]["resumo"] and "bandeja de dados" in ajuda.AJUDA["dados"]["resumo"] and "Ou é só clicar" not in ajuda.AJUDA["dados"]["detalhes"]
+print("R. painéis com botões OK")
+
+# ============================ S. ficha mais bonita: cor da raça, resumo no topo e imagem por link ============================
+def ficha_de(uid, nome): 
+    i = inter(uid, nome); runp(bot.minha_ficha.callback(i, None)); return sent(i)[1]["embed"]
+n1 = novo(820, "Nova", "Sem Nada Ainda")
+e = ficha_de(820, "Nova"); assert e.author.name == "Nível 1" and e.color == discord.Color.dark_purple() and e.thumbnail.url is None      # personagem novo: roxo de sempre
+db.set_race(row(820, "Sem Nada Ainda")["id"], "Vampiro", 90)
+e = ficha_de(820, "Nova"); assert e.author.name == "🩸 Vampiro · Nível 1" and e.color.value == lore.RACAS["Vampiro"]["cor"]
+db.set_class(row(820, "Sem Nada Ainda")["id"], "Ladrão"); db.add_xp(row(820, "Sem Nada Ainda")["id"], 3000, "teste", "9", "M")
+e = ficha_de(820, "Nova"); assert e.author.name == "🩸 Vampiro · 🎓 Ladrão · Nível 3" and e.title == "📖 Ficha de Sem Nada Ainda"
+for raca, cor, emoji in (("Humano", lore.RACAS["Humano"]["cor"], "🕯️"), ("Dhampir", lore.RACAS["Dhampir"]["cor"], "🌒")):
+    db.set_race(row(820, "Sem Nada Ainda")["id"], raca, 50); e = ficha_de(820, "Nova")
+    assert e.color.value == cor and e.author.name.startswith(f"{emoji} {raca} · ")
+lore.IMAGENS_URL["raca-dhampir"] = "https://exemplo.com/dhampir.gif"                                                  # link direto: aparece na ficha (privada, sem anexo)
+try:
+    e = ficha_de(820, "Nova"); assert e.thumbnail.url == "https://exemplo.com/dhampir.gif"
+    db.set_race(row(820, "Sem Nada Ainda")["id"], "Humano", 50); e = ficha_de(820, "Nova")
+    assert e.thumbnail.url is None                                                                                     # o arquivo de assets/ não vira miniatura (não dá pra anexar na ficha privada)
+finally:
+    lore.IMAGENS_URL.pop("raca-dhampir", None)
+mfic = inter(820, "Nova"); runp(bot.minha_ficha.callback(mfic, None)); assert "files" not in sent(mfic)[1]              # ficha privada nunca leva anexo
+# o painel refaz a ficha com a mesma cor e o mesmo resumo
+pv = paineis.PainelFicha(820, row(820, "Sem Nada Ainda")["id"], "Nova"); c = clique(pv, "Níveis", 820, "Nova")
+assert editada(c)["embed"].author.name.endswith("Nível 3") and editada(c)["embed"].color.value == lore.RACAS["Humano"]["cor"]
+print("S. ficha mais bonita OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

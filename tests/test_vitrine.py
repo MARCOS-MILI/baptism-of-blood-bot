@@ -192,4 +192,22 @@ contagem = collections.Counter(dice.roll(P("d20").notacao).total for _ in range(
 assert set(contagem) == set(range(1, 21)) and min(contagem.values()) > 800
 print("7. dados escritos no chat OK:", len(casos), "casos")
 
+# ---------- 8. prévia de classe e resumo da ficha (mensagens privadas: nunca levam anexo) ----------
+for classe in rules.CLASSES:
+    e = vitrine.previa_classe("Ana Ficha", classe); confere_limites(e)
+    assert e.title == f"🎓 {classe}" and e.author.name == "Classe de Ana Ficha" and e.description.startswith(f"> {lore.CLASSES[classe][:40]}")
+    assert "Confirmar classe" in e.description and [f.name for f in e.fields] == ["Vantagem nas perícias", "Bônus"] and e.image.url is None
+lore.IMAGENS_URL["classe-cacador"] = "https://exemplo.com/cacador.gif"
+try:
+    assert vitrine.previa_classe("A", "Caçador").image.url == "https://exemplo.com/cacador.gif"
+finally:
+    lore.IMAGENS_URL.pop("classe-cacador", None)
+nova_ficha = dict(race=None, class_name=None, level=1)
+assert vitrine.resumo_da_ficha(nova_ficha) == "Nível 1" and vitrine.cor_da_ficha(nova_ficha) == discord.Color.dark_purple().value
+assert vitrine.resumo_da_ficha(dict(race="Vampiro", class_name="Caçador", level=4)) == "🩸 Vampiro · 🎓 Caçador · Nível 4"
+assert vitrine.resumo_da_ficha(dict(race="Humano", class_name=None, level=2)) == "🕯️ Humano · Nível 2"
+assert vitrine.cor_da_ficha(dict(race="Dhampir", class_name=None, level=1)) == lore.RACAS["Dhampir"]["cor"]
+assert vitrine.miniatura_da_ficha(dict(race="Humano")) is None and vitrine.miniatura_da_ficha(dict(race=None)) is None    # arquivo de assets/ não vira miniatura
+print("8. prévia de classe e resumo da ficha OK")
+
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

@@ -78,7 +78,7 @@ Personagens que já existiam e ainda não têm classe e atributos também precis
 
 **Ficha, níveis e recursos**
 
-- `/minha_ficha personagem:...` mostra nível, XP (e quanto falta pro próximo nível), Raça, Classe social, Rank de magia, Classe, Atributos, os pontos de atributo usados e **Vida, Sanidade, Mana e Estamina já calculados, somando nível a nível**, mais os Ranks das perícias especiais. Só você vê a resposta.
+- `/minha_ficha personagem:...` mostra (com botões, veja "Botões" abaixo) nível, XP (e quanto falta pro próximo nível), Raça, Classe social, Rank de magia, Classe, Atributos, os pontos de atributo usados e **Vida, Sanidade, Mana e Estamina já calculados, somando nível a nível**, mais os Ranks das perícias especiais. Só você vê a resposta.
 - `/niveis personagem:...` mostra o XP e as vantagens de cada nível, de 1 a 10, marcando o nível do seu personagem e o que vem no próximo.
 - `/extrato_xp personagem:...` mostra de onde veio o XP do personagem: as últimas 10 entradas, com motivo, mestre e horário.
 - `/rank tipo:personagens|jogadores limite:10` mostra o rank de XP total, **público** pra todo mundo. Em `jogadores`, cada um vale a soma do XP de todos os seus personagens. Quem tem 0 XP não aparece.
@@ -129,6 +129,21 @@ Com a Vitalidade em 3 nos níveis 1 a 3 e em 4 a partir do nível 4, a Vida do C
 | Sábio | 15 | 35 | 20 | 5 |
 
 **Ranks das perícias especiais**: Ritualismo, Alquimia, Forja, Culinária e Fé têm Rank de 0 a 10. Quem dá um Rank novo são os mestres.
+
+## Botões (sem digitar comando)
+
+Quase tudo da criação e do jogo dá pra fazer clicando:
+
+- **`/minha_ficha`** (e a mensagem de boas-vindas do `/personagem criar`) vêm com botões embaixo da ficha:
+  - **Raça, Classe social, Magia:** sorteiam na hora e o cartão com imagem sai no canal pra todo mundo. O botão de um passo que ainda não abriu fica trancado 🔒, o que já foi feito fica verde ✅, o resultado 100 da classe social fica ⏳ (esperando o mestre) e quem não tem magia vê "Sem magia" ➖.
+  - **Classe:** abre um menu com as seis classes. Escolher no menu só mostra uma prévia (texto, vantagem e bônus); a classe só vale depois de apertar **Confirmar classe**, porque não dá pra desfazer. Tem botão **Voltar**.
+  - **Físicos e Mentais:** abrem um formulário com três atributos cada (o Discord só aceita 5 campos por formulário, e são 6 atributos), já preenchidos com o valor atual. Passa pelas mesmas conferências do `/atributos`: só aumenta, confere o total de pontos e os limites da raça. Os botões desligam quando não sobra ponto.
+  - **Dados, Níveis, Ajuda:** atalhos pra bandeja de dados, pra tabela de níveis e pra `/ajuda`.
+  - **Trocar de personagem:** um menu aparece quando o jogador tem mais de um personagem.
+  - A tela se atualiza sozinha a cada clique, e só o dono do painel consegue usar os botões.
+- **`/dados`** abre uma bandeja só sua: botões d4, d6, d8, d10, d12, d20 e d100, ➖ e ➕ pra quantidade (1 a 10), -5, -1, +1, +5 e Zerar pro modificador (até ±30) e 📝 Motivo (abre um formulário). **Rolar** manda o resultado pro canal, no nome do personagem em uso, com o motivo, e guarda no histórico. A bandeja continua aberta pra rolar de novo. Vale a mesma regra de ficha pronta do `/rolar` (os mestres passam direto).
+
+Os painéis valem por 14 minutos (limite do Discord pra editar a resposta), e depois os botões se desligam; é só abrir de novo com `/minha_ficha`. Se o bot reiniciar, os painéis que já estavam abertos param de responder pelo mesmo motivo. Por dentro, cada botão chama o **mesmo código** do comando de barra equivalente (o painel recebe uma "interação de mentira" que guarda a resposta em vez de enviar), então nenhuma regra é repetida: mudou a regra num lugar, vale nos dois.
 
 ## Cartões com imagem e texto
 
@@ -232,6 +247,7 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 - `bot.py`: os comandos, a leitura dos dados escritos no chat e a partida.
 - `lore.py`: os textos e as cores de cada cartão (raças, Estados, clero, classes, Rank de magia). É o arquivo pra editar texto.
 - `vitrine.py`: monta os cartões (título, texto em citação, campos e imagem) e o cartão de rolagem.
+- `paineis.py`: os painéis com botões (ficha interativa, escolha de classe, formulários de atributos e bandeja de dados). Não importa o `bot.py`: ele recebe do `bot.py` as funções que usa (`registrar`).
 - `assets/`: as imagens e gifs dos cartões (veja "Cartões com imagem e texto").
 - `ajuda.py`: os textos do `/ajuda` (um por comando, com exemplo e requisito) e as mensagens de bloqueio da criação. Quando um comando novo entrar, ele precisa de uma entrada aqui: o `tests/test_bot.py` confere isso.
 - `dice.py`: notação de dados e as tabelas de sorteio (magia, raça, classe social, clero).

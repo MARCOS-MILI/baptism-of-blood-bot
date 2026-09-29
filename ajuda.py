@@ -23,7 +23,8 @@ AJUDA = {
         "detalhes": (
             "É o primeiro passo de tudo. Cada jogador tem 3 vagas de personagem, e um mestre pode liberar "
             "vagas extras. Depois de criar, sorteia a raça e a classe social, escolhe a classe, sorteia o Rank de "
-            "magia (só quem tem magia) e distribui os atributos. O passo a passo inteiro aparece em `/ajuda`."
+            "magia (só quem tem magia) e distribui os atributos. O passo a passo inteiro aparece em `/ajuda`. A "
+            "mensagem de boas-vindas já vem com botões pra fazer tudo isso só clicando."
         ),
     },
     "personagem usar": {
@@ -49,11 +50,15 @@ AJUDA = {
     },
     "minha_ficha": {
         "grupo": "personagem",
-        "resumo": "mostra a sua ficha completa",
+        "resumo": "mostra a sua ficha completa, com botões",
         "uso": "/minha_ficha personagem:Kairon Flagon",
         "detalhes": (
             "Nível, XP, raça, classe social, Rank de magia, classe, atributos, Vida, Sanidade, Mana, Estamina e ranks "
-            "das perícias. Só você vê a resposta. Se a ficha ainda não está pronta, ela diz o que falta."
+            "das perícias. Só você vê a resposta. Se a ficha ainda não está pronta, ela diz o que falta. Embaixo tem "
+            "botões pra você não precisar digitar comando: sortear a raça, a classe social e a magia, escolher a "
+            "classe (com menu e confirmação), distribuir os atributos (num formulário), abrir a bandeja de dados, "
+            "ver os níveis e a ajuda, e trocar de personagem. O botão de um passo que ainda não abriu fica trancado 🔒, "
+            "e o painel se atualiza sozinho a cada clique."
         ),
         "requisito": "Sempre liberado.",
     },
@@ -121,6 +126,18 @@ AJUDA = {
             "personagem, vale o que você está usando. A rolagem sai no nome dele e fica no histórico."
         ),
         "requisito": "Só com a ficha do personagem pronta.",
+    },
+    "dados": {
+        "grupo": "jogo",
+        "resumo": "abre uma bandeja de dados com botões",
+        "uso": "/dados",
+        "detalhes": (
+            "Uma bandeja só sua: escolhe o dado (d4, d6, d8, d10, d12, d20 ou d100), a quantidade nos botões ➖ e ➕, o "
+            "modificador (-5, -1, +1, +5 ou zerar) e, se quiser, o motivo no botão 📝. Aperta Rolar e o resultado sai "
+            "no canal pra todo mundo ver, no nome do personagem que você está usando, e fica no histórico. A bandeja "
+            "continua aberta pra você rolar de novo. Tem o mesmo botão dentro do `/minha_ficha`."
+        ),
+        "requisito": "Abrir a bandeja é sempre liberado. Rolar só com a ficha do personagem pronta.",
     },
     "historico": {
         "grupo": "jogo",
@@ -309,7 +326,7 @@ MESTRE_SUBGRUPOS = [
 # Só comandos, em ordem, pra sugerir no autocomplete quando a pessoa ainda não digitou nada.
 ORDEM_SUGESTAO = [
     "personagem criar", "raca_inicial", "classe_social", "classe", "magia_inicial", "atributos", "minha_ficha",
-    "rolar", "niveis", "rank", "calcular_recursos", "historico", "extrato_xp", "personagem usar",
+    "rolar", "dados", "niveis", "rank", "calcular_recursos", "historico", "extrato_xp", "personagem usar",
     "personagem listar", "personagem excluir", "ajuda",
 ]
 

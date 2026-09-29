@@ -8,7 +8,8 @@ Jogadores:
   /raca_inicial | /classe_social | /magia_inicial -> sorteios de criação, uma vez por personagem (a magia só pra quem tem)
   /classe [personagem]                       -> escolhe a classe (uma vez)
   /atributos [forca..alma] [personagem]      -> distribui os pontos de atributo (só aumenta)
-  /minha_ficha [personagem]                  -> nível, XP, raça, classe, atributos, recursos, ranks
+  /minha_ficha [personagem]                  -> a ficha com botões (sorteios, classe, atributos, dados)
+  /dados                                     -> bandeja de dados com botões (d4 a d100)
   /niveis [personagem]                       -> XP e vantagens de cada nível
   /extrato_xp [personagem]                   -> de onde veio o XP do personagem
   /rank [tipo] [limite]                      -> rank público de XP total (personagens ou jogadores)
@@ -45,6 +46,7 @@ from dotenv import load_dotenv
 import ajuda
 import db
 import dice
+import paineis
 import rules
 import vitrine
 
@@ -411,7 +413,11 @@ def _embed_atributos(personagem, titulo: str) -> discord.Embed:
 def _embed_ficha(personagem, jogador: str) -> discord.Embed:
     nivel, xp = personagem["level"], personagem["xp"]
     _, dentro, precisa = rules.xp_progress(xp)
-    embed = discord.Embed(title=f"📖 Ficha de {personagem['name']}", color=discord.Color.dark_purple())
+    embed = discord.Embed(title=f"📖 Ficha de {personagem['name']}", color=vitrine.cor_da_ficha(personagem))
+    embed.set_author(name=vitrine.resumo_da_ficha(personagem))
+    miniatura = vitrine.miniatura_da_ficha(personagem)
+    if miniatura:
+        embed.set_thumbnail(url=miniatura)
     status = rules.creation_status(personagem)
     if ORDEM_DA_CRIACAO and not status["pronta"]:
         embed.description = f"⚠️ **Ficha incompleta.** {ajuda.proximo_passo(status)} Veja o passo a passo em `/ajuda`."
@@ -732,11 +738,14 @@ async def personagem_criar(interaction: discord.Interaction, nome: str):
             f"**{novo['name']}** agora é o personagem que você está usando ({usadas + 1} de {permitidas} vagas).\n"
             "Próximo passo: sortear a raça e a classe social (`/raca_inicial` e `/classe_social`, em qualquer ordem). "
             "Depois vêm `/classe`, o Rank de magia (`/magia_inicial`, só pra quem tem magia) e `/atributos`. "
-            "O passo a passo completo está em `/ajuda`."
+            "O passo a passo completo está em `/ajuda`.\n\n"
+            "**Ou é só clicar nos botões aqui embaixo.**"
         ),
         color=discord.Color.dark_purple(),
     )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    painel = paineis.PainelFicha(interaction.user.id, novo["id"], str(interaction.user.display_name))
+    await interaction.response.send_message(embed=embed, view=painel, ephemeral=True)
+    painel.origem = interaction
 
 
 @personagem_grupo.command(name="usar", description="Troca o personagem que você está usando nas rolagens.")
@@ -1071,9 +1080,18 @@ async def minha_ficha(interaction: discord.Interaction, personagem: str | None =
     if erro:
         await interaction.response.send_message(erro, ephemeral=True)
         return
+    painel = paineis.PainelFicha(interaction.user.id, char["id"], str(interaction.user.display_name))
     await interaction.response.send_message(
-        embed=_embed_ficha(char, interaction.user.display_name), ephemeral=True
+        embed=_embed_ficha(char, interaction.user.display_name), view=painel, ephemeral=True
     )
+    painel.origem = interaction
+
+
+@bot.tree.command(name="dados", description="Abre uma bandeja de dados com botões (d4 a d100), sem digitar nada.")
+async def dados_comando(interaction: discord.Interaction):
+    bandeja = paineis.BandejaDados(interaction.user.id, str(interaction.user.display_name))
+    await interaction.response.send_message(embed=bandeja.embed(), view=bandeja, ephemeral=True)
+    bandeja.origem = interaction
 
 
 @bot.tree.command(name="niveis", description="Mostra o XP e as vantagens de cada nível, de 1 a 10.")
@@ -2010,6 +2028,40 @@ async def mestre_exportar(interaction: discord.Interaction):
 
 
 bot.tree.add_command(mestre_grupo)
+
+
+async def _rolar_do_painel(coletor, notacao: str, motivo: str | None):
+    """A rolagem da bandeja: a mesma regra de ficha pronta do /rolar (que é um filtro do comando, então aqui
+    a checagem é feita na mão) e depois o mesmo código do /rolar."""
+    try:
+        await _exigir_personagem_pronto(coletor)
+    except FichaIncompleta as e:
+        coletor.avisar(e.mensagem)
+        return
+    await rolar.callback(coletor, dado=notacao, motivo=motivo, personagem=None)
+
+
+async def _painel_sortear(coletor, passo: str, nome: str):
+    if passo == "raca":
+        await _sortear_definicao(coletor, "race", nome)
+    elif passo == "estado":
+        await classe_social.callback(coletor, nome)
+    elif passo == "magia":
+        await _sortear_definicao(coletor, "magic_rank", nome)
+    else:
+        raise ValueError(f"Passo desconhecido: {passo}")
+
+
+paineis.registrar(paineis.Ganchos(
+    embed_ficha=_embed_ficha,
+    sortear=_painel_sortear,
+    escolher_classe=lambda coletor, classe, nome: classe_escolher.callback(coletor, classe, nome),
+    atributos=lambda coletor, valores, nome: atributos.callback(coletor, personagem=nome, **valores),
+    rolar=_rolar_do_painel,
+    niveis=lambda coletor, nome: niveis.callback(coletor, nome),
+    ajuda=lambda coletor: _responder_ajuda(coletor, None),
+    ordem_ligada=lambda: ORDEM_DA_CRIACAO,
+))
 
 
 def main():
