@@ -7,6 +7,7 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 **Rolagens**
 
 - `/rolar dado:1d20+3 motivo:teste de acerto personagem:Kairon Flagon` rola e salva no histórico. `motivo` e `personagem` são opcionais; sem `personagem`, vale o que você está usando no momento.
+- **Dados direto no chat, sem barra:** escreve `d20`, `d20+5` ou `2d6-1` numa mensagem e o bot rola, responde na própria mensagem e salva no histórico, como o `/rolar`. Com um `+` na frente, o que vem depois do dado vira o motivo: `+d20+5 ataque com a espada`. Sem o `+`, a mensagem inteira precisa ser só o dado, então conversa normal ("d20 é o melhor dado") nunca rola. Vale a mesma regra da ficha pronta do `/rolar` (os mestres passam direto). No d20, um 20 ou um 1 natural ganha um destaque visual, sem efeito nenhum de regra. Precisa do **Message Content Intent** ligado (ver "Dados por texto" abaixo).
 - `/historico usuario:@alguém limite:10 personagem:Akari Amaya` mostra as últimas rolagens de alguém (padrão: você mesmo). Com `personagem`, mostra só as daquele personagem. A data e a hora aparecem no fuso de quem está lendo.
 
 **Personagens**
@@ -32,7 +33,7 @@ A ficha só fica **pronta** com a raça e a classe social sorteadas (um 100 na c
 
 Personagens que já existiam e ainda não têm classe e atributos também precisam completar a ficha pra usar os comandos bloqueados.
 
-**Quem tem magia:** só tem Rank de magia quem é **Vampiro** (de qualquer classe) ou das classes **Feiticeiros** e **Mestre de Forja**. Humano Mundano, por exemplo, não tem. O Dhampir só tem magia se a classe for uma dessas duas. Quem não tem magia não sorteia o Rank: o `/magia_inicial` explica o motivo e o passo simplesmente não vale pra esse personagem, então a ficha fica pronta sem ele. Como o Rank depende da raça e da classe, ele vem **depois** das duas. A ficha mostra "sem magia" pra quem não tem. Se um Rank já estava guardado de antes (por exemplo, de um Humano Mundano), ele continua lá, com um aviso na ficha, e um mestre pode tirar com `/mestre apagar`. Os mestres podem dar o Rank a quem não tem magia com `/mestre corrigir_magia`, e o bot avisa quando corrigir a raça ou a classe muda se o personagem tem magia.
+**Quem tem magia:** só tem Rank de magia quem é **Vampiro** ou **Dhampir** (de qualquer classe) ou das classes **Feiticeiros** e **Mestre de Forja**, igual ao site. Humano Mundano, por exemplo, não tem. Quem não tem magia não sorteia o Rank: o `/magia_inicial` explica o motivo e o passo simplesmente não vale pra esse personagem, então a ficha fica pronta sem ele. Como o Rank depende da raça e da classe, ele vem **depois** das duas. A ficha mostra "sem magia" pra quem não tem. Se um Rank já estava guardado de antes (por exemplo, de um Humano Mundano), ele continua lá, com um aviso na ficha, e um mestre pode tirar com `/mestre apagar`. Os mestres podem dar o Rank a quem não tem magia com `/mestre corrigir_magia`, e o bot avisa quando corrigir a raça ou a classe muda se o personagem tem magia.
 
 **Ajuda**
 
@@ -129,6 +130,26 @@ Com a Vitalidade em 3 nos níveis 1 a 3 e em 4 a partir do nível 4, a Vida do C
 
 **Ranks das perícias especiais**: Ritualismo, Alquimia, Forja, Culinária e Fé têm Rank de 0 a 10. Quem dá um Rank novo são os mestres.
 
+## Cartões com imagem e texto
+
+Quando alguém sorteia a raça, a classe social, a classe ou o Rank de magia, o bot mostra um cartão: o resultado como título, o texto de lore em citação, a rolagem, os campos que importam (na raça, o que ela muda na ficha; na classe, a vantagem e o bônus) e uma **imagem grande** embaixo. O 1º Estado mostra também o clero (Alto ou Baixo) logo abaixo. Nada disso muda regra: é só a forma de mostrar.
+
+- **Textos e cores:** ficam todos em `lore.py`, num lugar só, pra editar sem mexer em mais nada. Os de raça e de Estado são os do servidor, e os do Dhampir, do clero e das classes são os do site.
+- **Imagens e gifs:** o bot procura sozinho um arquivo na pasta `assets/` com o nome `<tipo>-<nome>.<extensão>`, tudo em minúsculas, sem acento e com hífen no lugar de espaço. Aceita `gif`, `png`, `jpg`, `jpeg` e `webp` (o gif se mexe no Discord). Sem arquivo, o cartão sai só sem a imagem. Exemplos: `raca-dhampir.gif`, `raca-humano.png`, `estado-3.png`, `estado-mestre.png` (resultado 100), `clero-alto.png`, `classe-cacador.png`, `classe-mestre-de-forja.png`, `magia-super-raro.png`. Se preferir um link direto de imagem hospedada em outro lugar, é só colocar em `IMAGENS_URL`, no `lore.py`.
+- **Já tem imagem:** Humano, Vampiro, 1º, 2º e 3º Estado. **Faltam:** Dhampir, resultado 100, Alto e Baixo Clero, as seis classes e os cinco Ranks de magia.
+- Cada cartão manda a imagem como anexo. O bot precisa da permissão de **Anexar Arquivos** e **Inserir Links** no canal.
+- O repositório é público, então as imagens da pasta `assets/` ficam públicas junto. Se elas têm direitos autorais, vale deixar o repositório privado (o Railway continua funcionando com repositório privado).
+
+## Dados por texto (sem barra)
+
+Pra o bot ler o que você escreve no chat (o `d20+5`), o Discord exige que o **Message Content Intent** esteja ligado. É uma vez só:
+
+1. Abre discord.com/developers, entra no seu aplicativo e vai em **Bot**.
+2. Rola até **Privileged Gateway Intents** e liga **Message Content Intent**. Salva.
+3. Reinicia o bot no Railway.
+
+O bot já vem pedindo essa permissão, mas **não cai** se ela ainda não estiver ligada: ele detecta a recusa na partida, avisa no log e sobe sem os dados por texto (os comandos de barra seguem normais). Quando você ligar no portal e reiniciar, passa a funcionar. Pra desligar de propósito, coloca `DADOS_POR_TEXTO=0` no Railway. O `/ajuda` só fala dos dados por texto quando o recurso está ligado. O bot também precisa poder **ver o canal** e **responder** nele.
+
 ## Comandos de mestre
 
 Só quem tem o cargo `Mestre` ou a permissão de Gerenciar Servidor. Sem `personagem`, vale o que o jogador está usando.
@@ -199,6 +220,7 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 |---|---|
 | `DISCORD_TOKEN` | Token do bot (obrigatória) |
 | `MESTRE_ROLE` | Nome do cargo que usa `/mestre` (padrão: `Mestre`) |
+| `DADOS_POR_TEXTO` | Dados escritos direto no chat (`d20+5`). Ligado por padrão; com `0` desliga. Precisa do Message Content Intent ligado no Portal do Desenvolvedor, senão o bot avisa no log e sobe sem esse recurso |
 | `ORDEM_DA_CRIACAO` | Chavinha de segurança. Com `0`, o bot deixa de bloquear comandos por causa da ficha e tudo abre como era antes da ordem. Sem a variável, fica ligada. Dá pra mudar direto no Railway, sem deploy (só reinicia o bot) |
 | `LIMITE_PERSONAGENS` | Vagas de personagem que todo jogador tem (padrão: `3`) |
 | `LIMITE_MAXIMO_PERSONAGENS` | Teto de personagens por jogador, contando as vagas extras (padrão: `10`) |
@@ -207,12 +229,15 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 
 ## Arquivos
 
-- `bot.py`: os comandos.
+- `bot.py`: os comandos, a leitura dos dados escritos no chat e a partida.
+- `lore.py`: os textos e as cores de cada cartão (raças, Estados, clero, classes, Rank de magia). É o arquivo pra editar texto.
+- `vitrine.py`: monta os cartões (título, texto em citação, campos e imagem) e o cartão de rolagem.
+- `assets/`: as imagens e gifs dos cartões (veja "Cartões com imagem e texto").
 - `ajuda.py`: os textos do `/ajuda` (um por comando, com exemplo e requisito) e as mensagens de bloqueio da criação. Quando um comando novo entrar, ele precisa de uma entrada aqui: o `tests/test_bot.py` confere isso.
 - `dice.py`: notação de dados e as tabelas de sorteio (magia, raça, classe social, clero).
 - `rules.py`: regras do sistema (XP e níveis, ganhos por nível, classes, perícias especiais, cálculo de recursos). Se uma regra mudar no site, muda aqui.
 - `db.py`: banco SQLite (histórico, personagens, XP e extrato, vagas, ranks, personagens excluídos, registro das ações de mestre).
-- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_rules.py`, `python tests/test_ajuda.py`, `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
+- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_rules.py`, `python tests/test_ajuda.py`, `python tests/test_vitrine.py`, `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
 
 ## Bancos antigos
 

@@ -105,7 +105,7 @@ AJUDA = {
         "resumo": "sorteia o Rank de magia (1d100), só pra quem tem magia",
         "uso": "/magia_inicial",
         "detalhes": (
-            "Só tem magia quem é Vampiro (de qualquer classe) ou das classes Feiticeiros e Mestre de Forja. Quem não "
+            "Só tem magia quem é Vampiro ou Dhampir (de qualquer classe) ou das classes Feiticeiros e Mestre de Forja. Quem não "
             "tem não sorteia, e esse passo não vale pra ele. De 1 a 45 é Comum, de 46 a 75 Raro, de 76 a 95 Super Raro, "
             "de 96 a 99 Lendário e 100 é Mítico. Vale uma vez por personagem, e o resultado aparece pra todo mundo."
         ),
@@ -377,8 +377,8 @@ def proximo_passo(status: dict) -> str:
 def texto_sem_magia(nome: str, raca: str | None, classe: str | None, status: dict) -> str:
     """Resposta de quando alguém sem magia tenta o /magia_inicial."""
     return (
-        f"🚫 **{nome}** não sorteia o Rank de magia: só tem magia quem é Vampiro (de qualquer classe) ou das classes "
-        f"Feiticeiros e Mestre de Forja, e essa combinação é {raca} com {classe}. Esse passo não vale pra esse personagem.\n\n"
+        f"🚫 **{nome}** não sorteia o Rank de magia: só tem magia quem é Vampiro ou Dhampir (de qualquer classe) ou das "
+        f"classes Feiticeiros e Mestre de Forja, e essa combinação é {raca} com {classe}. Esse passo não vale pra esse personagem.\n\n"
         + proximo_passo(status)
     )
 
@@ -446,9 +446,24 @@ def sugestoes(texto: str, incluir_mestre: bool) -> list[str]:
     return [k for k in nomes if t in k][:25]
 
 
+# O bot liga isso na partida só se a leitura de mensagens estiver funcionando (veja bot.py).
+DICA_DADOS_POR_TEXTO = (
+    "Também dá pra rolar sem barra: escreve o dado direto no chat, tipo `d20`, `d20+5` ou `2d6-1`. "
+    "Com um `+` na frente, o que vem depois do dado vira o motivo: `+d20+5 ataque com a espada`."
+)
+_dados_por_texto = False
+
+
+def ativar_dados_por_texto(ligado: bool) -> None:
+    global _dados_por_texto
+    _dados_por_texto = bool(ligado)
+
+
 def detalhe(chave: str) -> dict:
     """Título, descrição e campos da ajuda de um comando."""
     e = AJUDA[chave]
+    if chave == "rolar" and _dados_por_texto:
+        e = {**e, "detalhes": f"{e['detalhes']}\n\n{DICA_DADOS_POR_TEXTO}"}
     campos = [("Como usar", f"`{e['uso']}`")]
     if e.get("requisito"):
         campos.append(("Quando dá pra usar", e["requisito"]))
@@ -484,6 +499,7 @@ def visao_geral(status: dict | None, tem_personagem: bool, mestre: bool) -> dict
         "descricao": (
             "É só digitar `/` e escolher o comando. Pra ver como usar um deles, com exemplo, usa "
             "`/ajuda comando:nome`, tipo `/ajuda comando:atributos`."
+            + (f"\n\n🎲 Pra rolar dado, nem precisa de barra: escreve `d20+5` no chat." if _dados_por_texto else "")
         ),
         "campos": campos,
     }

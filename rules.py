@@ -17,6 +17,7 @@ LEVELS_PER_ATTRIBUTE = 2        # a cada 2 níveis: +1 ponto de Atributo e uma h
 VAMPIRIC_RACES = ("Vampiro", "Dhampir")
 # Pontos de Disciplina na criação (o Dhampir começa com menos que o vampiro).
 INITIAL_DISCIPLINE_POINTS = {"Vampiro": 4, "Dhampir": 3}
+DISCIPLINE_CREATION_MAX_GRADE = 3   # grau máximo de uma Disciplina na criação (os graus 4 e 5 só entram em jogo)
 
 
 def xp_to_next(level: int) -> int | None:
@@ -297,10 +298,9 @@ def describe_attributes(values: dict[str, int]) -> str:
 # ---------------------------------------------------------------------------
 # Ordem da criação do personagem
 # ---------------------------------------------------------------------------
-# Quem tem magia: Vampiro (de qualquer classe) e as classes mágicas. Quem não tem (por exemplo, um Humano
-# Mundano) não sorteia o Rank de magia, e esse passo da criação não vale pra ele. O Dhampir não entra
-# aqui: ele só tem magia se a classe dele for mágica.
-MAGIC_RACES = ("Vampiro",)
+# Quem tem magia: Vampiro e Dhampir (de qualquer classe) e as classes mágicas. Quem não tem (por exemplo, um
+# Humano Mundano) não sorteia o Rank de magia, e esse passo da criação não vale pra ele. Igual ao site.
+MAGIC_RACES = VAMPIRIC_RACES
 MAGIC_CLASSES = ("Feiticeiros", "Mestre de Forja")
 
 

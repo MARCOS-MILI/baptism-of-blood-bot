@@ -71,7 +71,7 @@ t = ajuda.texto_falta_para("atributos", st(**SORTEIOS, class_name="Feiticeiros")
 assert "`/atributos`" in t and "▶️ Sortear o Rank de magia: `/magia_inicial`" in t
 # quem não tem magia tenta o /magia_inicial
 t = ajuda.texto_sem_magia("Ana", "Humano", "Mundano", st(**SORTEIOS, class_name="Mundano"))
-assert t.startswith("🚫 **Ana** não sorteia o Rank de magia: só tem magia quem é Vampiro (de qualquer classe) ou das classes Feiticeiros e Mestre de Forja")
+assert t.startswith("🚫 **Ana** não sorteia o Rank de magia: só tem magia quem é Vampiro ou Dhampir (de qualquer classe) ou das classes Feiticeiros e Mestre de Forja")
 assert "essa combinação é Humano com Mundano. Esse passo não vale pra esse personagem." in t and t.endswith("Próximo passo: `/atributos`, pra distribuir os pontos de atributo.")
 s100b = st(race="Humano", social_class=dice.SOCIAL_CLASS_MASTER, class_name="Feiticeiros")
 t = ajuda.texto_falta_para("classe", st(race="Humano", social_class=dice.SOCIAL_CLASS_MASTER))

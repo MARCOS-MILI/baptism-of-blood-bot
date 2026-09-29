@@ -151,17 +151,18 @@ assert rules.ATTRIBUTES == ("forca", "destreza", "vitalidade", "razao", "vontade
 print("5. atributos OK")
 
 # ---------- quem tem magia: Vampiro (qualquer classe) e as classes Feiticeiros e Mestre de Forja ----------
-assert rules.MAGIC_RACES == ("Vampiro",) and rules.MAGIC_CLASSES == ("Feiticeiros", "Mestre de Forja")
+assert rules.MAGIC_RACES == ("Vampiro", "Dhampir") and rules.MAGIC_CLASSES == ("Feiticeiros", "Mestre de Forja")
 assert set(rules.MAGIC_CLASSES) <= set(rules.CLASSES)
 com_magia = 0
 for raca in ("Humano", "Vampiro", "Dhampir"):                          # a tabela inteira: 3 raças x 6 classes
     for classe in rules.CLASSES:
-        esperado = "sim" if raca == "Vampiro" or classe in ("Feiticeiros", "Mestre de Forja") else "nao"
+        esperado = "sim" if raca in ("Vampiro", "Dhampir") or classe in ("Feiticeiros", "Mestre de Forja") else "nao"
         assert rules.magic_access(raca, classe) == esperado, (raca, classe)
         com_magia += esperado == "sim"
-assert com_magia == 10                                                    # 6 do Vampiro + 2 classes mágicas nas outras 2 raças
+assert com_magia == 14                                                    # 6 do Vampiro + 6 do Dhampir + 2 classes mágicas no Humano
 assert rules.magic_access("Humano", "Mundano") == "nao"                   # o caso que não fazia sentido
-assert rules.magic_access("Dhampir", "Sábio") == "nao" and rules.magic_access("Dhampir", "Feiticeiros") == "sim"    # Dhampir só com classe mágica
+assert rules.magic_access("Dhampir", "Sábio") == "sim" and rules.magic_access("Dhampir", "Mundano") == "sim"          # Dhampir tem magia de qualquer classe, como o Vampiro
+assert rules.magic_access("Dhampir", None) == "sim" and rules.MAGIC_RACES == ("Vampiro", "Dhampir")
 assert rules.magic_access("Vampiro", None) == "sim" and rules.magic_access(None, "Mestre de Forja") == "sim"        # uma das duas já basta
 assert [rules.magic_access(a, b) for a, b in (("Humano", None), (None, "Mundano"), (None, None))] == ["indefinido"] * 3
 print("6. quem tem magia OK")

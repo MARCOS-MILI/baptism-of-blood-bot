@@ -1,9 +1,13 @@
-"""Parsing e rolagem de dados no formato NdM+K (ex: 1d20, 2d6+3, 1d100-2)."""
+"""Parsing e rolagem de dados no formato NdM+K (ex: 1d20, 2d6+3, 1d100-2), e a leitura de dados escritos
+direto no chat (ex: d20+5, ou +d20+5 ataque com a espada)."""
 
 import random
 import re
+from typing import NamedTuple
 
-DICE_PATTERN = re.compile(r"^\s*(\d*)d(\d+)\s*([+-]\s*\d+)?\s*$", re.IGNORECASE)
+# Aceita vários modificadores seguidos (1d20+5-1 vale +4).
+DICE_PATTERN = re.compile(r"^\s*(\d*)d(\d+)\s*((?:[+-]\s*\d{1,4}\s*)*)$", re.IGNORECASE)
+_MODIFICADOR = re.compile(r"([+-])\s*(\d+)")
 
 
 class DiceError(ValueError):
@@ -11,10 +15,11 @@ class DiceError(ValueError):
 
 
 class RollResult:
-    def __init__(self, notation: str, rolls: list[int], modifier: int):
+    def __init__(self, notation: str, rolls: list[int], modifier: int, sides: int | None = None):
         self.notation = notation
         self.rolls = rolls
         self.modifier = modifier
+        self.sides = sides  # quantos lados tinha o dado (None se não se sabe)
 
     @property
     def total(self) -> int:
@@ -38,7 +43,7 @@ def roll(notation: str) -> RollResult:
     qty_str, sides_str, mod_str = match.groups()
     qty = int(qty_str) if qty_str else 1
     sides = int(sides_str)
-    modifier = int(mod_str.replace(" ", "")) if mod_str else 0
+    modifier = sum(int(f"{sinal}{numero}") for sinal, numero in _MODIFICADOR.findall(mod_str or ""))
 
     if qty < 1 or qty > 100:
         raise DiceError("A quantidade de dados precisa ser entre 1 e 100.")
@@ -46,7 +51,7 @@ def roll(notation: str) -> RollResult:
         raise DiceError("O dado precisa ter entre 2 e 1000 lados.")
 
     rolls = [random.randint(1, sides) for _ in range(qty)]
-    return RollResult(notation=notation, rolls=rolls, modifier=modifier)
+    return RollResult(notation=notation, rolls=rolls, modifier=modifier, sides=sides)
 
 
 # Tabela de raridade de magia já estabelecida no sistema (rolagem em 1d100).
@@ -108,3 +113,40 @@ def social_class_for(d100_result: int) -> str:
 
 def clergy_for(d100_result: int) -> str:
     return _lookup(CLERGY_TABLE, d100_result)
+
+
+# ---------------------------------------------------------------------------
+# Dados escritos direto no chat, sem barra
+# ---------------------------------------------------------------------------
+class PedidoDeDado(NamedTuple):
+    notacao: str          # já normalizada: "d20+5" vira "1d20+5"
+    motivo: str | None    # o texto depois do dado, só quando a mensagem começa com "+"
+    explicito: bool       # a mensagem começou com "+": é um pedido claro, então erro também merece resposta
+
+
+_TEXTO = re.compile(
+    r"^\s*(?P<mais>\+)?\s*(?P<qtd>\d{0,3})\s*d\s*(?P<lados>\d{1,4})"
+    r"(?P<mods>(?:\s*[+-]\s*\d{1,4})*)"
+    r"(?:\s+(?P<resto>\S.*?))?\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def parse_texto(conteudo: str | None) -> PedidoDeDado | None:
+    """Lê uma mensagem de chat e devolve o dado pedido, ou None se a mensagem não é um dado.
+
+    Sem o "+" na frente, a mensagem inteira tem que ser só o dado (d20, 1d20+5, 2d6 - 1), pra uma conversa
+    normal nunca disparar rolagem. Com o "+" na frente, o que vem depois do dado vira o motivo
+    (+d20+5 ataque com a espada). O dado em si é validado só na hora de rolar."""
+    if not conteudo:
+        return None
+    m = _TEXTO.match(conteudo)
+    if not m:
+        return None
+    motivo = m["resto"].strip() if m["resto"] else None
+    if motivo and not m["mais"]:
+        return None
+    notacao = f"{int(m['qtd'] or 1)}d{int(m['lados'])}" + "".join(
+        f"{sinal}{int(numero)}" for sinal, numero in _MODIFICADOR.findall(m["mods"] or "")
+    )
+    return PedidoDeDado(notacao, motivo, bool(m["mais"]))

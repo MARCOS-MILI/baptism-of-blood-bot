@@ -53,7 +53,7 @@ def sent(i):
 
 def txt(i):
     c, kw = sent(i); e = kw.get("embed")
-    return (c or "") + ((" | " + (e.title or "") + " | " + (e.description or "") + " | " + " ; ".join(f"{f.name}={f.value}" for f in e.fields)) if e else "")
+    return (c or "") + ((" | " + (e.author.name or "") + " | " + (e.title or "") + " | " + (e.description or "") + " | " + " ; ".join(f"{f.name}={f.value}" for f in e.fields)) if e else "")
 
 def desc(i): return sent(i)[1]["embed"].description
 def titulo(i): return sent(i)[1]["embed"].title
@@ -138,7 +138,7 @@ run(bot.rolar.callback(marcos, "1d6", None, "Fantasma")); assert "Não achei" in
 run(bot.rolar.callback(marcos, "abc", None, None)); assert "inválida" in txt(marcos)
 run(bot.magia_inicial.callback(marcos, None)); assert "Ainda não dá pra usar `/magia_inicial`" in txt(marcos) and row(1, "Kairon Flagon")["magic_rank"] is None   # sem raça nem classe: fechado
 with dados(96): run(bot.raca_inicial.callback(marcos, None))                                                # 96 é Dhampir
-assert "Raça de Kairon Flagon" in txt(marcos) and "Raça: **Dhampir**" in txt(marcos) and row(1, "Kairon Flagon")["race"] == "Dhampir"
+assert "Raça de Kairon Flagon" in txt(marcos) and titulo(marcos) == "Dhampir" and row(1, "Kairon Flagon")["race"] == "Dhampir"
 run(bot.raca_inicial.callback(marcos, None)); assert "já tem Raça" in txt(marcos)
 run(bot.raca_inicial.callback(marcos, "Akari Amaya")); assert "Raça de Akari Amaya" in txt(marcos)
 # o Rank de magia vem depois da raça e da classe, e só pra quem tem magia (Dhampir só com classe mágica: Kairon é Mestre de Forja)
@@ -202,17 +202,17 @@ print("C. mestre e correções OK")
 # ============================ D. classe social ============================
 p1 = novo(10, "Ana", "Ana Camponesa")
 with dados(50): run(bot.classe_social.callback(p1, None))
-assert "3º Estado (Povo)" in txt(p1) and "Outro 1d100" not in txt(p1) and "content" not in sent(p1)[1] and [h["purpose"] for h in historico_de(10)] == ["classe_social"]
+assert titulo(p1) == "3º Estado · Camponeses" and "Classe Social de" in txt(p1) and "🎲 1d100 = **50**" in desc(p1) and "→" not in desc(p1) and "content" not in sent(p1)[1] and [h["purpose"] for h in historico_de(10)] == ["classe_social"]
 with dados(): run(bot.classe_social.callback(p1, None))
 assert "já tem Classe Social" in txt(p1) and sent(p1)[1]["ephemeral"]
-for n, esperado in [(80, "3º Estado (Povo)"), (81, "2º Estado (Nobreza)"), (91, "2º Estado (Nobreza)")]:
+for n, esperado in [(80, "3º Estado · Camponeses"), (81, "2º Estado · Nobreza"), (91, "2º Estado · Nobreza")]:
     u = novo(20 + n, f"J{n}", f"Fulano {n}")
     with dados(n): run(bot.classe_social.callback(u, None))
-    assert esperado in txt(u) and len(historico_de(20 + n)) == 1
+    assert titulo(u) == esperado and f"🎲 1d100 = **{n}**" in desc(u) and len(historico_de(20 + n)) == 1
 for n1, n2, clero in [(92, 49, "Baixo Clero"), (92, 50, "Alto Clero"), (99, 100, "Alto Clero"), (95, 1, "Baixo Clero")]:
     u = novo(300 + n1 + n2, "Clerigo", "Padre Teste")
     with dados(n1, n2): run(bot.classe_social.callback(u, None))
-    assert "1º Estado (Clero)" in txt(u) and f"Clero: **{clero}**" in txt(u) and f"Outro 1d100 = **{n2}**" in txt(u)
+    assert titulo(u) == "1º Estado · Clero" and f"🎲 1d100 = **{n2}** → **{clero}**" in desc(u) and f"{clero}=" in txt(u)
     c = row(300 + n1 + n2, "Padre Teste"); assert (c["social_class_roll"], c["clergy"], c["clergy_roll"]) == (n1, clero, n2)
     assert [(h["purpose"], h["total"]) for h in reversed(historico_de(300 + n1 + n2))] == [("classe_social", n1), ("clero", n2)]
 mestre_papel = NS(id=555, name="Mestre", mention="<@&555>")
@@ -455,7 +455,7 @@ assert bot._quando("lixo") == "lixo UTC"
 assert dice.race_for(95) == "Vampiro" and dice.race_for(96) == "Dhampir" and dice.race_for(100) == "Dhampir" and dice.RACES == ["Humano", "Vampiro", "Dhampir"]
 r = inter(82, "Rara"); run(bot.personagem_criar.callback(r, "Rara Raça"))
 with dados(96): run(bot.raca_inicial.callback(r, None))
-assert "Raça: **Dhampir**" in txt(r) and "Meio humano" not in txt(r) and not sent(r)[1].get("ephemeral")            # continua público
+assert titulo(r) == "Dhampir" and "Meio humano" not in txt(r) and not sent(r)[1].get("ephemeral")            # continua público
 print("H. horário e Dhampir OK")
 
 # ============================ I. ficha automática: classe, atributos e recursos ============================
@@ -493,12 +493,12 @@ run(bot.minha_ficha.callback(ana, None)); assert "Próximo passo: `/classe`" in 
 
 # classe: vale uma vez, mostra bônus e vantagem
 run(bot.classe_escolher.callback(ana, "Caçador", None)); print("  ", desc(ana).splitlines()[0:2])
-assert titulo(ana) == "🎓 Classe de Ana Ficha: Caçador" and "Vantagem nas perícias: Religião e Luta ou Pontaria" in desc(ana)
-assert "Bônus: Vida +35 · Sanidade +15 · Mana +5 · Estamina +20" in desc(ana) and "/atributos" in desc(ana) and sent(ana)[1]["ephemeral"]
+assert titulo(ana) == "Caçador" and "Classe de Ana Ficha" in txt(ana) and "Vantagem nas perícias=Religião e Luta ou Pontaria" in txt(ana)
+assert "Bônus=Vida +35 · Sanidade +15 · Mana +5 · Estamina +20" in txt(ana) and "/atributos" in txt(ana) and sent(ana)[1]["ephemeral"]
 run(bot.classe_escolher.callback(ana, "Sábio", None)); assert "já é da classe **Caçador**" in txt(ana) and ficha()["class_name"] == "Caçador"
 run(bot.minha_ficha.callback(ana, None)); c = campos(ana)
 assert c["Classe"] == "Caçador\n(vantagem em Religião e Luta ou Pontaria)"
-assert c["Rank de Magia"] == "sem magia\n(só Vampiros, Feiticeiros e Mestres de Forja têm magia)"
+assert c["Rank de Magia"] == "sem magia\n(só Vampiros, Dhampirs, Feiticeiros e Mestres de Forja têm magia)"
 n_antes = len(historico_de(100)); run(bot.magia_inicial.callback(ana, None)); m = txt(ana)
 assert m.startswith("🚫 **Ana Ficha** não sorteia o Rank de magia") and "essa combinação é Humano com Caçador" in m and sent(ana)[1]["ephemeral"]
 assert ficha()["magic_rank"] is None and len(historico_de(100)) == n_antes           # recusou sem rolar dado nenhum
@@ -744,7 +744,7 @@ with dados(20): run(bot.classe_social.callback(p0, None))
 m = tenta(bot.rolar, p0); assert "▶️ Escolher a classe: `/classe`" in m and "🔒 Sortear o Rank de magia: depois de escolher a classe" in m
 assert "🔒 Distribuir os pontos de atributo: depois de escolher a classe e de sortear o Rank de magia" in m
 run(bot.classe_escolher.callback(p0, "Sábio", None))
-assert "Sua raça e sua classe não têm magia, então você não sorteia o Rank de magia." in desc(p0) and "Próximo passo: `/atributos`" in desc(p0)
+assert "Sua raça e sua classe não têm magia, então você não sorteia o Rank de magia." in txt(p0) and "Próximo passo: `/atributos`" in txt(p0)
 m = tenta(bot.rolar, p0); assert "▶️ Distribuir os pontos de atributo: `/atributos` (0 de 6 pontos usados)" in m and "Próximo passo: `/atributos`" in m
 assert "➖ Rank de magia: a sua raça e a sua classe não têm magia, então esse passo não vale pra você" in m
 run(bot.magia_inicial.callback(p0, None)); assert txt(p0).startswith("🚫 **Recém Chegado** não sorteia o Rank de magia") and row(200, "Recém Chegado")["magic_rank"] is None
@@ -788,7 +788,7 @@ run(bot.classe_escolher.callback(e6, "Caçador", None)); print("  ", txt(e6))
 assert txt(e6) == ("Ainda não dá pra usar `/classe`: você tirou 100 no sorteio da classe social, então um mestre precisa definir o seu "
                    "Estado primeiro. Fala com ele.") and row(206, "Sorte Grande")["class_name"] is None
 run(bot.mestre_corrigir_estado.callback(gm, a206, "3", None))
-run(bot.classe_escolher.callback(e6, "Caçador", None)); assert titulo(e6) == "🎓 Classe de Sorte Grande: Caçador"                # o mestre decidiu: destravou
+run(bot.classe_escolher.callback(e6, "Caçador", None)); assert titulo(e6) == "Caçador" and "Classe de Sorte Grande" in txt(e6)                # o mestre decidiu: destravou
 
 # o mestre passa por cima da ordem: define a classe e os atributos sem os sorteios
 g7 = inter(207, "Sete"); run(bot.personagem_criar.callback(g7, "Por Cima")); a207 = alvo(207, "Sete")
@@ -898,7 +898,7 @@ try:
     for cmd in JOGO: assert tenta(cmd, novo0) is None, cmd.name                                     # ficha vazia e os quatro comandos abertos
     assert tenta(bot.rolar, inter(302, "Sem Personagem")) is None                                    # nem personagem precisa
     run(bot.minha_ficha.callback(novo0, None)); assert sent(novo0)[1]["embed"].description is None    # sem aviso de "ficha incompleta"
-    run(bot.classe_escolher.callback(novo0, "Sábio", None)); assert titulo(novo0) == "🎓 Classe de Sem Ordem: Sábio"                     # a classe não exige os sorteios
+    run(bot.classe_escolher.callback(novo0, "Sábio", None)); assert titulo(novo0) == "Sábio" and "Classe de Sem Ordem" in txt(novo0)                     # a classe não exige os sorteios
     run(bot.atributos.callback(novo0, 2, None, None, None, None, None, None)); assert "Ainda não dá pra usar `/atributos`" in txt(novo0)   # sem raça, não
     db.set_race(row(301, "Sem Ordem")["id"], "Humano", 40)
     run(bot.atributos.callback(novo0, 2, None, None, None, None, None, None)); assert titulo(novo0).endswith("atualizados")            # com raça, vai, mesmo sem o resto
@@ -917,15 +917,15 @@ def montar(uid, jogador, personagem, raca=None, classe=None, estado="3º Estado"
     if classe: db.set_class(c, classe)
     return i
 
-# quem TEM magia rola o Rank: Vampiro de qualquer classe, Feiticeiros e Mestre de Forja (Dhampir só com classe mágica)
+# quem TEM magia rola o Rank: Vampiro e Dhampir de qualquer classe, Feiticeiros e Mestre de Forja
 for uid, raca, classe in [(400, "Vampiro", "Mundano"), (401, "Vampiro", "Ladrão"), (402, "Humano", "Feiticeiros"),
-                          (403, "Humano", "Mestre de Forja"), (404, "Dhampir", "Feiticeiros"), (405, "Vampiro", "Feiticeiros")]:
+                          (403, "Humano", "Mestre de Forja"), (404, "Dhampir", "Feiticeiros"), (405, "Vampiro", "Feiticeiros"),
+                          (406, "Dhampir", "Sábio"), (407, "Dhampir", "Caçador"), (408, "Dhampir", "Mundano")]:
     i = montar(uid, f"J{uid}", f"P{uid}", raca, classe)
     with dados(60): run(bot.magia_inicial.callback(i, None))
-    assert titulo(i) == f"✨ Magia Inicial de P{uid}" and row(uid, f"P{uid}")["magic_rank"] == "Raro" and not sent(i)[1].get("ephemeral"), (raca, classe)
+    assert titulo(i) == "Rank Raro" and f"Magia Inicial de P{uid}" in txt(i) and row(uid, f"P{uid}")["magic_rank"] == "Raro" and not sent(i)[1].get("ephemeral"), (raca, classe)
 # quem NÃO tem magia é recusado, sem rolar dado nenhum e sem mexer no histórico
-for uid, raca, classe in [(410, "Humano", "Mundano"), (411, "Humano", "Caçador"), (412, "Humano", "Ladrão"), (413, "Humano", "Sábio"),
-                          (414, "Dhampir", "Sábio"), (415, "Dhampir", "Caçador")]:
+for uid, raca, classe in [(410, "Humano", "Mundano"), (411, "Humano", "Caçador"), (412, "Humano", "Ladrão"), (413, "Humano", "Sábio")]:
     i = montar(uid, f"J{uid}", f"P{uid}", raca, classe); n = len(historico_de(uid))
     with dados(): run(bot.magia_inicial.callback(i, None))                                     # dados() vazio: rolar dado seria erro
     m = txt(i)
@@ -943,18 +943,18 @@ m400 = inter(400, "J400"); run(bot.magia_inicial.callback(m400, None)); assert "
 
 # o /classe já diz se o personagem tem magia e qual é o próximo passo
 c1 = montar(430, "C1", "Classe Sem Magia", "Humano", None); run(bot.classe_escolher.callback(c1, "Sábio", None))
-assert "Sua raça e sua classe não têm magia, então você não sorteia o Rank de magia." in desc(c1) and "Próximo passo: `/atributos`" in desc(c1)
+assert "Sua raça e sua classe não têm magia, então você não sorteia o Rank de magia." in txt(c1) and "Próximo passo: `/atributos`" in txt(c1)
 c2 = montar(431, "C2", "Classe Vampira", "Vampiro", None); run(bot.classe_escolher.callback(c2, "Mundano", None))
-assert "Sua raça ou sua classe tem magia." in desc(c2) and "Próximo passo: `/magia_inicial`" in desc(c2) and "não têm magia" not in desc(c2)
+assert "Sua raça ou sua classe tem magia." in txt(c2) and "Próximo passo: `/magia_inicial`" in txt(c2) and "não têm magia" not in txt(c2)
 c3 = montar(432, "C3", "Classe Feiticeira", "Humano", None); run(bot.classe_escolher.callback(c3, "Feiticeiros", None))
-assert "Sua raça ou sua classe tem magia." in desc(c3) and "Próximo passo: `/magia_inicial`" in desc(c3)
-c4 = montar(433, "C4", "Classe Forjadora", "Humano", None); run(bot.classe_escolher.callback(c4, "Mestre de Forja", None)); assert "Próximo passo: `/magia_inicial`" in desc(c4)
+assert "Sua raça ou sua classe tem magia." in txt(c3) and "Próximo passo: `/magia_inicial`" in txt(c3)
+c4 = montar(433, "C4", "Classe Forjadora", "Humano", None); run(bot.classe_escolher.callback(c4, "Mestre de Forja", None)); assert "Próximo passo: `/magia_inicial`" in txt(c4)
 
 # a ficha e a lista de personagens mostram a situação de cada um
 e1 = montar(440, "E1", "Elegível", "Vampiro", "Mundano"); run(bot.minha_ficha.callback(e1, None))
 assert campos(e1)["Rank de Magia"] == "ainda não definido\n(use `/magia_inicial`)"; run(bot.personagem_listar.callback(e1)); assert "magia: sem rank" in desc(e1)
 e2 = montar(441, "E2", "Sem Magia", "Humano", "Mundano"); run(bot.minha_ficha.callback(e2, None))
-assert campos(e2)["Rank de Magia"] == "sem magia\n(só Vampiros, Feiticeiros e Mestres de Forja têm magia)"; run(bot.personagem_listar.callback(e2)); assert "magia: sem magia" in desc(e2)
+assert campos(e2)["Rank de Magia"] == "sem magia\n(só Vampiros, Dhampirs, Feiticeiros e Mestres de Forja têm magia)"; run(bot.personagem_listar.callback(e2)); assert "magia: sem magia" in desc(e2)
 e3 = montar(442, "E3", "Indefinido", "Humano", None); run(bot.minha_ficha.callback(e3, None))
 assert campos(e3)["Rank de Magia"] == "depende da raça e da classe\n(fica claro depois de escolher as duas)"; run(bot.personagem_listar.callback(e3)); assert "magia: sem rank" in desc(e3)
 e4 = montar(443, "E4", "Dado Antigo", "Humano", "Mundano"); db.set_magic_rank(row(443, "Dado Antigo")["id"], "Raro", 62)      # Rank guardado de antes da regra
@@ -966,8 +966,9 @@ run(bot.minha_ficha.callback(e4, None)); assert "Ficha incompleta" not in (sent(
 # os mestres são avisados quando corrigir a raça ou a classe muda se o personagem tem magia
 g1 = montar(450, "G1", "Nota Um", "Humano", "Mundano"); a450 = alvo(450, "G1")
 run(bot.mestre_corrigir_raca.callback(gm, a450, "Vampiro", None)); assert "Agora **Nota Um** tem magia e precisa sortear o Rank de magia com `/magia_inicial`." in desc(gm)
-run(bot.mestre_corrigir_raca.callback(gm, a450, "Dhampir", None)); assert "Com essa combinação **Nota Um** não tem magia." in desc(gm) and "continua na ficha" not in desc(gm)   # sem Rank guardado
-run(bot.mestre_corrigir_raca.callback(gm, a450, "Humano", None)); assert "magia" not in desc(gm).split("→")[-1]                # nao -> nao: nada a avisar
+run(bot.mestre_corrigir_raca.callback(gm, a450, "Dhampir", None)); assert "magia" not in desc(gm).split("→")[-1]              # sim -> sim (Dhampir também tem magia): nada a avisar
+run(bot.mestre_corrigir_raca.callback(gm, a450, "Humano", None)); assert "Com essa combinação **Nota Um** não tem magia." in desc(gm) and "continua na ficha" not in desc(gm)   # sim -> não, sem Rank guardado
+run(bot.mestre_corrigir_raca.callback(gm, a450, "Humano", None)); assert "magia" not in desc(gm).split("→")[-1]                # não -> não: nada a avisar
 db.set_magic_rank(row(450, "Nota Um")["id"], "Comum", 10)
 run(bot.mestre_corrigir_raca.callback(gm, a450, "Vampiro", None)); assert "precisa sortear" not in desc(gm)                        # já tem o Rank: nada a sortear
 run(bot.mestre_corrigir_raca.callback(gm, a450, "Humano", None))
@@ -986,7 +987,7 @@ run(bot.minha_ficha.callback(g3, None)); assert campos(g3)["Rank de Magia"].star
 # de ponta a ponta pelos comandos: Vampiro Mundano precisa do Rank; Humano Sábio segue direto pros atributos
 vp = inter(460, "Vampira"); run(bot.personagem_criar.callback(vp, "Vampira Mundana"))
 with dados(90, 50): run(bot.raca_inicial.callback(vp, None)); run(bot.classe_social.callback(vp, None))
-run(bot.classe_escolher.callback(vp, "Mundano", None)); assert "Próximo passo: `/magia_inicial`" in desc(vp)
+run(bot.classe_escolher.callback(vp, "Mundano", None)); assert "Próximo passo: `/magia_inicial`" in txt(vp)
 run(bot.atributos.callback(vp, None, None, None, None, 6, None, None)); assert "Ainda não dá pra usar `/atributos`" in txt(vp) and "▶️ Sortear o Rank de magia: `/magia_inicial`" in txt(vp)
 assert "Sortear o Rank de magia" in tenta(bot.rolar, vp)
 with dados(70): run(bot.magia_inicial.callback(vp, None))
@@ -994,7 +995,7 @@ assert row(460, "Vampira Mundana")["race"] == "Vampiro" and row(460, "Vampira Mu
 run(bot.atributos.callback(vp, None, None, None, None, 6, None, None)); assert titulo(vp).endswith("atualizados") and tenta(bot.rolar, vp) is None
 hs = inter(461, "Humano"); run(bot.personagem_criar.callback(hs, "Humano Sábio"))
 with dados(40, 50): run(bot.raca_inicial.callback(hs, None)); run(bot.classe_social.callback(hs, None))
-run(bot.classe_escolher.callback(hs, "Sábio", None)); assert "Próximo passo: `/atributos`" in desc(hs)
+run(bot.classe_escolher.callback(hs, "Sábio", None)); assert "Próximo passo: `/atributos`" in txt(hs)
 run(bot.atributos.callback(hs, None, None, None, None, 6, None, None)); assert titulo(hs).endswith("atualizados") and tenta(bot.rolar, hs) is None      # pronto sem nunca ter magia
 assert row(461, "Humano Sábio")["magic_rank"] is None
 
@@ -1074,5 +1075,174 @@ h = inter(500, "Ana"); run(bot.historico.callback(h, None, 10, None)); assert tx
 db.log_roll("500", "Ana", "g", "1d20", [9], 9, "depois", um, "Ana Um"); assert db.count_rolls("500") == 1     # e o histórico volta a funcionar
 run(bot.mestre_apagar_historico.callback(gm, alvo(500, "Ana"))); assert "**1 rolagem**" in desc(gm)
 print("P. /mestre apagar_historico OK")
+
+# ============================ Q. cartões com imagem, dados por texto e partida segura ============================
+import subprocess
+db.DB_PATH = os.path.join(tmp, "vitrine.db"); db.init_db()
+def nomes_de_arquivo(i): return [f.filename for f in sent(i)[1].get("files", [])]
+def pronto(uid, jogador, personagem, raca="Humano", classe="Caçador"):
+    """Personagem com a ficha pronta (sorteios, classe e os 6 pontos de atributo)."""
+    i = novo(uid, jogador, personagem); preparar(uid, personagem, raca, classe)
+    db.set_attributes(row(uid, personagem)["id"], {"vontade": 6}); return i
+
+# --- os cartões saem com a imagem anexada (quando existe) e o texto do resultado ---
+k1 = novo(600, "Ana", "Ana Humana")
+with dados(50): run(bot.raca_inicial.callback(k1, None))
+assert titulo(k1) == "Humano" and nomes_de_arquivo(k1) == ["raca-humano.png"] and sent(k1)[1]["embed"].image.url == "attachment://raca-humano.png"
+assert all(isinstance(f, discord.File) for f in sent(k1)[1]["files"]) and not sent(k1)[1].get("ephemeral") and "Raça de Ana Humana" in txt(k1)
+assert "São seres mundanos" in desc(k1) and "Em jogo=" in txt(k1)
+k2 = novo(601, "Beto", "Beto Vampiro")
+with dados(90): run(bot.raca_inicial.callback(k2, None))
+assert titulo(k2) == "Vampiro" and nomes_de_arquivo(k2) == ["raca-vampiro.png"] and "Conde Drácula" in desc(k2)
+k3 = novo(602, "Caio", "Caio Dhampir")
+with dados(97): run(bot.raca_inicial.callback(k3, None))
+assert titulo(k3) == "Dhampir" and "files" not in sent(k3)[1] and sent(k3)[1]["embed"].image.url is None and "Alucard" in desc(k3)   # ainda sem arte: cartão sem imagem
+assert row(602, "Caio Dhampir")["race"] == "Dhampir" and [h["purpose"] for h in historico_de(602)] == ["raca_inicial"]
+for n, esperado_titulo, arquivo in [(50, "3º Estado · Camponeses", "estado-3.png"), (85, "2º Estado · Nobreza", "estado-2.png")]:
+    u = novo(610 + n, f"E{n}", f"Estado {n}")
+    with dados(n): run(bot.classe_social.callback(u, None))
+    assert titulo(u) == esperado_titulo and nomes_de_arquivo(u) == [arquivo] and not sent(u)[1].get("ephemeral")
+u = novo(690, "Clero", "Padre Imagem")
+with dados(95, 70): run(bot.classe_social.callback(u, None))
+assert titulo(u) == "1º Estado · Clero" and nomes_de_arquivo(u) == ["estado-1.png"] and "→ **Alto Clero**" in desc(u) and "Alto Clero=O Alto Clero, de bispos e abades" in txt(u)
+assert [h["purpose"] for h in reversed(historico_de(690))] == ["classe_social", "clero"]
+m100 = inter(691, "Sortudo"); m100.guild = NS(roles=[NS(id=1, name="Jogador", mention="<@&1>"), NS(id=555, name="Mestre", mention="<@&555>")])
+run(bot.personagem_criar.callback(m100, "Raro Imagem"))
+with dados(100): run(bot.classe_social.callback(m100, None))
+assert titulo(m100) == "🎲 Resultado especial" and "files" not in sent(m100)[1] and sent(m100)[1]["content"] == "<@&555>"   # o aviso ao mestre continua
+mg = pronto(692, "Mago", "Mago Vampiro", "Vampiro", "Mundano"); db.clear_definition(row(692, "Mago Vampiro")["id"], "magic_rank")
+with dados(96): run(bot.magia_inicial.callback(mg, None))
+assert titulo(mg) == "Rank Lendário" and "★★★★☆ · 4% de chance" in desc(mg) and "files" not in sent(mg)[1] and row(692, "Mago Vampiro")["magic_rank"] == "Lendário"
+cl = novo(693, "Classe", "Classe Imagem"); preparar(693, "Classe Imagem", "Humano", None)
+run(bot.classe_escolher.callback(cl, "Sábio", None))
+assert titulo(cl) == "Sábio" and sent(cl)[1]["ephemeral"] and "files" not in sent(cl)[1] and "Os sábios buscam o saber" in desc(cl) and "Continue a criação=" in txt(cl)
+# o /rolar usa o cartão novo (destaque de 20 e 1 naturais, só no visual)
+rd = pronto(694, "Dado", "Dado Bonito")
+real_roll = dice.roll
+try:
+    dice.roll = lambda n: dice.RollResult(n, [20], 0, 20)
+    run(bot.rolar.callback(rd, "1d20", "ataque", None))
+    assert titulo(rd) == "🎲 Dado Bonito rolou 1d20" and "🌟 **20 natural!**" in desc(rd) and rodape(rd) == "ataque · jogador: Dado"
+    dice.roll = lambda n: dice.RollResult(n, [1], 5, 20)
+    run(bot.rolar.callback(rd, "1d20+5", None, None)); assert "💀 **1 natural!**" in desc(rd) and "**1 + 5 = 6**" in desc(rd)
+    dice.roll = lambda n: dice.RollResult(n, [7], 0, 20)
+    run(bot.rolar.callback(rd, "1d20", None, None)); assert desc(rd) == "**7 = 7**"
+finally:
+    dice.roll = real_roll
+
+# --- dados escritos direto no chat ---
+def msg(uid, nome, texto, roles=(), bot_=False, dm=False, admin=False):
+    m = MagicMock(); m.author = MagicMock(); m.author.id = uid; m.author.display_name = nome; m.author.bot = bot_
+    m.author.guild_permissions = NS(administrator=admin, manage_guild=False); m.author.roles = [NS(name=r) for r in roles]
+    m.guild = None if dm else NS(id=999); m.content = texto; m.reply = AsyncMock(); return m
+def resposta(m):
+    assert m.reply.call_count == 1, m.reply.call_count
+    a, kw = m.reply.call_args; return (a[0] if a else None), kw
+@contextlib.contextmanager
+def fixo(valor):
+    """Fixa só o número que sai no dado; o modificador e os lados continuam os de verdade."""
+    real = dice.roll
+    def falso(n):
+        r = real(n); return dice.RollResult(n, [valor], r.modifier, r.sides)
+    dice.roll = falso
+    try: yield
+    finally: dice.roll = real
+def historico_texto(uid): return [(h["notation"], h["purpose"], h["character_name"], h["total"]) for h in reversed(db.get_history(str(uid), 50))]
+
+assert bot.DADOS_POR_TEXTO is True and bot.bot.intents.message_content is True            # ligado por padrão, com a leitura de mensagens pedida
+t1 = pronto(700, "Texto", "Texto Ficha")
+with fixo(12):                                                                             # d20 escrito: rola 1d20 e responde na mensagem
+    m = msg(700, "Texto", "d20+5"); run(bot.on_message(m))
+_, kw = resposta(m); e = kw["embed"]
+assert e.title == "🎲 Texto Ficha rolou 1d20+5" and e.description == "**12 + 5 = 17**" and e.footer.text == "jogador: Texto" and kw["mention_author"] is False and "delete_after" not in kw
+assert historico_texto(700) == [("1d20+5", None, "Texto Ficha", 17)]                       # notação normalizada no histórico
+with fixo(4):                                                                              # com "+", o resto vira o motivo
+    m = msg(700, "Texto", "+d20 + 5 ataque com a espada"); run(bot.on_message(m))
+_, kw = resposta(m); assert kw["embed"].title == "🎲 Texto Ficha rolou 1d20+5" and kw["embed"].footer.text == "ataque com a espada · jogador: Texto"
+assert historico_texto(700)[-1] == ("1d20+5", "ataque com a espada", "Texto Ficha", 9)
+h = inter(700, "Texto"); run(bot.historico.callback(h, None, 10, None)); assert "1d20+5 = 9 (ataque com a espada)" in txt(h) and "1d20+5 = 17" in txt(h)   # aparece no /historico
+with dados():                                                                              # conversa normal não rola (dados() vazio: rolar seria erro)
+    for papo in ("d20 é o melhor dado", "adoro d20", "vou rolar d20 agora", "bom dia", "d20+5 ataque", "https://x.com/d20", "/rolar d20"):
+        m = msg(700, "Texto", papo); run(bot.on_message(m)); assert m.reply.call_count == 0, papo
+    for ignorado in (msg(700, "Bot", "d20", bot_=True), msg(700, "Texto", "d20", dm=True)):  # bots e mensagens diretas
+        run(bot.on_message(ignorado)); assert ignorado.reply.call_count == 0
+assert len(historico_texto(700)) == 2                                                     # nada disso foi pro histórico
+# dado inválido: só quem pediu com "+" recebe resposta (o dice.roll de verdade recusa antes de rolar qualquer coisa)
+with contextlib.nullcontext():
+    m = msg(700, "Texto", "+d1"); run(bot.on_message(m)); t, kw = resposta(m)
+    assert t.startswith("⚠️ ") and "entre 2 e 1000 lados" in t and kw["delete_after"] == 15 and kw["mention_author"] is False
+    m = msg(700, "Texto", "+101d6 dano"); run(bot.on_message(m)); t, kw = resposta(m); assert "entre 1 e 100" in t
+    for calado in ("d1", "0d20", "d5000"):
+        m = msg(700, "Texto", calado); run(bot.on_message(m)); assert m.reply.call_count == 0, calado
+assert len(historico_texto(700)) == 2
+# destaque de 20 natural também no texto
+try:
+    dice.roll = lambda n: dice.RollResult(n, [20], 0, 20)
+    m = msg(700, "Texto", "d20"); run(bot.on_message(m)); assert "🌟 **20 natural!**" in resposta(m)[1]["embed"].description
+finally:
+    dice.roll = real_roll
+# a mesma regra de ficha pronta do /rolar: sem personagem ou com a ficha incompleta, bloqueia com aviso curto que some sozinho
+with dados():
+    m = msg(701, "Sem Nada", "d20"); run(bot.on_message(m)); t, kw = resposta(m)
+    assert t.startswith("🔒 Você ainda não tem personagem.") and "/personagem criar" in t and kw["delete_after"] == 20 and "embed" not in kw
+    novo(702, "Meio", "Meio Pronto")
+    m = msg(702, "Meio", "+d20+5 ataque"); run(bot.on_message(m)); t, kw = resposta(m)
+    assert t == "🔒 A ficha de **Meio Pronto** ainda não está pronta. O passo a passo está em `/ajuda`." and kw["delete_after"] == 20
+    assert db.count_rolls("701") == 0 and db.count_rolls("702") == 0
+# os mestres passam direto, mesmo sem personagem, e a rolagem sai no nome deles
+with dados(15):
+    m = msg(703, "Mestre Texto", "d20", roles=["Mestre"]); run(bot.on_message(m))
+_, kw = resposta(m); assert kw["embed"].title == "🎲 Mestre Texto rolou 1d20" and kw["embed"].footer.text is None
+assert historico_texto(703) == [("1d20", None, None, 15)]
+with dados(3):
+    m = msg(704, "Admin", "d6", admin=True); run(bot.on_message(m))
+assert resposta(m)[1]["embed"].description == "**3 = 3**"
+# chavinha da ordem desligada: quem ainda não tem ficha pronta também rola (e sem personagem sai no nome do jogador)
+bot.ORDEM_DA_CRIACAO = False
+try:
+    with dados(8):
+        m = msg(701, "Sem Nada", "d20"); run(bot.on_message(m))
+    assert resposta(m)[1]["embed"].title == "🎲 Sem Nada rolou 1d20" and historico_texto(701) == [("1d20", None, None, 8)]
+finally:
+    bot.ORDEM_DA_CRIACAO = True
+# o recurso desligado: o bot ignora tudo (e a ajuda deixa de mencionar)
+bot.DADOS_POR_TEXTO = False
+try:
+    with dados():
+        m = msg(700, "Texto", "d20"); run(bot.on_message(m)); assert m.reply.call_count == 0
+finally:
+    bot.DADOS_POR_TEXTO = True
+
+# --- a ajuda ensina os dados por texto (só quando o recurso está ligado) ---
+assert ajuda._dados_por_texto is True and "escreve o dado direto no chat" in ajuda.detalhe("rolar")["descricao"]
+assert "nem precisa de barra" in ajuda.visao_geral(None, False, False)["descricao"]
+def saida(env_extra):
+    codigo = "import bot, ajuda; print(bot.DADOS_POR_TEXTO, bot.intents.message_content, ajuda._dados_por_texto)"
+    r = subprocess.run([sys.executable, "-c", codigo], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       env={**os.environ, **env_extra}, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr; return r.stdout.strip().splitlines()[-1]
+assert saida({}) == "True True True" and saida({"DADOS_POR_TEXTO": "0"}) == "False False False" and saida({"DADOS_POR_TEXTO": "sim"}) == "True True True"
+
+# --- partida segura: sem o "Message Content Intent" no Portal, o bot reinicia sem os dados por texto em vez de cair ---
+chamadas = {}
+orig = (bot.bot.run, os.execv, bot.TOKEN, db.init_db)
+def run_sem_intent(token): chamadas["token"] = token; raise discord.PrivilegedIntentsRequired(None)
+bot.bot.run = run_sem_intent; os.execv = lambda exe, args: chamadas.update(execv=(exe, args)); bot.TOKEN = "token-falso"; db.init_db = lambda *a, **k: chamadas.update(init=True)
+try:
+    bot.main()
+    assert chamadas["init"] and chamadas["token"] == "token-falso" and chamadas["execv"][0] == sys.executable
+    assert chamadas["execv"][1][0] == sys.executable and os.environ["DADOS_POR_TEXTO"] == "0"     # o processo novo nasce com o recurso desligado
+    bot.DADOS_POR_TEXTO = False; chamadas.pop("execv")                                            # já desligado e ainda recusado: não reinicia em loop
+    try: bot.main(); raise SystemExit("deveria propagar o erro")
+    except discord.PrivilegedIntentsRequired: pass
+    assert "execv" not in chamadas
+    bot.DADOS_POR_TEXTO = True; bot.bot.run = lambda token: chamadas.update(rodou=token)          # sem problema nenhum: só roda
+    bot.main(); assert chamadas["rodou"] == "token-falso" and "execv" not in chamadas
+    bot.TOKEN = None
+    try: bot.main(); raise SystemExit("deveria exigir o token")
+    except SystemExit as e: assert "DISCORD_TOKEN" in str(e)
+finally:
+    bot.bot.run, os.execv, bot.TOKEN, db.init_db = orig; bot.DADOS_POR_TEXTO = True; os.environ.pop("DADOS_POR_TEXTO", None)
+print("Q. cartões, dados por texto e partida segura OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

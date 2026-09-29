@@ -2,6 +2,7 @@
 
 Jogadores:
   /rolar dado:1d20+3 [motivo] [personagem]   -> rola e salva no histórico
+  d20+5 (direto no chat, sem barra)          -> também rola e salva; +d20+5 ataque usa o texto como motivo
   /historico [usuario] [limite] [personagem] -> últimas rolagens de alguém (ou de um personagem)
   /personagem criar | usar | listar | excluir -> gerencia os personagens (limite de vagas por jogador)
   /raca_inicial | /classe_social | /magia_inicial -> sorteios de criação, uma vez por personagem (a magia só pra quem tem)
@@ -15,7 +16,7 @@ Jogadores:
   /ajuda [comando]                           -> ensina a usar o bot e explica cada comando (também /help)
 
 Ordem da criação: /personagem criar, /raca_inicial e /classe_social (em qualquer ordem), /classe, /magia_inicial
-(só pra Vampiro e pras classes Feiticeiros e Mestre de Forja) e /atributos.
+(só pra Vampiro, Dhampir e pras classes Feiticeiros e Mestre de Forja) e /atributos.
 Só com a ficha pronta abrem /rolar, /historico, /extrato_xp e /rank (os mestres passam direto).
 
 Mestres:
@@ -31,6 +32,7 @@ Setup rápido:
 """
 
 import os
+import sys
 import tempfile
 import traceback
 from datetime import datetime, timezone
@@ -44,6 +46,7 @@ import ajuda
 import db
 import dice
 import rules
+import vitrine
 
 load_dotenv()
 TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -68,6 +71,12 @@ def _flag_ligada(nome: str) -> bool:
 # sem precisar de deploy. Desligada, o bot não bloqueia nenhum comando por causa da ficha.
 ORDEM_DA_CRIACAO = _flag_ligada("ORDEM_DA_CRIACAO")
 
+# Dados escritos direto no chat (d20+5), sem barra. Precisa que o "Message Content Intent" esteja ligado no
+# Portal do Desenvolvedor (Bot > Privileged Gateway Intents). Se não estiver, o bot detecta na partida, avisa
+# no log e sobe sem essa parte (veja main()). DADOS_POR_TEXTO=0 desliga de propósito.
+DADOS_POR_TEXTO = _flag_ligada("DADOS_POR_TEXTO")
+ajuda.ativar_dados_por_texto(DADOS_POR_TEXTO)
+
 
 class Arvore(app_commands.CommandTree):
     """Antes de cada comando, guarda o nome atual do jogador (o rank usa isso pra mostrar o dono)."""
@@ -81,6 +90,7 @@ class Arvore(app_commands.CommandTree):
 
 
 intents = discord.Intents.default()
+intents.message_content = DADOS_POR_TEXTO
 # Ninguém consegue fazer o bot marcar @everyone ou cargos através de um nome de personagem.
 bot = commands.Bot(
     command_prefix="!", intents=intents, tree_cls=Arvore,
@@ -98,6 +108,7 @@ async def on_ready():
         await bot.tree.sync()
         _comandos_sincronizados = True
     print(f"Conectado como {bot.user}. Banco: {db.DB_PATH} (origem: {db.DB_SOURCE})", flush=True)
+    print(f"Dados por texto (d20+5 no chat): {'ligado' if DADOS_POR_TEXTO else 'desligado'}", flush=True)
     if not db.storage_is_persistent():
         print(
             "AVISO: o banco está na pasta do bot e some a cada redeploy. "
@@ -110,13 +121,16 @@ async def on_ready():
 # Erros e permissão de mestre
 # ---------------------------------------------------------------------------
 
-def _eh_mestre(interaction: discord.Interaction) -> bool:
-    membro = interaction.user
+def _membro_eh_mestre(membro) -> bool:
     perms = getattr(membro, "guild_permissions", None)
     if perms and (perms.administrator or perms.manage_guild):
         return True
     cargo = MESTRE_ROLE.casefold()
     return any(r.name.casefold() == cargo for r in getattr(membro, "roles", []))
+
+
+def _eh_mestre(interaction: discord.Interaction) -> bool:
+    return _membro_eh_mestre(interaction.user)
 
 
 def _cargo_mestre(guild: discord.Guild | None):
@@ -272,7 +286,7 @@ def _texto_definicao(personagem, campo: str, comando: str) -> str:
     return f"{valor}\n({origem})"
 
 
-_SEM_MAGIA = "só Vampiros, Feiticeiros e Mestres de Forja têm magia"
+_SEM_MAGIA = "só Vampiros, Dhampirs, Feiticeiros e Mestres de Forja têm magia"
 
 
 def _texto_magia(personagem) -> str:
@@ -483,19 +497,60 @@ async def rolar(interaction: discord.Interaction, dado: str, motivo: str | None 
     )
 
     quem = char["name"] if char else interaction.user.display_name
-    embed = discord.Embed(
-        title=f"🎲 {quem} rolou {dado}",
-        description=f"**{resultado.describe()} = {resultado.total}**",
-        color=discord.Color.dark_red(),
+    cartao = vitrine.cartao_rolagem(quem, dado, resultado, motivo, interaction.user.display_name, bool(char))
+    await interaction.response.send_message(**cartao.kwargs())
+
+
+def _bloqueio_curto(uid: str, eh_mestre: bool) -> str | None:
+    """Versão curta do bloqueio de ficha, pra responder no chat sem poluir o canal."""
+    if not ORDEM_DA_CRIACAO or eh_mestre:
+        return None
+    char = db.get_active_character(uid)
+    if char is None:
+        return "🔒 Você ainda não tem personagem. Começa por `/personagem criar`; o passo a passo está em `/ajuda`."
+    if rules.creation_status(char)["pronta"]:
+        return None
+    return f"🔒 A ficha de **{char['name']}** ainda não está pronta. O passo a passo está em `/ajuda`."
+
+
+async def _rolar_por_texto(message: discord.Message, pedido: dice.PedidoDeDado):
+    uid = str(message.author.id)
+    bloqueio = _bloqueio_curto(uid, _membro_eh_mestre(message.author))
+    if bloqueio:
+        await message.reply(bloqueio, mention_author=False, delete_after=20)
+        return
+    try:
+        resultado = dice.roll(pedido.notacao)
+    except dice.DiceError as e:
+        if pedido.explicito:  # só responde erro a quem pediu com o "+"; conversa normal passa batido
+            await message.reply(f"⚠️ {e}", mention_author=False, delete_after=15)
+        return
+
+    char = db.get_active_character(uid)  # pode ser None: rolar sem personagem continua valendo
+    jogador = str(message.author.display_name)
+    db.log_roll(
+        user_id=uid,
+        username=jogador,
+        guild_id=str(message.guild.id) if message.guild else None,
+        notation=pedido.notacao,
+        rolls=resultado.rolls,
+        total=resultado.total,
+        purpose=pedido.motivo,
+        character_id=char["id"] if char else None,
+        character_name=char["name"] if char else None,
     )
-    rodape = []
-    if motivo:
-        rodape.append(motivo)
-    if char:
-        rodape.append(f"jogador: {interaction.user.display_name}")
-    if rodape:
-        embed.set_footer(text=" · ".join(rodape))
-    await interaction.response.send_message(embed=embed)
+    quem = char["name"] if char else jogador
+    cartao = vitrine.cartao_rolagem(quem, pedido.notacao, resultado, pedido.motivo, jogador, bool(char))
+    await message.reply(mention_author=False, **cartao.kwargs())
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    if not DADOS_POR_TEXTO or message.author.bot or message.guild is None:
+        return
+    pedido = dice.parse_texto(message.content)
+    if pedido is not None:
+        await _rolar_por_texto(message, pedido)
 
 
 @bot.tree.command(name="historico", description="Mostra as últimas rolagens de um usuário (ou de um personagem dele).")
@@ -828,16 +883,15 @@ async def _sortear_definicao(interaction: discord.Interaction, campo: str, perso
     )
     cfg["salvar"](char["id"], definido, valor)
 
-    embed = discord.Embed(
-        title=f"{cfg['emoji']} {cfg['titulo']} de {char['name']}",
-        description=f"1d100 = **{valor}**\n{cfg['resultado']}: **{definido}**",
-        color=cfg["cor"],
-    )
-    embed.set_footer(text=f"jogador: {interaction.user.display_name}")
-    await interaction.response.send_message(embed=embed)
+    jogador = interaction.user.display_name
+    if campo == "race":
+        cartao = vitrine.cartao_raca(char["name"], definido, valor, jogador)
+    else:
+        cartao = vitrine.cartao_magia(char["name"], definido, valor, jogador)
+    await interaction.response.send_message(**cartao.kwargs())
 
 
-@bot.tree.command(name="magia_inicial", description="Rola 1d100 e define o Rank de magia (só Vampiros, Feiticeiros e Mestres de Forja).")
+@bot.tree.command(name="magia_inicial", description="Rola 1d100 e define o Rank de magia (só Vampiros, Dhampirs, Feiticeiros e Mestres de Forja).")
 @app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 async def magia_inicial(interaction: discord.Interaction, personagem: str | None = None):
@@ -897,21 +951,13 @@ async def classe_social(interaction: discord.Interaction, personagem: str | None
         )
     db.set_social_status(char["id"], estado, r1.total, clero, r2.total if r2 else None)
 
-    embed = discord.Embed(title=f"⚜️ Classe Social de {char['name']}", color=discord.Color.gold())
-    linhas = [f"1d100 = **{r1.total}**"]
     ping = {}
     if estado == dice.SOCIAL_CLASS_MASTER:
-        linhas.append("Resultado especial! Quem decide o Estado desse personagem é o mestre. Fala com um mestre.")
         cargo = _cargo_mestre(interaction.guild)
         if cargo:
             ping = {"content": cargo.mention, "allowed_mentions": discord.AllowedMentions(roles=[cargo])}
-    else:
-        linhas.append(f"Estado: **{rules.ESTADO_LABELS[estado]}**")
-        if clero:
-            linhas.append(f"Outro 1d100 = **{r2.total}**\nClero: **{clero}**")
-    embed.description = "\n".join(linhas)
-    embed.set_footer(text=f"jogador: {nome_jogador}")
-    await interaction.response.send_message(embed=embed, **ping)
+    cartao = vitrine.cartao_estado(char["name"], estado, r1.total, nome_jogador, clero, r2.total if r2 else None)
+    await interaction.response.send_message(**ping, **cartao.kwargs())
 
 
 # ---------------------------------------------------------------------------
@@ -941,7 +987,6 @@ async def classe_escolher(interaction: discord.Interaction, classe: str, persona
         await interaction.response.send_message(ajuda.texto_falta_para("classe", status), ephemeral=True)
         return
     db.set_class(char["id"], classe)
-    b = rules.CLASSES[classe]
     novo = db.get_character_by_id(char["id"])
     status_novo = rules.creation_status(novo)
     if status_novo["sem_magia"]:
@@ -951,16 +996,8 @@ async def classe_escolher(interaction: discord.Interaction, classe: str, persona
     else:
         magia = ""
     proximo = ajuda.proximo_passo(status_novo) if ORDEM_DA_CRIACAO else "Agora distribua os pontos de atributo com `/atributos`."
-    embed = discord.Embed(
-        title=f"🎓 Classe de {char['name']}: {classe}",
-        description=(
-            f"Vantagem nas perícias: {rules.CLASS_SKILLS[classe]}\n"
-            f"Bônus: Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}\n\n"
-            f"{magia}{proximo}"
-        ),
-        color=discord.Color.dark_green(),
-    )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    cartao = vitrine.cartao_classe(char["name"], classe, f"{magia}{proximo}", interaction.user.display_name)
+    await interaction.response.send_message(**cartao.kwargs(), ephemeral=True)
 
 
 _DESCRICAO_ATRIBUTO = {a: f"Novo valor de {rules.ATTRIBUTE_LABELS[a]}" for a in rules.ATTRIBUTES}
@@ -1975,8 +2012,26 @@ async def mestre_exportar(interaction: discord.Interaction):
 bot.tree.add_command(mestre_grupo)
 
 
-if __name__ == "__main__":
+def main():
     if not TOKEN:
         raise SystemExit("Defina DISCORD_TOKEN no arquivo .env antes de rodar o bot.")
     db.init_db()  # antes de conectar: se o caminho do banco estiver errado, o erro aparece na hora
-    bot.run(TOKEN)
+    try:
+        bot.run(TOKEN)
+    except discord.PrivilegedIntentsRequired:
+        if not DADOS_POR_TEXTO:
+            raise
+        # O Message Content Intent não está ligado no Portal do Desenvolvedor. Em vez de ficar fora do ar,
+        # o bot reinicia sem os dados por texto (os comandos de barra seguem funcionando).
+        print(
+            "AVISO: o Discord recusou a leitura de mensagens. Pra usar dados por texto (d20+5), ligue o "
+            "'Message Content Intent' em discord.com/developers > seu app > Bot > Privileged Gateway Intents "
+            "e reinicie o bot. Reiniciando agora SEM os dados por texto.",
+            flush=True,
+        )
+        os.environ["DADOS_POR_TEXTO"] = "0"
+        os.execv(sys.executable, [sys.executable, *sys.argv])
+
+
+if __name__ == "__main__":
+    main()
