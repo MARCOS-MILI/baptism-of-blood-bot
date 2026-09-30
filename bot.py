@@ -315,7 +315,7 @@ def _raca_curta(personagem) -> str:
 def _texto_habilidade(personagem) -> str:
     """A linha da habilidade de classe na ficha: o nome, ou o aviso de que falta escolher entre as duas."""
     habilidade = rules.class_ability_of(personagem)
-    return f"✨ {habilidade}" if habilidade else "✨ escolha com `/habilidade`"
+    return f"✨ {habilidade}" if habilidade else "✨ falta escolher (botão **Habilidade** ou `/habilidade`)"
 
 
 def _texto_definicao(personagem, campo: str, comando: str, para_mestre: bool = False) -> str:
@@ -1128,14 +1128,28 @@ async def _sortear_estado(interaction, personagem_nome: str | None, repetir: boo
 # Classe e atributos (a ficha automática)
 # ---------------------------------------------------------------------------
 
-@bot.tree.command(name="classe", description="Escolhe a classe do seu personagem (vale uma vez; só um mestre muda depois).")
+async def _autocomplete_habilidade(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """As habilidades que dá pra escolher: as da classe que a pessoa já digitou no /classe, ou as do personagem
+    em uso; se nenhuma das duas tem escolha, todas as que têm."""
+    digitada = getattr(interaction.namespace, "classe", None)
+    ativo = db.get_active_character(_dono_do_autocomplete(interaction))
+    classe = digitada if digitada in rules.CLASSES else (ativo["class_name"] if ativo else None)
+    opcoes = rules.class_ability_options(classe)
+    if not rules.class_needs_ability_choice(classe):
+        opcoes = tuple(o for c in rules.CLASS_ABILITIES if rules.class_needs_ability_choice(c) for o in rules.CLASS_ABILITIES[c])
+    busca = current.casefold()
+    return [app_commands.Choice(name=o, value=o) for o in opcoes if busca in o.casefold()][:25]
+
+
+@bot.tree.command(name="classe", description="Escolhe a classe (e a habilidade, no Clérigo e no Ladrão). Vale uma vez.")
 @app_commands.describe(
     classe="A classe do personagem",
+    habilidade="Só Clérigo e Ladrão: qual das duas habilidades você leva (ou escolhe nos botões depois)",
     personagem="Opcional: qual personagem seu (padrão: o que você está usando)",
 )
 @app_commands.choices(classe=[app_commands.Choice(name=n, value=n) for n in rules.CLASSES])
-@app_commands.autocomplete(personagem=_autocomplete_personagem)
-async def classe_escolher(interaction: discord.Interaction, classe: str, personagem: str | None = None):
+@app_commands.autocomplete(habilidade=_autocomplete_habilidade, personagem=_autocomplete_personagem)
+async def classe_escolher(interaction: discord.Interaction, classe: str, habilidade: str | None = None, personagem: str | None = None):
     char, erro = _resolver(str(interaction.user.id), personagem)
     if erro:
         await interaction.response.send_message(erro, ephemeral=True)
@@ -1150,7 +1164,25 @@ async def classe_escolher(interaction: discord.Interaction, classe: str, persona
     if ORDEM_DA_CRIACAO and rules.creation_missing_before("classe", status):
         await interaction.response.send_message(ajuda.texto_falta_para("classe", status), ephemeral=True)
         return
+    escolhida = None
+    if habilidade:  # confere antes de gravar qualquer coisa: a classe e a habilidade entram juntas, ou nenhuma
+        opcoes = rules.class_ability_options(classe)
+        if not rules.class_needs_ability_choice(classe):
+            await interaction.response.send_message(
+                f"A classe **{classe}** só tem uma habilidade (**{opcoes[0]}**), então é só escolher a classe, sem `habilidade`.",
+                ephemeral=True,
+            )
+            return
+        escolhida = next((o for o in opcoes if o.casefold() == habilidade.strip().casefold()), None)
+        if escolhida is None:
+            await interaction.response.send_message(
+                f"**{habilidade}** não é uma habilidade de **{classe}**. As opções são: {' ou '.join(f'**{o}**' for o in opcoes)}.",
+                ephemeral=True,
+            )
+            return
     db.set_class(char["id"], classe)
+    if escolhida:
+        db.set_class_ability(char["id"], escolhida)
     novo = db.get_character_by_id(char["id"])
     status_novo = rules.creation_status(novo)
     if status_novo["sem_magia"]:
@@ -1160,19 +1192,18 @@ async def classe_escolher(interaction: discord.Interaction, classe: str, persona
     else:
         magia = ""
     proximo = ajuda.proximo_passo(status_novo) if ORDEM_DA_CRIACAO else "Agora distribua os pontos de atributo com `/atributos`."
-    habilidade = "Escolha a sua habilidade de classe com `/habilidade`. " if rules.class_needs_ability_choice(classe) else ""
-    cartao = vitrine.cartao_classe(char["name"], classe, f"{habilidade}{magia}{proximo}", interaction.user.display_name)
-    await interaction.response.send_message(**cartao.kwargs(), ephemeral=True)
-
-
-async def _autocomplete_habilidade(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    """As habilidades que o personagem em uso pode escolher (ou todas as que têm escolha, se ainda não tem classe)."""
-    ativo = db.get_active_character(_dono_do_autocomplete(interaction))
-    opcoes = rules.class_ability_options(ativo["class_name"]) if ativo and ativo["class_name"] else ()
-    if not rules.class_needs_ability_choice(ativo["class_name"] if ativo else None):
-        opcoes = tuple(o for c in rules.CLASS_ABILITIES if rules.class_needs_ability_choice(c) for o in rules.CLASS_ABILITIES[c])
-    busca = current.casefold()
-    return [app_commands.Choice(name=o, value=o) for o in opcoes if busca in o.casefold()][:25]
+    pendente = paineis.habilidade_pendente(novo)
+    aviso = "Escolhe a sua habilidade de classe nos botões abaixo. " if pendente else ""
+    cartao = vitrine.cartao_classe(
+        char["name"], classe, f"{aviso}{magia}{proximo}", interaction.user.display_name,
+        rules.class_ability_of(novo), com_botoes=pendente,
+    )
+    extras = {}
+    if pendente:  # a classe foi escolhida sem a habilidade: já oferece os botões, sem precisar de outro comando
+        extras["view"] = paineis.EscolhaDeHabilidade(interaction.user.id, char["id"], interaction.user.display_name, com_voltar=False)
+    await interaction.response.send_message(**cartao.kwargs(), ephemeral=True, **extras)
+    if "view" in extras and not isinstance(interaction, paineis.Coletor):   # o Coletor (caminho do painel) não tem mensagem própria
+        extras["view"].origem = interaction
 
 
 @bot.tree.command(name="habilidade", description="Mostra a habilidade da sua classe, ou escolhe uma das duas (Clérigo e Ladrão).")
@@ -1214,8 +1245,16 @@ async def habilidade(interaction: discord.Interaction, escolha: str | None = Non
             return
         db.set_class_ability(char["id"], alvo)
         char = db.get_character_by_id(char["id"])
-    cartao = vitrine.cartao_habilidade(char["name"], classe, rules.class_ability_of(char), interaction.user.display_name)
-    await interaction.response.send_message(**cartao.kwargs(), ephemeral=True)
+    pendente = paineis.habilidade_pendente(char)
+    cartao = vitrine.cartao_habilidade(
+        char["name"], classe, rules.class_ability_of(char), interaction.user.display_name, "botao" if pendente else "comando",
+    )
+    extras = {}
+    if pendente:  # falta escolher: em vez de mandar digitar outro comando, já mostra os botões
+        extras["view"] = paineis.EscolhaDeHabilidade(interaction.user.id, char["id"], interaction.user.display_name, com_voltar=False)
+    await interaction.response.send_message(**cartao.kwargs(), ephemeral=True, **extras)
+    if "view" in extras and not isinstance(interaction, paineis.Coletor):   # o Coletor (caminho do painel) não tem mensagem própria
+        extras["view"].origem = interaction
 
 
 _DESCRICAO_ATRIBUTO = {a: f"Novo valor de {rules.ATTRIBUTE_LABELS[a]}" for a in rules.ATTRIBUTES}
@@ -2443,7 +2482,7 @@ async def _painel_sortear(coletor, passo: str, nome: str, repetir: bool = False)
 paineis.registrar(paineis.Ganchos(
     embed_ficha=_embed_ficha,
     sortear=_painel_sortear,
-    escolher_classe=lambda coletor, classe, nome: classe_escolher.callback(coletor, classe, nome),
+    escolher_classe=lambda coletor, classe, nome, habilidade=None: classe_escolher.callback(coletor, classe, habilidade, nome),
     atributos=lambda coletor, valores, nome: atributos.callback(coletor, personagem=nome, **valores),
     rolar=_rolar_do_painel,
     niveis=lambda coletor, nome: niveis.callback(coletor, nome),

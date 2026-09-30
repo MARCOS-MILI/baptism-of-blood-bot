@@ -36,7 +36,7 @@ MSG_DE_OUTRA_PESSOA = "Esse painel é de outra pessoa. Abre o seu com `/minha_fi
 class Ganchos:
     embed_ficha: Callable       # (personagem, jogador) -> discord.Embed
     sortear: Callable           # async (coletor, passo, nome_do_personagem, repetir=False): 'raca', 'estado' ou 'magia'
-    escolher_classe: Callable   # async (coletor, classe, nome_do_personagem)
+    escolher_classe: Callable   # async (coletor, classe, nome_do_personagem, habilidade=None)
     atributos: Callable         # async (coletor, {atributo: valor}, nome_do_personagem)
     rolar: Callable             # async (coletor, notacao, motivo)
     niveis: Callable            # async (coletor, nome_do_personagem)
@@ -172,6 +172,11 @@ def estado_do_passo(status: dict, passo: str, ordem_ligada: bool, personagem=Non
     return "livre"
 
 
+def habilidade_pendente(personagem) -> bool:
+    """A classe oferece duas habilidades e o jogador ainda não escolheu nenhuma."""
+    return rules.class_needs_ability_choice(personagem["class_name"]) and rules.class_ability_of(personagem) is None
+
+
 def pontos_livres(personagem) -> int:
     return rules.attribute_points_total(personagem["level"]) - sum(db.attributes_of(personagem).values())
 
@@ -199,6 +204,9 @@ class PainelFicha(_Painel):
                 restam = rules.attempts_left(char, _CAMPO_DO_PASSO[passo])
                 botao = discord.ui.Button(label=f"{rotulo} ({restam})", emoji="🔄", style=discord.ButtonStyle.secondary, row=0)
                 botao.callback = functools.partial(self._clicou_passo, passo)
+            elif situacao == "feito" and passo == "classe" and habilidade_pendente(char):
+                botao = discord.ui.Button(label="Habilidade", emoji="✨", style=discord.ButtonStyle.primary, row=0)
+                botao.callback = self._abrir_habilidade
             elif situacao == "feito":
                 botao = discord.ui.Button(label=rotulo, emoji="✅", style=discord.ButtonStyle.success, disabled=True, row=0)
             elif situacao == "nao_se_aplica":
@@ -290,6 +298,12 @@ class PainelFicha(_Painel):
         else:
             await GANCHOS.atributos(coletor, mudou, char["name"])
         await self._atualizar(interaction, coletor)
+
+    # ---- habilidade de classe ----
+    async def _abrir_habilidade(self, interaction: discord.Interaction) -> None:
+        escolha = EscolhaDeHabilidade(self.dono_id, self.personagem_id, self.jogador, com_voltar=True)
+        self.passar_pra(escolha)
+        await interaction.response.edit_message(embed=escolha.embed(), view=escolha)
 
     # ---- Disciplinas ----
     async def _abrir_disciplinas(self, interaction: discord.Interaction) -> None:
@@ -419,10 +433,14 @@ class EscolhaDeClasse(_Painel):
         self.personagem_id = personagem_id
         self.jogador = jogador
         self.escolhida: str | None = None
+        self.habilidade: str | None = None   # só nas classes com duas habilidades (Clérigo e Ladrão)
         self._montar()
 
     def personagem(self):
         return db.get_character_by_id(self.personagem_id)
+
+    def _precisa_de_habilidade(self) -> bool:
+        return self.escolhida is not None and rules.class_needs_ability_choice(self.escolhida)
 
     def _montar(self) -> None:
         self.clear_items()
@@ -433,9 +451,15 @@ class EscolhaDeClasse(_Painel):
         seletor = discord.ui.Select(placeholder="Escolha a classe", options=opcoes, row=0)
         seletor.callback = functools.partial(self._escolheu, seletor)
         self.add_item(seletor)
-        confirmar = discord.ui.Button(label="Confirmar classe", emoji="✅", style=discord.ButtonStyle.success, disabled=self.escolhida is None, row=1)
+        if self._precisa_de_habilidade():
+            _botoes_de_habilidade(self, rules.class_ability_options(self.escolhida), self.habilidade, self._escolheu_habilidade, row=1)
+        pronto = self.escolhida is not None and (not self._precisa_de_habilidade() or self.habilidade is not None)
+        confirmar = discord.ui.Button(
+            label="Confirmar classe e habilidade" if self._precisa_de_habilidade() else "Confirmar classe",
+            emoji="✅", style=discord.ButtonStyle.success, disabled=not pronto, row=2,
+        )
         confirmar.callback = self._confirmar
-        voltar = discord.ui.Button(label="Voltar", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
+        voltar = discord.ui.Button(label="Voltar", emoji="⬅️", style=discord.ButtonStyle.secondary, row=2)
         voltar.callback = self._voltar
         self.add_item(confirmar)
         self.add_item(voltar)
@@ -445,24 +469,41 @@ class EscolhaDeClasse(_Painel):
         if self.escolhida is None:
             embed = discord.Embed(
                 title=f"🎓 Escolha a classe de {nome}",
-                description="Vale **uma vez só**: depois de confirmar, só um mestre muda. Escolhe no menu pra ver a classe antes.",
+                description=(
+                "Vale **uma vez só**: depois de confirmar, só um mestre muda. Escolhe no menu pra ver a classe antes. "
+                "O Clérigo e o Ladrão têm duas habilidades: você escolhe a sua nos botões, junto com a classe."
+            ),
                 color=discord.Color.dark_green(),
             )
             for classe, b in rules.CLASSES.items():
+                habilidades = " ou ".join(rules.class_ability_options(classe))
                 embed.add_field(
                     name=classe,
-                    value=f"{rules.CLASS_SKILLS[classe]}\nVida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}",
+                    value=(
+                        f"{rules.CLASS_SKILLS[classe]}\nVida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}"
+                        f"\n✨ {habilidades}"
+                    ),
                     inline=False,
                 )
             return embed
-        return vitrine.previa_classe(nome, self.escolhida)
+        return vitrine.previa_classe(nome, self.escolhida, self.habilidade)
 
     async def _escolheu(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
         escolha = seletor.values[0]
         if escolha not in rules.CLASSES:
             await interaction.response.send_message("Não conheço essa classe. Escolhe uma do menu.", ephemeral=True)
             return
+        if escolha != self.escolhida:
+            self.habilidade = None   # outra classe, outras habilidades: a marcação anterior não vale
         self.escolhida = escolha
+        self._montar()
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+    async def _escolheu_habilidade(self, nome: str, interaction: discord.Interaction) -> None:
+        if not self._precisa_de_habilidade() or nome not in rules.class_ability_options(self.escolhida):
+            await interaction.response.send_message("Essa habilidade não é da classe escolhida. Escolhe uma dos botões.", ephemeral=True)
+            return
+        self.habilidade = nome
         self._montar()
         await interaction.response.edit_message(embed=self.embed(), view=self)
 
@@ -472,8 +513,99 @@ class EscolhaDeClasse(_Painel):
         await interaction.response.edit_message(embed=GANCHOS.embed_ficha(painel.personagem(), self.jogador), view=painel)
 
     async def _confirmar(self, interaction: discord.Interaction) -> None:
+        if self._precisa_de_habilidade() and self.habilidade is None:   # o botão já vem desligado, mas confere
+            await interaction.response.send_message("Escolhe a habilidade nos botões antes de confirmar.", ephemeral=True)
+            return
         coletor = Coletor(interaction)
-        await GANCHOS.escolher_classe(coletor, self.escolhida, self.personagem()["name"])
+        await GANCHOS.escolher_classe(coletor, self.escolhida, self.personagem()["name"], self.habilidade)
+        painel = PainelFicha(self.dono_id, self.personagem_id, self.jogador)
+        self.passar_pra(painel)
+        await entregar(interaction, coletor, GANCHOS.embed_ficha(painel.personagem(), self.jogador), painel)
+
+
+def _botoes_de_habilidade(view: discord.ui.View, opcoes, escolhida: str | None, acao, row: int) -> None:
+    """Um botão por habilidade (o escolhido fica verde)."""
+    for nome in opcoes:
+        botao = discord.ui.Button(
+            label=nome, emoji="✨", row=row,
+            style=discord.ButtonStyle.success if nome == escolhida else discord.ButtonStyle.primary,
+        )
+        botao.callback = functools.partial(acao, nome)
+        view.add_item(botao)
+
+
+class EscolhaDeHabilidade(_Painel):
+    """Escolher uma das duas habilidades da classe (Clérigo e Ladrão) com botões: marca uma e confirma, porque
+    vale uma vez só. Usada na ficha (com Voltar) e depois do /classe e do /habilidade (sem Voltar)."""
+
+    def __init__(self, dono_id: int, personagem_id: int, jogador: str, com_voltar: bool = True):
+        super().__init__(dono_id)
+        self.personagem_id = personagem_id
+        self.jogador = jogador
+        self.com_voltar = com_voltar
+        self.escolhida: str | None = None
+        self._montar()
+
+    def personagem(self):
+        return db.get_character_by_id(self.personagem_id)
+
+    def _montar(self) -> None:
+        self.clear_items()
+        char = self.personagem()
+        _botoes_de_habilidade(self, rules.class_ability_options(char["class_name"]) if char else (), self.escolhida, self._marcou, row=0)
+        confirmar = discord.ui.Button(label="Confirmar habilidade", emoji="✅", style=discord.ButtonStyle.success, disabled=self.escolhida is None, row=1)
+        confirmar.callback = self._confirmar
+        self.add_item(confirmar)
+        if self.com_voltar:
+            voltar = discord.ui.Button(label="Voltar", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
+            voltar.callback = self._voltar
+            self.add_item(voltar)
+
+    def embed(self) -> discord.Embed:
+        char = self.personagem()
+        embed = vitrine.cartao_habilidade(char["name"], char["class_name"], self.escolhida, self.jogador, "previa").embed
+        embed.description += "\n\nVale **uma vez só**: depois de confirmar, só um mestre muda."
+        return embed
+
+    async def _marcou(self, nome: str, interaction: discord.Interaction) -> None:
+        char = self.personagem()
+        if char is None or nome not in rules.class_ability_options(char["class_name"]):
+            await interaction.response.send_message("Essa habilidade não é da sua classe. Escolhe uma dos botões.", ephemeral=True)
+            return
+        self.escolhida = nome
+        self._montar()
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+    async def _voltar(self, interaction: discord.Interaction) -> None:
+        painel = PainelFicha(self.dono_id, self.personagem_id, self.jogador)
+        self.passar_pra(painel)
+        await interaction.response.edit_message(embed=GANCHOS.embed_ficha(painel.personagem(), self.jogador), view=painel)
+
+    async def _confirmar(self, interaction: discord.Interaction) -> None:
+        char = self.personagem()
+        classe = char["class_name"] if char else None
+        valida = (
+            char is not None and rules.class_needs_ability_choice(classe) and rules.class_ability_of(char) is None
+            and self.escolhida in rules.class_ability_options(classe)
+        )
+        coletor = Coletor(interaction)
+        if valida:
+            db.set_class_ability(char["id"], self.escolhida)
+            cartao = vitrine.cartao_habilidade(char["name"], classe, self.escolhida, self.jogador)
+            if self.com_voltar:
+                coletor.mensagens.append((None, {"embed": cartao.embed, "ephemeral": True}))
+            else:
+                self.stop()
+                await interaction.response.edit_message(embed=cartao.embed, view=None)
+                return
+        else:
+            coletor.avisar("Não deu pra confirmar: a habilidade já foi escolhida ou a classe mudou. Abre a ficha de novo com `/minha_ficha`.")
+            if not self.com_voltar:
+                self.stop()
+                await interaction.response.edit_message(view=None)
+                for conteudo, kwargs in coletor.mensagens:
+                    await interaction.followup.send(conteudo, **kwargs)
+                return
         painel = PainelFicha(self.dono_id, self.personagem_id, self.jogador)
         self.passar_pra(painel)
         await entregar(interaction, coletor, GANCHOS.embed_ficha(painel.personagem(), self.jogador), painel)

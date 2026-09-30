@@ -7,7 +7,7 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 **Rolagens**
 
 - `/rolar dado:1d20+3 motivo:teste de acerto personagem:Kairon Flagon` rola e salva no histórico. `motivo` e `personagem` são opcionais; sem `personagem`, vale o que você está usando no momento. Com o `#` na frente o dado rola **várias vezes, cada uma separada**: `3#d20+5` rola o d20+5 três vezes (de 1 a 10) e o cartão mostra uma linha por rolagem e o maior e o menor no fim, como uma vantagem que o jogador escolhe. No histórico, cada rolagem vira uma linha.
-- `/habilidade` mostra a habilidade inicial da sua classe. O Clérigo (Mãos que Curam ou Bênção) e o Ladrão (Mão Leve ou Língua de Prata) oferecem duas: `/habilidade escolha:Bênção` escolhe uma, vale uma vez e fica na ficha (o mestre refaz trocando a classe com `/mestre corrigir_classe`). O bot só mostra o texto; quem usa a habilidade e cobra o custo é a mesa.
+- `/habilidade` mostra a habilidade inicial da sua classe. O Clérigo (Mãos que Curam ou Bênção) e o Ladrão (Mão Leve ou Língua de Prata) oferecem duas. **Normalmente a pessoa escolhe a habilidade junto com a classe, nos botões do menu de classe** (ver "Botões"). Se faltou, `/habilidade` (ou o `/classe` sem `habilidade`) já mostra dois botões, e o botão **Habilidade** da ficha também; `/habilidade escolha:Bênção` faz o mesmo digitando. Vale uma vez e fica na ficha (o mestre refaz trocando a classe com `/mestre corrigir_classe`). O bot só mostra o texto; quem usa a habilidade e cobra o custo é a mesa.
 - **Dados direto no chat, sem barra:** escreve `d20`, `d20+5` ou `2d6-1` numa mensagem e o bot rola, responde na própria mensagem e salva no histórico, como o `/rolar`. Com um `+` na frente, o que vem depois do dado vira o motivo: `+d20+5 ataque com a espada`. Sem o `+`, a mensagem inteira precisa ser só o dado, então conversa normal ("d20 é o melhor dado") nunca rola. Vale a mesma regra da ficha pronta do `/rolar` (os mestres passam direto). No d20, um 20 ou um 1 natural ganha um destaque visual, sem efeito nenhum de regra. Precisa do **Message Content Intent** ligado (ver "Dados por texto" abaixo).
 - `/historico usuario:@alguém limite:10 personagem:Akari Amaya` mostra as últimas rolagens de alguém (padrão: você mesmo). Com `personagem`, mostra só as daquele personagem. A data e a hora aparecem no fuso de quem está lendo.
 
@@ -80,7 +80,7 @@ Personagens que já existiam e ainda não têm classe e atributos também precis
 
 **Classe e atributos** (a ficha automática)
 
-- `/classe classe:Caçador` escolhe a classe do personagem. Vale **uma vez só**; depois, só um mestre muda. Mostra a vantagem de perícias e o bônus de Vida, Sanidade, Mana e Estamina da classe.
+- `/classe classe:Caçador` escolhe a classe do personagem. Vale **uma vez só**; depois, só um mestre muda. Mostra a vantagem de perícias, o bônus de Vida, Sanidade, Mana e Estamina, e a habilidade da classe. No Clérigo e no Ladrão dá pra escolher a habilidade junto: `/classe classe:Clérigo habilidade:Bênção` (a classe e a habilidade entram juntas, ou nenhuma). Sem `habilidade`, o cartão já vem com dois botões pra escolher.
 - `/atributos forca:2 vitalidade:3 vontade:1` distribui os pontos de atributo. Só preenche o que quer mudar; sem nenhum número, só mostra como está. **Só dá pra aumentar** (pra diminuir, fala com um mestre), e o bot confere os pontos e os limites de criação da raça. Precisa ter sorteado a raça antes.
 
 **Ficha, níveis e recursos**
@@ -151,7 +151,7 @@ Só **Vampiro e Dhampir** têm. São dez: Potência, Celeridade, Ofuscação, Pr
 
 São **oito classes**, iguais às do site: Caçador, Clérigo, Feiticeiros, Ladrão, Mercenário, Mestre de Forja, Mundano e Sábio. Clérigo e Mercenário são as novas. Cada classe tem bônus de Vida, Sanidade, Mana e Estamina (em `rules.py`), vantagem em duas perícias e uma habilidade inicial. O texto de cada classe, a frase curta, os exemplos de profissão e as habilidades ficam em `lore.py` (`CLASSES`, `CLASSE_FRASE`, `CLASSE_COMBINA` e `HABILIDADES`), **copiados do site**: o capítulo Habilidades de Classe do site ainda é rascunho, então esses textos mudam quando ele mudar. O cartão da classe mostra tudo isso, e a prévia do menu também.
 
-- **Duas opções:** só o Clérigo e o Ladrão. A escolha vai pra coluna `class_ability` da ficha e zera quando a classe muda.
+- **Duas opções:** só o Clérigo e o Ladrão. A escolha vai pra coluna `class_ability` da ficha e zera quando a classe muda. Ela **não trava a ficha pronta** (quem já tinha classe antes não fica bloqueado): o botão **Classe** da ficha vira **Habilidade** ✨ até a pessoa escolher.
 - **Sábio:** ganha o dobro de pontos de perícia por nível (+4 em vez de +2), e o `/niveis` e os avisos de nível já mostram isso.
 - **Mundano:** o +5 de perícias na criação e a aprimoração são só texto por enquanto, porque o bot ainda não controla os pontos de perícia.
 - Magia inicial continua só pra Vampiro, Dhampir, Feiticeiros e Mestre de Forja: Clérigo e Mercenário não têm.
@@ -189,7 +189,7 @@ Quase tudo da criação e do jogo dá pra fazer clicando:
 
 - **`/minha_ficha`** (e a mensagem de boas-vindas do `/personagem criar`) vêm com botões embaixo da ficha:
   - **Raça, Classe social, Magia:** sorteiam na hora e o cartão com imagem sai no canal pra todo mundo. O botão de um passo que ainda não abriu fica trancado 🔒, o que já foi feito fica verde ✅, o resultado 100 da classe social fica ⏳ (esperando o mestre) e quem não tem magia vê "Sem magia" ➖.
-  - **Classe:** abre um menu com as oito classes. Escolher no menu só mostra uma prévia (texto, vantagem e bônus); a classe só vale depois de apertar **Confirmar classe**, porque não dá pra desfazer. Tem botão **Voltar**.
+  - **Classe:** abre um menu com as oito classes. Escolher no menu só mostra uma prévia (texto, vantagem e bônus); a classe só vale depois de apertar **Confirmar classe**, porque não dá pra desfazer. Tem botão **Voltar**. No **Clérigo** e no **Ladrão** aparecem dois botões ✨ com as habilidades: marca uma (fica verde) e o botão vira **Confirmar classe e habilidade**, que só libera depois de marcar. Trocar de classe desmarca a habilidade. A classe e a habilidade entram juntas.
   - **Físicos e Mentais:** abrem um formulário com três atributos cada (o Discord só aceita 5 campos por formulário, e são 6 atributos), já preenchidos com o valor atual. Passa pelas mesmas conferências do `/atributos`: só aumenta, confere o total de pontos e os limites da raça. Os botões desligam quando não sobra ponto.
   - **Dados, Níveis, Ajuda:** atalhos pra bandeja de dados, pra tabela de níveis e pra `/ajuda`.
   - **Trocar de personagem:** um menu aparece quando o jogador tem mais de um personagem.

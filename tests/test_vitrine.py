@@ -224,7 +224,9 @@ print("7. dados escritos no chat OK:", len(casos), "casos")
 for classe in rules.CLASSES:
     e = vitrine.previa_classe("Ana Ficha", classe); confere_limites(e)
     assert e.title == f"🎓 {classe}" and e.author.name == "Classe de Ana Ficha" and e.description.startswith(f"**{lore.CLASSE_FRASE[classe]}**\n{lore.DIVISOR}\n\n> *{lore.CLASSES[classe][:40]}")
-    assert "Confirmar classe" in e.description and [f.name for f in e.fields] == ["Vantagem nas perícias", "Bônus", "Combina com (exemplos)", *CAMPOS_DA_HABILIDADE[classe]] and e.image.url is None
+    assert [f.name for f in e.fields] == ["Vantagem nas perícias", "Bônus", "Combina com (exemplos)", *CAMPOS_DA_HABILIDADE[classe]] and e.image.url is None
+    if rules.class_needs_ability_choice(classe): assert e.description.endswith("Escolhe a habilidade nos botões e depois confirma. Vale uma vez só, a classe e a habilidade juntas.")
+    else: assert e.description.endswith("Se for essa, aperta **Confirmar classe**. Vale uma vez só.")
 lore.IMAGENS_URL["classe-cacador"] = "https://exemplo.com/cacador.gif"
 try:
     assert vitrine.previa_classe("A", "Caçador").image.url == "https://exemplo.com/cacador.gif"
@@ -389,5 +391,22 @@ e = vitrine.cartao_rolagens("K", "2#1d6", [R("1d6", [6], 0, 6), R("1d6", [1], 0,
 assert "🌟" not in e.description and "💀" not in e.description and e.color == discord.Color.dark_red()        # o destaque é só de d20
 e = vitrine.cartao_rolagens("K", "10#d20", [R("d20", [10], 0, 20)] * 10, None, "M", True).embed; confere_limites(e); assert e.description.count("**") == 10 * 4 + 4
 print("14. cartões de rolagem OK")
+
+# ---------- 15. classe e habilidade escolhidas juntas (botões) ----------
+pv = vitrine.previa_classe("Ana", "Clérigo"); confere_limites(pv)
+assert [f.name for f in pv.fields][3:] == ["Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção"]
+assert pv.fields[3].value == "Escolha uma das duas: **Mãos que Curam** ou **Bênção**. Aperta um dos botões abaixo."              # sem marcar: manda apertar os botões
+pv = vitrine.previa_classe("Ana", "Clérigo", "Bênção"); confere_limites(pv)
+assert pv.fields[3].value == "Você vai levar **Bênção**. Confirma nos botões abaixo." and [f.name for f in pv.fields][4:] == ["✨ Mãos que Curam", "✨ Bênção ✅"]
+assert pv.description.endswith("Se for essa, aperta **Confirmar classe e habilidade**. Vale uma vez só.")
+assert vitrine.previa_classe("Ana", "Caçador", "Sem Dúvidas").fields[3].name == "✨ Sem Dúvidas" and "✅" not in " ".join(f.name for f in vitrine.previa_classe("Ana", "Caçador").fields)   # uma habilidade só: nada a marcar
+# o cartão da classe: com botões (falta escolher), sem botões, e já escolhida
+assert vitrine.cartao_classe("Ana", "Ladrão", "p", "J", None, com_botoes=True).embed.fields[3].value == "Escolha uma das duas: **Mão Leve** ou **Língua de Prata**. Aperta um dos botões abaixo."
+assert vitrine.cartao_classe("Ana", "Ladrão", "p", "J").embed.fields[3].value == "Escolha uma das duas: **Mão Leve** ou **Língua de Prata**. Use `/habilidade` pra escolher."
+assert vitrine.cartao_classe("Ana", "Ladrão", "p", "J", "Mão Leve", com_botoes=False).embed.fields[3].value == "Você levou **Mão Leve**."
+assert vitrine.cartao_habilidade("Ana", "Clérigo", None, "J", "botao").embed.fields[0].value == "Escolha uma das duas: **Mãos que Curam** ou **Bênção**. Aperta um dos botões abaixo."
+assert vitrine.cartao_habilidade("Ana", "Clérigo", "Bênção", "J", "previa").embed.fields[0].value == "Você vai levar **Bênção**. Confirma nos botões abaixo."
+assert vitrine.cartao_habilidade("Ana", "Clérigo", "Bênção", "J").embed.fields[0].value == "Você levou **Bênção**."
+print("15. classe e habilidade juntas OK")
 
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

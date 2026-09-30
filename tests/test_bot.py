@@ -532,7 +532,7 @@ assert campos(ana)["Recursos"] == "❤️ Vida **50** · 🧠 Sanidade **20**\n�
 assert db.attributes_of(ficha()) == {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 1, "alma": 0}
 run(bot.minha_ficha.callback(ana, None)); assert sent(ana)[1]["embed"].description is None and campos(ana)["Recursos"].startswith("❤️ Vida **50**")   # pronta: sem aviso
 assert rules.calculate_resources(vitalidade=3, forca=2, vontade=1, alma=0, classe="Caçador")["estamina"]["total"] == 35   # mesma conta do /calcular_recursos
-run(bot.classe_escolher.callback(ana, "Ladrão", "Fantasma")); assert "Não achei" in txt(ana)
+run(bot.classe_escolher.callback(ana, "Ladrão", None, "Fantasma")); assert "Não achei" in txt(ana)
 sp = inter(199, "Sem Personagem"); run(bot.classe_escolher.callback(sp, "Sábio", None)); assert "Você ainda não tem personagem" in txt(sp)
 
 # só dá pra aumentar
@@ -2122,23 +2122,24 @@ def valor_do_campo(i, nome): return next(f.value for f in sent(i)[1]["embed"].fi
 sem_pers = inter(1299, "Sem"); run(bot.habilidade.callback(sem_pers, None, None)); assert "Você ainda não tem personagem" in txt(sem_pers) and sent(sem_pers)[1]["ephemeral"]
 p = novo(1200, "Pat", "Padre Pat"); preparar(1200, "Padre Pat", "Humano", None)
 run(bot.habilidade.callback(p, None, None)); assert "ainda não tem classe" in txt(p) and sent(p)[1]["ephemeral"]
-run(bot.classe_escolher.callback(p, "Clérigo", None))                                                             # o cartão da classe já avisa da escolha
+runp(bot.classe_escolher.callback(p, "Clérigo", None))                                                            # o cartão da classe já oferece os botões
 assert campos_do_cartao(p) == ["Vantagem nas perícias", "Bônus", "Combina com (exemplos)", "Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção", "Continue a criação"]
-assert valor_do_campo(p, "Continue a criação").startswith("Escolha a sua habilidade de classe com `/habilidade`. Sua raça e sua classe não têm magia") and valor_do_campo(p, "Vantagem nas perícias") == "Religião e Medicina"
+assert valor_do_campo(p, "Continue a criação").startswith("Escolhe a sua habilidade de classe nos botões abaixo. Sua raça e sua classe não têm magia")
+vb = enviada(p); assert isinstance(vb, paineis.EscolhaDeHabilidade) and estado(vb) == {"Mãos que Curam": ("✨", False), "Bênção": ("✨", False), "Confirmar habilidade": ("✅", True)} and valor_do_campo(p, "Vantagem nas perícias") == "Religião e Medicina"
 assert valor_do_campo(p, "Combina com (exemplos)") == "Padre · Freira · Pastor · Hospedeiro" and row(1200, "Padre Pat")["class_ability"] is None
-run(bot.minha_ficha.callback(p, None)); assert campos(p)["Classe"] == "Clérigo\n(vantagem em Religião e Medicina)\n✨ escolha com `/habilidade`"
-run(bot.habilidade.callback(p, None, None)); e = sent(p)[1]["embed"]
-assert sent(p)[1]["ephemeral"] and e.author.name == "✨ Habilidade de Padre Pat" and campos_do_cartao(p) == ["Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção"]
-assert valor_do_campo(p, "Habilidade de classe") == "Escolha uma das duas: **Mãos que Curam** ou **Bênção**. Use `/habilidade` pra escolher."
+run(bot.minha_ficha.callback(p, None)); assert campos(p)["Classe"] == "Clérigo\n(vantagem em Religião e Medicina)\n✨ falta escolher (botão **Habilidade** ou `/habilidade`)"
+runp(bot.habilidade.callback(p, None, None)); e = sent(p)[1]["embed"]
+assert isinstance(enviada(p), paineis.EscolhaDeHabilidade) and sent(p)[1]["ephemeral"] and e.author.name == "✨ Habilidade de Padre Pat" and campos_do_cartao(p) == ["Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção"]
+assert valor_do_campo(p, "Habilidade de classe") == "Escolha uma das duas: **Mãos que Curam** ou **Bênção**. Aperta um dos botões abaixo."
 run(bot.habilidade.callback(p, "não existe", None)); assert txt(p) == "**não existe** não é uma habilidade de **Clérigo**. As opções são: **Mãos que Curam** ou **Bênção**." and row(1200, "Padre Pat")["class_ability"] is None
 run(bot.habilidade.callback(p, "mão leve", None)); assert "não é uma habilidade de **Clérigo**" in txt(p) and row(1200, "Padre Pat")["class_ability"] is None     # a do Ladrão não vale
 run(bot.habilidade.callback(p, "  bÊnção ", None)); assert row(1200, "Padre Pat")["class_ability"] == "Bênção"                                    # sem ligar pra maiúscula nem pra espaço
-assert campos_do_cartao(p) == ["Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção ✅"] and valor_do_campo(p, "Habilidade de classe") == "Você levou **Bênção**."
+assert campos_do_cartao(p) == ["Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção ✅"] and valor_do_campo(p, "Habilidade de classe") == "Você levou **Bênção**." and "view" not in sent(p)[1]
 run(bot.habilidade.callback(p, "Mãos que Curam", None)); assert txt(p) == "**Padre Pat** já levou **Bênção**. Fala com um mestre se precisar mudar." and row(1200, "Padre Pat")["class_ability"] == "Bênção"
 run(bot.minha_ficha.callback(p, None)); assert campos(p)["Classe"] == "Clérigo\n(vantagem em Religião e Medicina)\n✨ Bênção"
 run(bot.habilidade.callback(p, None, "Fantasma")); assert "Não achei nenhum personagem seu chamado **Fantasma**" in txt(p)
 run(bot.mestre_corrigir_classe.callback(gm, alvo(1200, "Pat"), "Clérigo", None)); assert row(1200, "Padre Pat")["class_ability"] is None      # o mestre refez a classe: a escolha volta a ficar aberta
-run(bot.minha_ficha.callback(p, None)); assert campos(p)["Classe"].endswith("✨ escolha com `/habilidade`")
+run(bot.minha_ficha.callback(p, None)); assert campos(p)["Classe"].endswith("✨ falta escolher (botão **Habilidade** ou `/habilidade`)")
 # classes de uma habilidade só
 c1 = novo(1201, "Cac", "Cacador Cac"); preparar(1201, "Cacador Cac", "Humano", None); run(bot.classe_escolher.callback(c1, "Caçador", None))
 assert campos_do_cartao(c1) == ["Vantagem nas perícias", "Bônus", "Combina com (exemplos)", "✨ Sem Dúvidas", "Continue a criação"] and "Escolha a sua habilidade" not in valor_do_campo(c1, "Continue a criação")
@@ -2229,5 +2230,95 @@ run(bot.mestre_sorte.callback(gm, A, "minimo", 10, 5, False, None, "teste")); ru
 run(bot.mestre_sorte.callback(gm, A, "limpar", None, 1, False, None, None)); assert txt(gm) == "🍀 Tirei 2 efeitos de sorte de **Sortudo Sor**." and efs() == [] and acoes_de_sorte()[-1] == ("sorte_limpar", "2 efeito(s) tirado(s)")
 run(bot.mestre_sorte.callback(gm, A, "limpar", None, 1, False, None, None)); assert txt(gm) == "🍀 Tirei 0 efeitos de sorte de **Sortudo Sor**."
 print("X3. /mestre sorte OK")
+
+# ============================ X4. classe e habilidade escolhidas juntas, tudo por botão ============================
+def campos_da_ficha(embed): return {f.name: f.value for f in embed.fields}
+def cartao_do_followup(c, posicao=0):
+    conteudo, kw = followups(c)[posicao]; return kw["embed"], kw
+def marcar(view, nome, uid, jogador):
+    c = inter(uid, jogador); runp(botao(view, nome).callback(c)); return c
+def escolher_no_menu(view, valor, uid, jogador):
+    sel = seletor(view); sel._values = [valor]; c = inter(uid, jogador); runp(sel.callback(c)); return c
+
+# --- o painel da ficha: a classe e a habilidade entram juntas ---
+a = novo(1300, "Ana", "Ana Dupla"); preparar(1300, "Ana Dupla", "Humano", None)
+pf = painel_de(1300, "Ana Dupla", "Ana"); assert estado(pf)["Classe"] == ("🎓", False)
+c = clique(pf, "Classe", 1300, "Ana"); esc = editada(c)["view"]; e = editada(c)["embed"]
+assert isinstance(esc, paineis.EscolhaDeClasse) and pf.is_finished() and len(seletor(esc).options) == 8 and estado(esc) == {"Confirmar classe": ("✅", True), "Voltar": ("⬅️", False)}
+assert "O Clérigo e o Ladrão têm duas habilidades" in e.description and e.fields[1].value.endswith("\n✨ Mãos que Curam ou Bênção") and e.fields[0].value.endswith("\n✨ Sem Dúvidas"); confere_componentes(esc)
+c = escolher_no_menu(esc, "Clérigo", 1300, "Ana"); e = editada(c)["embed"]                                            # escolheu a classe: aparecem os botões, o confirmar segue trancado
+assert estado(esc) == {"Mãos que Curam": ("✨", False), "Bênção": ("✨", False), "Confirmar classe e habilidade": ("✅", True), "Voltar": ("⬅️", False)}
+assert e.description.endswith("Escolhe a habilidade nos botões e depois confirma. Vale uma vez só, a classe e a habilidade juntas.") and e.fields[3].value == "Escolha uma das duas: **Mãos que Curam** ou **Bênção**. Aperta um dos botões abaixo."; confere_componentes(esc)
+c = inter(1300, "Ana"); runp(esc._confirmar(c)); assert c.response.send_message.call_args.args[0] == "Escolhe a habilidade nos botões antes de confirmar." and row(1300, "Ana Dupla")["class_name"] is None     # sem habilidade, nada é gravado
+c = marcar(esc, "Bênção", 1300, "Ana"); e = editada(c)["embed"]
+assert botao(esc, "Bênção").style == discord.ButtonStyle.success and botao(esc, "Mãos que Curam").style == discord.ButtonStyle.primary and estado(esc)["Confirmar classe e habilidade"] == ("✅", False)
+assert e.fields[3].value == "Você vai levar **Bênção**. Confirma nos botões abaixo." and e.description.endswith("aperta **Confirmar classe e habilidade**. Vale uma vez só.") and row(1300, "Ana Dupla")["class_name"] is None   # marcar não grava
+escolher_no_menu(esc, "Caçador", 1300, "Ana")                                                                      # mudou de classe: os botões e a marcação somem
+assert estado(esc) == {"Confirmar classe": ("✅", False), "Voltar": ("⬅️", False)} and esc.habilidade is None
+escolher_no_menu(esc, "Ladrão", 1300, "Ana"); assert esc.habilidade is None and estado(esc) == {"Mão Leve": ("✨", False), "Língua de Prata": ("✨", False), "Confirmar classe e habilidade": ("✅", True), "Voltar": ("⬅️", False)}
+escolher_no_menu(esc, "Clérigo", 1300, "Ana"); c = marcar(esc, "Mãos que Curam", 1300, "Ana")
+assert runp(esc.interaction_check(inter(999, "Intruso"))) is False and runp(esc.interaction_check(inter(1300, "Ana"))) is True
+c = clique(esc, "Confirmar classe e habilidade", 1300, "Ana"); nova = editada(c)["view"]
+r = row(1300, "Ana Dupla"); assert (r["class_name"], r["class_ability"]) == ("Clérigo", "Mãos que Curam") and esc.is_finished()
+assert isinstance(nova, paineis.PainelFicha) and estado(nova)["Classe"] == ("✅", True) and "Habilidade" not in estado(nova)
+e, kw = cartao_do_followup(c); assert kw["ephemeral"] and e.fields[3].value == "Você levou **Mãos que Curam**." and [f.name for f in e.fields][4:6] == ["✨ Mãos que Curam ✅", "✨ Bênção"] and "Escolhe a sua habilidade" not in e.fields[-1].value
+assert campos_da_ficha(editada(c)["embed"])["Classe"] == "Clérigo\n(vantagem em Religião e Medicina)\n✨ Mãos que Curam"
+# uma classe de uma habilidade só não tem botão de habilidade
+b = novo(1301, "Beto", "Beto Um"); preparar(1301, "Beto Um", "Humano", None); esc = editada(clique(painel_de(1301, "Beto Um", "Beto"), "Classe", 1301, "Beto"))["view"]
+escolher_no_menu(esc, "Mercenário", 1301, "Beto"); assert estado(esc) == {"Confirmar classe": ("✅", False), "Voltar": ("⬅️", False)}
+c = clique(esc, "Confirmar classe", 1301, "Beto"); r = row(1301, "Beto Um"); assert (r["class_name"], r["class_ability"]) == ("Mercenário", None) and rules.class_ability_of(r) == "Ombro a Ombro"
+# Voltar não grava nada
+v = novo(1302, "Vol", "Volta Vol"); preparar(1302, "Volta Vol", "Humano", None); esc = editada(clique(painel_de(1302, "Volta Vol", "Vol"), "Classe", 1302, "Vol"))["view"]
+escolher_no_menu(esc, "Ladrão", 1302, "Vol"); marcar(esc, "Mão Leve", 1302, "Vol"); c = clique(esc, "Voltar", 1302, "Vol")
+assert isinstance(editada(c)["view"], paineis.PainelFicha) and row(1302, "Volta Vol")["class_name"] is None
+
+# --- /classe com habilidade: os dois juntos no comando ---
+s1 = novo(1310, "Sim", "Sim Dupla"); preparar(1310, "Sim Dupla", "Humano", None)
+runp(bot.classe_escolher.callback(s1, "Ladrão", "língua de prata", None))
+r = row(1310, "Sim Dupla"); assert (r["class_name"], r["class_ability"]) == ("Ladrão", "Língua de Prata") and "view" not in sent(s1)[1] and sent(s1)[1]["ephemeral"]
+assert valor_do_campo(s1, "Habilidade de classe") == "Você levou **Língua de Prata**." and "Escolhe a sua habilidade" not in valor_do_campo(s1, "Continue a criação")
+s2 = novo(1311, "Err", "Erro Um"); preparar(1311, "Erro Um", "Humano", None)
+runp(bot.classe_escolher.callback(s2, "Clérigo", "Mão Leve", None)); assert txt(s2) == "**Mão Leve** não é uma habilidade de **Clérigo**. As opções são: **Mãos que Curam** ou **Bênção**." and row(1311, "Erro Um")["class_name"] is None
+runp(bot.classe_escolher.callback(s2, "Caçador", "Sem Dúvidas", None)); assert txt(s2) == "A classe **Caçador** só tem uma habilidade (**Sem Dúvidas**), então é só escolher a classe, sem `habilidade`." and row(1311, "Erro Um")["class_name"] is None
+runp(bot.classe_escolher.callback(s2, "Caçador", "", None)); assert row(1311, "Erro Um")["class_name"] == "Caçador" and "view" not in sent(s2)[1]          # texto vazio vale como sem habilidade
+def sugerir(classe=None, uid=1):
+    i = inter(uid, "J"); i.namespace = NS(classe=classe) if classe else NS(); return [c.value for c in run(bot._autocomplete_habilidade(i, ""))]
+assert sugerir("Clérigo") == ["Mãos que Curam", "Bênção"] and sugerir("Ladrão") == ["Mão Leve", "Língua de Prata"] and sugerir("Caçador") == ["Mãos que Curam", "Bênção", "Mão Leve", "Língua de Prata"]
+
+# --- /classe sem habilidade: já vêm os botões, sem outro comando ---
+n1 = novo(1320, "Bot", "Botao Um"); preparar(1320, "Botao Um", "Humano", None); runp(bot.classe_escolher.callback(n1, "Clérigo", None, None))
+vb = enviada(n1); assert isinstance(vb, paineis.EscolhaDeHabilidade) and vb.origem is n1 and vb.com_voltar is False and set(estado(vb)) == {"Mãos que Curam", "Bênção", "Confirmar habilidade"}; confere_componentes(vb)
+assert row(1320, "Botao Um")["class_name"] == "Clérigo" and row(1320, "Botao Um")["class_ability"] is None
+c = marcar(vb, "Bênção", 1320, "Bot"); e = editada(c)["embed"]; assert botao(vb, "Bênção").style == discord.ButtonStyle.success and e.fields[0].value == "Você vai levar **Bênção**. Confirma nos botões abaixo." and e.description.endswith("Vale **uma vez só**: depois de confirmar, só um mestre muda.")
+assert estado(vb)["Confirmar habilidade"] == ("✅", False) and row(1320, "Botao Um")["class_ability"] is None
+assert runp(vb.interaction_check(inter(999, "Intruso"))) is False and runp(vb.interaction_check(inter(1320, "Bot"))) is True
+c = clique(vb, "Confirmar habilidade", 1320, "Bot"); assert editada(c)["view"] is None and editada(c)["embed"].fields[0].value == "Você levou **Bênção**." and row(1320, "Botao Um")["class_ability"] == "Bênção" and vb.is_finished()
+# /habilidade sem argumento: botões se falta escolher, só o cartão se já escolheu
+n2 = novo(1321, "Bot2", "Botao Dois"); preparar(1321, "Botao Dois", "Humano", "Ladrão")
+runp(bot.habilidade.callback(n2, None, None)); vb2 = enviada(n2); assert isinstance(vb2, paineis.EscolhaDeHabilidade) and valor_do_campo(n2, "Habilidade de classe").endswith("Aperta um dos botões abaixo.")
+marcar(vb2, "Língua de Prata", 1321, "Bot2")
+c = clique(vb2, "Confirmar habilidade", 1321, "Bot2"); assert row(1321, "Botao Dois")["class_ability"] == "Língua de Prata"
+runp(bot.habilidade.callback(n2, None, None)); assert "view" not in sent(n2)[1] and valor_do_campo(n2, "Habilidade de classe") == "Você levou **Língua de Prata**."
+# confirmar com a escolha já feita por outro caminho: avisa e não sobrescreve
+n3 = novo(1322, "Bot3", "Botao Tres"); preparar(1322, "Botao Tres", "Humano", "Clérigo"); runp(bot.habilidade.callback(n3, None, None)); vb3 = enviada(n3)
+marcar(vb3, "Bênção", 1322, "Bot3"); db.set_class_ability(row(1322, "Botao Tres")["id"], "Mãos que Curam")                # enquanto isso, a escolha foi feita em outro lugar
+c = clique(vb3, "Confirmar habilidade", 1322, "Bot3"); assert editada(c)["view"] is None and followups(c)[0][0].startswith("Não deu pra confirmar: a habilidade já foi escolhida") and row(1322, "Botao Tres")["class_ability"] == "Mãos que Curam"
+
+# --- quem já tinha classe (Ladrão antigo) e falta a habilidade: botão Habilidade na ficha ---
+o1 = novo(1330, "Vel", "Velho Ladrao"); preparar(1330, "Velho Ladrao", "Humano", "Ladrão")
+pf = painel_de(1330, "Velho Ladrao", "Vel"); assert estado(pf)["Habilidade"] == ("✨", False) and "Classe" not in estado(pf); confere_componentes(pf)
+assert botao(pf, "Habilidade").style == discord.ButtonStyle.primary
+c = clique(pf, "Habilidade", 1330, "Vel"); hv = editada(c)["view"]; e = editada(c)["embed"]
+assert isinstance(hv, paineis.EscolhaDeHabilidade) and hv.com_voltar and pf.is_finished() and estado(hv) == {"Mão Leve": ("✨", False), "Língua de Prata": ("✨", False), "Confirmar habilidade": ("✅", True), "Voltar": ("⬅️", False)}
+assert e.fields[0].value == "Escolha uma das duas: **Mão Leve** ou **Língua de Prata**. Aperta um dos botões abaixo." and e.author.name == "✨ Habilidade de Velho Ladrao"; confere_componentes(hv)
+c = clique(hv, "Voltar", 1330, "Vel"); pf = editada(c)["view"]; assert isinstance(pf, paineis.PainelFicha) and estado(pf)["Habilidade"] == ("✨", False) and row(1330, "Velho Ladrao")["class_ability"] is None
+hv = editada(clique(pf, "Habilidade", 1330, "Vel"))["view"]; marcar(hv, "Mão Leve", 1330, "Vel"); c = clique(hv, "Confirmar habilidade", 1330, "Vel")
+pf = editada(c)["view"]; assert isinstance(pf, paineis.PainelFicha) and estado(pf)["Classe"] == ("✅", True) and "Habilidade" not in estado(pf) and row(1330, "Velho Ladrao")["class_ability"] == "Mão Leve"
+e, kw = cartao_do_followup(c); assert kw["ephemeral"] and e.fields[0].value == "Você levou **Mão Leve**." and campos_da_ficha(editada(c)["embed"])["Classe"].endswith("✨ Mão Leve")
+# o mestre refaz a classe: a escolha volta a ficar aberta e o botão reaparece
+run(bot.mestre_corrigir_classe.callback(gm, alvo(1330, "Vel"), "Ladrão", None)); assert estado(painel_de(1330, "Velho Ladrao", "Vel"))["Habilidade"] == ("✨", False)
+# classe de uma habilidade só nunca mostra o botão
+assert "Habilidade" not in estado(painel_de(1301, "Beto Um", "Beto")) and estado(painel_de(1301, "Beto Um", "Beto"))["Classe"] == ("✅", True)
+print("X4. classe e habilidade por botão OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

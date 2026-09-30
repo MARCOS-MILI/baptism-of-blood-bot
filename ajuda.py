@@ -69,7 +69,8 @@ AJUDA = {
         "detalhes": (
             "São oito classes. Vale uma vez só; depois, só um mestre muda. Mostra o texto da classe, a vantagem em "
             "perícias, o bônus de Vida, Sanidade, Mana e Estamina e a habilidade inicial dela (ainda em rascunho, os "
-            "números vão mudar). O Clérigo e o Ladrão têm duas habilidades: a escolha é no `/habilidade`."
+            "números vão mudar). O Clérigo e o Ladrão têm duas habilidades: você escolhe a sua junto com a classe, "
+            "nos botões do menu da ficha (ou com `habilidade:` no comando)."
         ),
         "requisito": "Só depois de sortear a raça e a classe social.",
     },
@@ -79,8 +80,9 @@ AJUDA = {
         "uso": "/habilidade escolha:Bênção",
         "detalhes": (
             "Toda classe tem uma habilidade inicial, e o comando mostra o texto dela. Só o Clérigo (Mãos que Curam ou "
-            "Bênção) e o Ladrão (Mão Leve ou Língua de Prata) oferecem duas: a escolha vale uma vez e fica na ficha; "
-            "só um mestre muda. A habilidade se soma à Habilidade Própria que você cria com o mestre. O bot mostra o "
+            "Bênção) e o Ladrão (Mão Leve ou Língua de Prata) oferecem duas. Normalmente você escolhe junto com a "
+            "classe; se faltou, o comando mostra botões pra escolher (ou o botão Habilidade da ficha). A escolha vale "
+            "uma vez e fica na ficha; só um mestre muda. A habilidade se soma à Habilidade Própria que você cria com o mestre. O bot mostra o "
             "texto; quem usa e cobra o custo (Estamina ou Mana) é a mesa."
         ),
         "requisito": "Precisa ter escolhido a classe.",

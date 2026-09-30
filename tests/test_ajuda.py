@@ -175,7 +175,7 @@ for chave in ("habilidade", "mestre sorte"):
     e = ajuda.AJUDA[chave]; assert e["resumo"] and e["uso"].startswith("/") and 0 < len(e["detalhes"]) <= 600 and "—" not in e["detalhes"], chave
 assert ajuda.AJUDA["habilidade"]["grupo"] == "personagem" and ajuda.AJUDA["mestre sorte"]["grupo"] == "mestre" and ajuda.AJUDA["mestre sorte"]["requisito"] == "Só mestres."
 assert ("Dados", ["sorte"]) in ajuda.MESTRE_SUBGRUPOS and "habilidade" in ajuda.ORDEM_SUGESTAO and len(ajuda.ORDEM_SUGESTAO) == 22
-assert "3#d20+5" in ajuda.AJUDA["rolar"]["detalhes"] and "🍀" in ajuda.AJUDA["rolar"]["detalhes"] and "/habilidade" in ajuda.AJUDA["classe"]["detalhes"] and "+4" in ajuda.AJUDA["niveis"]["detalhes"]
+assert "3#d20+5" in ajuda.AJUDA["rolar"]["detalhes"] and "🍀" in ajuda.AJUDA["rolar"]["detalhes"] and "botões" in ajuda.AJUDA["classe"]["detalhes"] and "`habilidade:`" in ajuda.AJUDA["classe"]["detalhes"] and "botões" in ajuda.AJUDA["habilidade"]["detalhes"] and "+4" in ajuda.AJUDA["niveis"]["detalhes"]
 assert "discreto" in ajuda.AJUDA["mestre sorte"]["detalhes"] and "não mexe nos sorteios da criação nem na iniciativa" in ajuda.AJUDA["mestre sorte"]["detalhes"]   # o que o comando NÃO faz está dito
 print("9. comandos novos OK")
 

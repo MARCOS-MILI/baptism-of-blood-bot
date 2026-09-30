@@ -267,17 +267,20 @@ def _texto_da_habilidade(opcao: dict) -> list[str]:
     return linhas
 
 
-def _campos_da_habilidade(classe: str, escolhida: str | None = None) -> list[tuple[str, str, bool]]:
+def _campos_da_habilidade(classe: str, escolhida: str | None = None, modo: str = "comando") -> list[tuple[str, str, bool]]:
     """Os campos do embed com a habilidade inicial da classe (uma, ou as duas opções). Cada campo cabe nos
-    1024 caracteres do Discord: um texto mais comprido continua num campo seguinte."""
+    1024 caracteres do Discord: um texto mais comprido continua num campo seguinte.
+    modo: 'comando' (manda usar o /habilidade), 'botao' (tem botões embaixo) ou 'previa' (botões, e a escolha
+    ainda não vale: só depois de confirmar)."""
     info = lore.HABILIDADES[classe]
     campos: list[tuple[str, str, bool]] = []
     if info["escolha"]:
         nomes = " ou ".join(f"**{o['nome']}**" for o in info["opcoes"])
-        situacao = (
-            f"Você levou **{escolhida}**." if escolhida
-            else f"Escolha uma das duas: {nomes}. Use `/habilidade` pra escolher."
-        )
+        como = "Use `/habilidade` pra escolher." if modo == "comando" else "Aperta um dos botões abaixo."
+        if escolhida:
+            situacao = f"Você vai levar **{escolhida}**. Confirma nos botões abaixo." if modo == "previa" else f"Você levou **{escolhida}**."
+        else:
+            situacao = f"Escolha uma das duas: {nomes}. {como}"
         campos.append(("Habilidade de classe", situacao, False))
     for opcao in info["opcoes"]:
         nome = f"✨ {opcao['nome']}" + (" ✅" if info["escolha"] and escolhida == opcao["nome"] else "")   # o ✅ só faz sentido onde há escolha
@@ -292,13 +295,13 @@ def _campos_da_habilidade(classe: str, escolhida: str | None = None) -> list[tup
     return campos
 
 
-def _campos_da_classe(classe: str, escolhida: str | None = None) -> list[tuple[str, str, bool]]:
+def _campos_da_classe(classe: str, escolhida: str | None = None, modo: str = "comando") -> list[tuple[str, str, bool]]:
     b = rules.CLASSES[classe]
     return [
         ("Vantagem nas perícias", rules.CLASS_SKILLS[classe], False),
         ("Bônus", f"Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}", False),
         ("Combina com (exemplos)", " · ".join(lore.CLASSE_COMBINA[classe]), False),
-        *_campos_da_habilidade(classe, escolhida),
+        *_campos_da_habilidade(classe, escolhida, modo),
     ]
 
 
@@ -307,26 +310,28 @@ def _descricao_da_classe(classe: str) -> str:
 
 
 def cartao_classe(personagem: str, classe: str, proximo: str, jogador: str | None = None,
-                  escolhida: str | None = None) -> Cartao:
+                  escolhida: str | None = None, com_botoes: bool = False) -> Cartao:
     return _montar(
         autor=f"🎓 Classe de {personagem}",
         titulo=classe,
         cor=lore.COR_CLASSE,
         topo=_descricao_da_classe(classe),
-        campos=[*_campos_da_classe(classe, escolhida), ("Continue a criação", proximo, False)],
+        campos=[*_campos_da_classe(classe, escolhida, "botao" if com_botoes else "comando"), ("Continue a criação", proximo, False)],
         imagem=achar_imagem("classe", classe),
         rodape=f"jogador: {jogador}" if jogador else None,
     )
 
 
-def cartao_habilidade(personagem: str, classe: str, escolhida: str | None, jogador: str | None = None) -> Cartao:
-    """A habilidade de classe do personagem (ou as duas opções, se ele ainda não escolheu)."""
+def cartao_habilidade(personagem: str, classe: str, escolhida: str | None, jogador: str | None = None,
+                      modo: str = "comando") -> Cartao:
+    """A habilidade de classe do personagem (ou as duas opções, se ele ainda não escolheu). modo: ver
+    _campos_da_habilidade."""
     return _montar(
         autor=f"✨ Habilidade de {personagem}",
         titulo=classe,
         cor=lore.COR_CLASSE,
         topo=f"**{lore.CLASSE_FRASE[classe]}**\n{lore.DIVISOR}",
-        campos=_campos_da_habilidade(classe, escolhida),
+        campos=_campos_da_habilidade(classe, escolhida, modo),
         rodape=f"jogador: {jogador}" if jogador else None,
     )
 
@@ -355,16 +360,23 @@ def miniatura_da_ficha(personagem) -> str | None:
     return imagem[1] if imagem and imagem[0] == "url" else None
 
 
-def previa_classe(personagem: str, classe: str) -> discord.Embed:
+def previa_classe(personagem: str, classe: str, habilidade: str | None = None) -> discord.Embed:
     """A classe como prévia, pro menu de escolha do painel. É mensagem privada, que não leva anexo: só usa
-    imagem se for um link direto (IMAGENS_URL)."""
+    imagem se for um link direto (IMAGENS_URL). Nas classes com duas habilidades, 'habilidade' é a que está
+    marcada nos botões (a escolha só vale depois de confirmar)."""
+    if not rules.class_needs_ability_choice(classe):
+        rodape = "Se for essa, aperta **Confirmar classe**. Vale uma vez só."
+    elif habilidade is None:
+        rodape = "Escolhe a habilidade nos botões e depois confirma. Vale uma vez só, a classe e a habilidade juntas."
+    else:
+        rodape = "Se for essa, aperta **Confirmar classe e habilidade**. Vale uma vez só."
     embed = discord.Embed(
         title=f"🎓 {classe}",
-        description=f"{_descricao_da_classe(classe)}\n\nSe for essa, aperta **Confirmar classe**. Vale uma vez só.",
+        description=f"{_descricao_da_classe(classe)}\n\n{rodape}",
         color=lore.COR_CLASSE,
     )
     embed.set_author(name=f"Classe de {personagem}")
-    for nome, valor, em_linha in _campos_da_classe(classe):
+    for nome, valor, em_linha in _campos_da_classe(classe, habilidade, "previa"):
         embed.add_field(name=nome, value=valor, inline=em_linha)
     imagem = achar_imagem("classe", classe)
     if imagem and imagem[0] == "url":
