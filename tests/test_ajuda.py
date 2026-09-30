@@ -149,7 +149,8 @@ assert [c[0] for c in v["campos"]] == ["Seu passo a passo"] + [t for _, t in aju
 assert "/personagem criar" in v["campos"][0][1] and "/ajuda comando:atributos" in v["descricao"]
 assert ajuda.visao_geral(pronta, True, False)["campos"][0][1] == "✅ Ficha pronta. Todos os comandos estão liberados."
 assert "▶️ Sortear a raça: `/raca_inicial`" in ajuda.visao_geral(st(), True, False)["campos"][0][1]
-vm = ajuda.visao_geral(pronta, True, True); assert vm["campos"][-1][0] == "Comandos de mestre" and "`/mestre dar_xp`" in vm["campos"][-1][1]
+vm = ajuda.visao_geral(pronta, True, True); assert "Comandos de mestre" not in [c[0] for c in vm["campos"]] and "/mestre dar_xp" not in str(vm) and "`/mestre ajuda`" in vm["descricao"]      # a ajuda geral não lista mais os comandos de mestre
+assert "/mestre" not in str(ajuda.visao_geral(pronta, True, False)) and "omandos de mestre" not in str(ajuda.visao_geral(pronta, True, False))      # e quem não é mestre nem vê que eles existem
 assert "Comandos de mestre" not in [c[0] for c in ajuda.visao_geral(pronta, True, False)["campos"]]
 print("7. visão geral OK (maior resposta:", max(cabe(ajuda.visao_geral(s, t, m)) for s, t in situacoes for m in (False, True)), "de 6000 caracteres)")
 
@@ -178,5 +179,22 @@ assert ("Dados", ["sorte"]) in ajuda.MESTRE_SUBGRUPOS and "habilidade" in ajuda.
 assert "3#d20+5" in ajuda.AJUDA["rolar"]["detalhes"] and "🍀" in ajuda.AJUDA["rolar"]["detalhes"] and "botões" in ajuda.AJUDA["classe"]["detalhes"] and "`habilidade:`" in ajuda.AJUDA["classe"]["detalhes"] and "botões" in ajuda.AJUDA["habilidade"]["detalhes"] and "+4" in ajuda.AJUDA["niveis"]["detalhes"]
 assert "discreto" in ajuda.AJUDA["mestre sorte"]["detalhes"] and "não mexe nos sorteios da criação nem na iniciativa" in ajuda.AJUDA["mestre sorte"]["detalhes"]   # o que o comando NÃO faz está dito
 print("9. comandos novos OK")
+
+# ---------- 10. a ajuda de mestre é separada ----------
+vm = ajuda.visao_mestre(); assert vm["titulo"] == "🛡️ Ajuda do mestre" and "/mestre ajuda comando:dar_xp" in vm["descricao"]
+assert [c[0] for c in vm["campos"]] == [r for r, _ in ajuda.MESTRE_SUBGRUPOS] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Ajuda", "Jogadores"]
+todos_mestre = [k.split(" ", 1)[1] for k in ajuda.AJUDA if k.startswith("mestre ")]
+assert sorted(c for _, cmds in ajuda.MESTRE_SUBGRUPOS for c in cmds) == sorted(todos_mestre) and len(todos_mestre) == 20            # nenhum comando de mestre fica de fora
+linhas = [l for _, v in vm["campos"] for l in v.split("\n")]; assert len(linhas) == 20 and all(l.startswith("`/mestre ") for l in linhas) and all(len(v) <= 1024 for _, v in vm["campos"])
+assert "`/mestre dar_xp` " + ajuda.AJUDA["mestre dar_xp"]["resumo"] in linhas and "`/mestre ajuda` a ajuda só dos comandos de mestre" in linhas
+assert ajuda.sugestoes_mestre("")[:4] == ["dar_xp", "upar", "corrigir_nivel", "escudo"] and len(ajuda.sugestoes_mestre("")) == 20
+assert ajuda.sugestoes_mestre("xp") == ["dar_xp", "exportar"] and ajuda.sugestoes_mestre(" /ESCUDO ") == ["escudo"] and ajuda.sugestoes_mestre("zzz") == []
+assert ajuda.sugestoes_mestre("corrigir") == ["corrigir_nivel", "corrigir_magia", "corrigir_raca", "corrigir_estado", "corrigir_classe"]
+assert ajuda.achar_mestre("dar_xp") == ("mestre dar_xp", []) and ajuda.achar_mestre("mestre escudo") == ("mestre escudo", []) and ajuda.achar_mestre("/Mestre Sorte") == ("mestre sorte", [])
+assert ajuda.achar_mestre("escud") == ("mestre escudo", [])                                                      # um pedaço que só combina com um
+assert ajuda.achar_mestre("corrigir") == (None, ["corrigir_nivel", "corrigir_magia", "corrigir_raca", "corrigir_estado", "corrigir_classe"])
+assert ajuda.achar_mestre("zzz") == (None, []) and ajuda.achar_mestre("") == (None, []) and ajuda.achar_mestre("rolar") == (None, [])      # comando de jogador não vale aqui
+assert ajuda.AJUDA["mestre ajuda"]["requisito"] == "Só mestres." and 0 < len(ajuda.AJUDA["mestre ajuda"]["detalhes"]) <= 600 and "jogadores não veem" in ajuda.AJUDA["mestre ajuda"]["detalhes"]
+print("10. ajuda de mestre OK")
 
 print("\nTODOS OS TESTES DA AJUDA PASSARAM")

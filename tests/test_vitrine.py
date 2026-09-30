@@ -409,4 +409,21 @@ assert vitrine.cartao_habilidade("Ana", "Clérigo", "Bênção", "J", "previa").
 assert vitrine.cartao_habilidade("Ana", "Clérigo", "Bênção", "J").embed.fields[0].value == "Você levou **Bênção**."
 print("15. classe e habilidade juntas OK")
 
+# ---------- 16. as barras de Vida, Sanidade, Mana e Estamina ----------
+B = vitrine.barra
+assert B(100, 100) == "▰" * 10 and B(0, 100) == "▱" * 10 and B(50, 100) == "▰" * 5 + "▱" * 5
+assert B(1, 100) == "▰" + "▱" * 9 and B(5, 100) == "▰" + "▱" * 9                                              # sobrou alguma coisa: pelo menos um quadrado
+assert B(99, 100) == "▰" * 9 + "▱" and B(95, 100) == "▰" * 9 + "▱"                                          # barra cheia só no máximo de verdade
+assert B(25, 50) == "▰" * 5 + "▱" * 5 and B(3, 5, 5) == "▰▰▰▱▱" and B(0, 0) == "▱" * 10 and B(7, 0) == "▱" * 10 and len(B(13, 37)) == 10
+rec = {"vida": {"total": 100}, "sanidade": {"total": 50}, "mana": {"total": 20}, "estamina": {"total": 30}}
+e = vitrine.embed_vitais("Kairon", rec, {"vida": 30, "mana": 20}, "Marcos"); confere_limites(e)
+assert e.title == "❤️ Vitais de Kairon" and e.footer.text == "jogador: Marcos" and e.color == discord.Color.green()
+assert ("▶️ ❤️ **Vida** · 70/100\n" + "▰" * 7 + "▱" * 3) in e.description and ("▫️ 🧠 **Sanidade** · 50/50\n" + "▰" * 10) in e.description
+assert ("▫️ 🔷 **Mana** · 0/20\n" + "▱" * 10) in e.description and ("▫️ ⚡ **Estamina** · 30/30\n" + "▰" * 10) in e.description and "💀" not in e.description
+assert vitrine.embed_vitais("K", rec, {"mana": 5}, None, "mana").description.count("▶️") == 1 and "▶️ 🔷 **Mana** · 15/20" in vitrine.embed_vitais("K", rec, {"mana": 5}, None, "mana").description and vitrine.embed_vitais("K", rec, {}).footer.text is None
+cores = [vitrine.embed_vitais("K", rec, {"vida": perdido}).color for perdido in (0, 49, 50, 74, 75, 99, 100)]       # vida 100, 51, 50, 26, 25, 1, 0
+assert cores == [discord.Color.green(), discord.Color.green(), discord.Color.orange(), discord.Color.orange(), discord.Color.red(), discord.Color.red(), discord.Color.dark_grey()]
+zero = vitrine.embed_vitais("K", rec, {"vida": 100}); assert zero.description.endswith("💀 **Vida em 0.** Hora de falar com o mestre.") and "▶️ ❤️ **Vida** · 0/100" in zero.description
+print("16. barras OK")
+
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

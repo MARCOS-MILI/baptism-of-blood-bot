@@ -147,6 +147,18 @@ Só **Vampiro e Dhampir** têm. São dez: Potência, Celeridade, Ofuscação, Pr
 - **Não trava a ficha pronta:** um Vampiro pode terminar a criação sem gastar nenhum ponto de Disciplina e gastar depois.
 - A ficha ganha o campo **Disciplinas** (pontos usados e o grau de cada uma). O texto de cada grau fica em `lore.py` (`DISCIPLINAS`). Os graus 4 e 5 são sempre "em aberto".
 
+## Abas da ficha e barras de Vida, Sanidade, Mana e Estamina
+
+A ficha (`/minha_ficha`) agora tem uma linha de **abas** no topo: **📋 Ficha** (os passos da criação, atributos e atalhos) e **❤️ Vitais**. A aba onde a pessoa está fica azul e parada; é só apertar a outra pra trocar. As próximas telas (perícias, habilidades) entram nessa mesma linha.
+
+Na aba **Vitais** a pessoa vê quatro barras (▰▰▰▱▱) com o atual e o máximo de cada vital. Escolhe a barra no menu e usa os botões **-10 -5 -1 +1 +5 +10** pra descer ou subir; **Valor exato** abre um formulário e **Restaurar tudo** é o descanso. A vida ficando em 0 pinta o cartão de cinza e avisa. O máximo vem do cálculo por nível (precisa ter escolhido a classe). O bot guarda quanto o personagem **perdeu**, não o valor atual (tabela `character_vitals`): assim, se o máximo sobe com o nível, o atual sobe junto, e o atual nunca passa do máximo.
+
+## Mestres: ajuda separada e comandos escondidos
+
+- `/mestre ajuda` lista só os comandos de mestre, por assunto, e `/mestre ajuda comando:dar_xp` explica um deles. O `/ajuda` dos jogadores **não lista nem explica** comandos de mestre (quem não é mestre que procura um deles recebe o mesmo "não achei" de qualquer comando que não existe), e o autocomplete dele também não mostra.
+- O grupo `/mestre` fica **escondido** de quem não tem a permissão Gerenciar servidor (`ESCONDER_COMANDOS_DE_MESTRE`, ligado por padrão; `0` desliga). Quem tem só o cargo Mestre precisa ser liberado no Discord: Configurações do servidor, Integrações, o bot, Comandos, `/mestre`, adicionar o cargo. Mesmo escondido, o bot confere de novo quem é mestre em cada comando.
+- O aviso dos resultados especiais marca o cargo Mestre e também os cargos de **administrador** do servidor (até 5, sem os cargos de bot nem o @everyone).
+
 ## Classes e habilidades
 
 São **oito classes**, iguais às do site: Caçador, Clérigo, Feiticeiros, Ladrão, Mercenário, Mestre de Forja, Mundano e Sábio. Clérigo e Mercenário são as novas. Cada classe tem bônus de Vida, Sanidade, Mana e Estamina (em `rules.py`), vantagem em duas perícias e uma habilidade inicial. O texto de cada classe, a frase curta, os exemplos de profissão e as habilidades ficam em `lore.py` (`CLASSES`, `CLASSE_FRASE`, `CLASSE_COMBINA` e `HABILIDADES`), **copiados do site**: o capítulo Habilidades de Classe do site ainda é rascunho, então esses textos mudam quando ele mudar. O cartão da classe mostra tudo isso, e a prévia do menu também.
@@ -316,7 +328,7 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 
 ## Bancos antigos
 
-Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 9, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
+Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 10, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
 
 ## O que ainda falta
 

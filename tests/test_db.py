@@ -40,7 +40,7 @@ db.init_db(p); db.init_db(p)                                              # roda
 with sqlite3.connect(p) as c:
     assert c.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     tabelas = {r[0] for r in c.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%'")}
-assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes","character_disciplines","scenes","scene_participants","scene_intentions","dice_effects"}, tabelas
+assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes","character_disciplines","scenes","scene_participants","scene_intentions","dice_effects","character_vitals"}, tabelas
 print("2. init_db OK")
 
 # ---------- 3. personagens ----------
@@ -503,7 +503,7 @@ print("17. Disciplinas OK")
 # ---------- 18. resultado especial (66 e 77) ----------
 p8 = novo_banco("especial.db")
 cid = db.create_character("1", "Sombra", path=p8)["id"]; G = lambda: db.get_character_by_id(cid, p8)
-assert db.SCHEMA_VERSION == 9 and (G()["race_special"], G()["social_class_special"], G()["magic_rank_special"]) == (None, None, None)
+assert db.SCHEMA_VERSION == 10 and (G()["race_special"], G()["social_class_special"], G()["magic_rank_special"]) == (None, None, None)
 db.set_race(cid, "Humano", 50, p8); assert G()["race_attempts"] == 1
 db.set_special(cid, "race", 66, p8); c = G()                                                        # rolar de novo e cair 66 troca o Humano
 assert (c["race"], c["race_roll"], c["race_set_at"], c["race_special"], c["race_attempts"]) == (None, None, None, 66, 2)
@@ -538,7 +538,7 @@ with sqlite3.connect(p7) as cn:
 with sqlite3.connect(p7) as cn: assert "race_special" not in {r[1] for r in cn.execute("PRAGMA table_info(characters)")}      # de fato é o formato antigo
 db.init_db(p7); db.init_db(p7)                                                                      # duas vezes: idempotente
 with sqlite3.connect(p7) as cn:
-    assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 9      # um banco v7 chega direto na versão atual
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 10      # um banco v7 chega direto na versão atual
     colunas = {r[1] for r in cn.execute("PRAGMA table_info(characters)")}
     assert {"race_special", "social_class_special", "magic_rank_special"} <= colunas
     linha = cn.execute("SELECT name, level, xp, race, race_roll, social_class, class_name, race_attempts, social_class_attempts, race_special, social_class_special, magic_rank_special FROM characters").fetchone()
@@ -591,11 +591,39 @@ with sqlite3.connect(p8) as cn:
     assert not cn.execute("SELECT 1 FROM sqlite_master WHERE name = 'dice_effects'").fetchone()               # de fato é o formato antigo
 db.init_db(p8); db.init_db(p8)                                                                              # duas vezes: idempotente
 with sqlite3.connect(p8) as cn:
-    assert cn.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == 10      # o v8 também chega direto na versão atual
     assert "class_ability" in {r[1] for r in cn.execute("PRAGMA table_info(characters)")} and cn.execute("SELECT COUNT(*) FROM dice_effects").fetchone()[0] == 0
     linha = cn.execute("SELECT name, level, xp, race, race_roll, class_name, class_ability FROM characters").fetchone()
 assert tuple(linha) == ("Kairon Flagon", 4, 6000, "Vampiro", 90, "Mestre de Forja", None)                    # nada mudou
 k8 = db.find_character("7", "Kairon Flagon", p8); db.add_dice_effect(k8["id"], "vantagem", None, 1, False, None, "9", p8); assert len(db.get_dice_effects(k8["id"], p8)) == 1
 print("22. migração v8 -> v9 OK")
+
+# ---------- 23. vitais (Vida, Sanidade, Mana, Estamina) ----------
+p23 = novo_banco("vitais.db")
+vi = db.create_character("1", "Vital", path=p23)["id"]; outro = db.create_character("2", "Outro", path=p23)["id"]
+assert db.get_vitals_lost(vi, p23) == {"vida": 0, "sanidade": 0, "mana": 0, "estamina": 0}                   # quem nunca mexeu não perdeu nada
+db.set_vital_lost(vi, "vida", 12, p23); db.set_vital_lost(vi, "mana", 3, p23); db.set_vital_lost(outro, "vida", 99, p23)
+assert db.get_vitals_lost(vi, p23) == {"vida": 12, "sanidade": 0, "mana": 3, "estamina": 0} and db.get_vitals_lost(outro, p23)["vida"] == 99
+db.set_vital_lost(vi, "vida", 0, p23); assert db.get_vitals_lost(vi, p23)["vida"] == 0 and db.get_vitals_lost(vi, p23)["mana"] == 3
+for args in (("coragem", 1), ("vida", -1), ("vida", "3"), ("vida", None)):
+    try: db.set_vital_lost(vi, *args, path=p23); raise SystemExit(f"deveria recusar {args}")
+    except ValueError: pass
+db.reset_vitals(vi, p23); assert db.get_vitals_lost(vi, p23) == {"vida": 0, "sanidade": 0, "mana": 0, "estamina": 0} and db.get_vitals_lost(outro, p23)["vida"] == 99   # descansar só zera o dele
+db.set_vital_lost(outro, "estamina", 4, p23); db.delete_character(outro, "9", "Mestre", p23); assert db.get_vitals_lost(outro, p23) == {k: 0 for k in rules.VITAL_KEYS}   # excluir leva as barras junto
+print("23. vitais OK")
+
+# ---------- 24. migração v9 -> v10 ----------
+p9 = novo_banco("v9_real.db")
+with sqlite3.connect(p9) as cn:
+    cn.execute("DROP TABLE character_vitals")
+    cn.execute("INSERT INTO characters (user_id, name, name_key, created_at, level, xp, race, class_name) VALUES ('7', 'Kairon Flagon', 'kairon flagon', '2026-09-18T00:00:00+00:00', 4, 6000, 'Vampiro', 'Mestre de Forja')")
+    cn.execute("PRAGMA user_version = 9")
+    assert not cn.execute("SELECT 1 FROM sqlite_master WHERE name = 'character_vitals'").fetchone()
+db.init_db(p9); db.init_db(p9)
+with sqlite3.connect(p9) as cn:
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == 10 and cn.execute("SELECT COUNT(*) FROM character_vitals").fetchone()[0] == 0
+    assert tuple(cn.execute("SELECT name, level, xp, race, class_name FROM characters").fetchone()) == ("Kairon Flagon", 4, 6000, "Vampiro", "Mestre de Forja")
+k9 = db.find_character("7", "Kairon Flagon", p9); db.set_vital_lost(k9["id"], "vida", 5, p9); assert db.get_vitals_lost(k9["id"], p9)["vida"] == 5
+print("24. migração v9 -> v10 OK")
 
 print("\nTODOS OS TESTES DO BANCO PASSARAM")

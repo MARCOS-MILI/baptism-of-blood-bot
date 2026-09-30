@@ -299,4 +299,16 @@ assert "+4 pontos de Perícia" in rules.describe_gains(rules.gains_for_level(3, 
 assert "+4 perícia" in rules.level_line(3, None, "Sábio") and "+2 perícia" in rules.level_line(3) and "+4 perícia" in "\n".join(rules.level_table_lines(2, None, "Sábio"))
 print("9. habilidades de classe e Sábio OK")
 
+# ---------- 10. vitais: o atual é o máximo menos o que perdeu ----------
+assert rules.VITAL_KEYS == ("vida", "sanidade", "mana", "estamina") and set(rules.VITAL_LABELS) == set(rules.VITAL_EMOJI) == set(rules.VITAL_KEYS)
+assert [rules.vital_current(100, p) for p in (0, 30, 100, 150, -5)] == [100, 70, 0, 0, 100]                  # nunca abaixo de 0 nem acima do máximo
+assert rules.vital_current(0, 0) == 0 and rules.vital_current(50, 0) == 50
+assert [rules.vital_lost_after_change(100, 30, d) for d in (-5, -70, -80, 0, 10, 30, 50)] == [35, 100, 100, 30, 20, 0, 0]          # dano chega no 0 e cura para no máximo
+assert rules.vital_lost_after_change(100, 0, -1) == 1 and rules.vital_lost_after_change(100, 100, 1) == 99 and rules.vital_lost_after_change(100, 100, -10) == 100
+assert [rules.vital_lost_for_value(100, v) for v in (0, 40, 100, 250, -3)] == [100, 60, 0, 0, 100]
+assert rules.vital_current(100, rules.vital_lost_for_value(100, 37)) == 37
+# o máximo sobe (nível): o atual sobe junto, porque o que se perdeu continua o mesmo
+assert rules.vital_current(120, 30) == 90 and rules.vital_current(100, 30) == 70
+print("10. vitais OK")
+
 print("\nTODOS OS TESTES DAS REGRAS PASSARAM")

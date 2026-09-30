@@ -287,6 +287,32 @@ def calculate_resources_by_level(attributes_per_level: list[dict[str, int]],
 
 
 # ---------------------------------------------------------------------------
+# Vitais: o quanto o personagem tem AGORA de Vida, Sanidade, Mana e Estamina
+# O bot guarda quanto ele PERDEU (não o valor atual): assim, se o máximo sobe (subiu de nível), o atual sobe
+# junto, e o atual nunca passa do máximo.
+# ---------------------------------------------------------------------------
+VITAL_KEYS = ("vida", "sanidade", "mana", "estamina")
+VITAL_LABELS = {"vida": "Vida", "sanidade": "Sanidade", "mana": "Mana", "estamina": "Estamina"}
+VITAL_EMOJI = {"vida": "❤️", "sanidade": "🧠", "mana": "🔷", "estamina": "⚡"}
+
+
+def vital_current(maximo: int, perdido: int) -> int:
+    """O valor atual: o máximo menos o que perdeu, sem ficar abaixo de 0 nem acima do máximo."""
+    return max(0, min(maximo, maximo - max(0, perdido)))
+
+
+def vital_lost_after_change(maximo: int, perdido: int, delta: int) -> int:
+    """O novo 'perdido' depois de somar 'delta' ao valor atual (negativo = dano, positivo = cura)."""
+    novo = max(0, min(maximo, vital_current(maximo, perdido) + delta))
+    return maximo - novo
+
+
+def vital_lost_for_value(maximo: int, valor: int) -> int:
+    """O 'perdido' que faz o valor atual ser 'valor' (que fica entre 0 e o máximo)."""
+    return maximo - max(0, min(maximo, valor))
+
+
+# ---------------------------------------------------------------------------
 # Atributos
 # ---------------------------------------------------------------------------
 ATTRIBUTES = ("forca", "destreza", "vitalidade", "razao", "vontade", "alma")

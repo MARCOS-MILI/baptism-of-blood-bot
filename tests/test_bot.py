@@ -99,7 +99,7 @@ pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
 assert sorted(o["name"] for o in pay["personagem"]["options"]) == ["criar","excluir","listar","usar"]
-assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","sorte","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
+assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","sorte","ajuda","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
 req = lambda opts: {o["name"] for o in opts if o.get("required")}
 assert req(pay["rolar"]["options"]) == {"dado"} and req(pay["raca_inicial"].get("options", [])) == set()
 assert req(sub_("mestre", "dar_xp")["options"]) == {"usuario", "quantidade"}
@@ -185,7 +185,7 @@ print("B. fluxo básico OK")
 # ============================ C. mestre: permissão e correções ============================
 assert bot._eh_mestre(inter(2,"Zé", admin=True)) and bot._eh_mestre(inter(2,"Zé", manage=True))
 assert bot._eh_mestre(inter(2,"Zé", roles=["mestre"])) and not bot._eh_mestre(inter(2,"Zé", roles=["Jogador"])) and not bot._eh_mestre(inter(2,"Zé"))
-todos = list(bot.mestre_grupo.commands); assert len(todos) == 19
+todos = list(bot.mestre_grupo.commands); assert len(todos) == 20
 for c in todos:                                                     # TODOS os comandos de mestre barram quem não é mestre
     p = inter(3, "Intruso")
     assert run(c._check_can_run(p)) is False, c.name
@@ -871,7 +871,8 @@ assert "▶️ Sortear a raça: `/raca_inicial`" in e.fields[0].value and "Próx
 preparar(210, "Aprendiz"); db.set_attributes(row(210, "Aprendiz")["id"], {"vontade": 6})
 run(bot.ajuda_comando.callback(h, None)); assert sent(h)[1]["embed"].fields[0].value == "✅ Ficha pronta. Todos os comandos estão liberados."
 mh = inter(4, "Mestre Belmont", roles=["Mestre"]); run(bot.ajuda_comando.callback(mh, None)); e = sent(mh)[1]["embed"]
-assert e.fields[-1].name == "Comandos de mestre" and "`/mestre dar_xp`" in e.fields[-1].value and "Você ainda não tem personagem" in e.fields[0].value
+assert "Comandos de mestre" not in [f.name for f in e.fields] and "/mestre dar_xp" not in str(e.to_dict()) and "Você ainda não tem personagem" in e.fields[0].value      # a ajuda geral não lista os de mestre, nem pra mestre
+assert e.description.endswith("🛡️ Você é mestre: os comandos de mestre ficam separados, em `/mestre ajuda`.")
 assert len(e) <= 6000 and all(len(f.value) <= 1024 for f in e.fields)
 
 # /ajuda de um comando
@@ -879,7 +880,7 @@ run(bot.ajuda_comando.callback(h, "atributos")); e = sent(h)[1]["embed"]
 assert sent(h)[1]["ephemeral"] and e.title == "📖 /atributos" and e.description.startswith("Distribui os pontos de atributo.")
 assert {f.name: f.value for f in e.fields}["Como usar"] == "`/atributos forca:2 vitalidade:3 vontade:1`" and "Só depois de escolher a classe" in {f.name: f.value for f in e.fields}["Quando dá pra usar"]
 run(bot.ajuda_comando.callback(h, "/ROLAR")); assert sent(h)[1]["embed"].title == "📖 /rolar"
-run(bot.ajuda_comando.callback(h, "dar_xp")); e = sent(h)[1]["embed"]; assert e.title == "📖 /mestre dar_xp" and e.fields[-1].name == "Quem usa"
+run(bot.ajuda_comando.callback(h, "dar_xp")); assert txt(h) == 'Não achei nenhum comando com "dar_xp". Use `/ajuda` pra ver a lista de comandos.' and sent(h)[1]["ephemeral"]      # o jogador não descobre os comandos de mestre
 run(bot.ajuda_comando.callback(h, "ficha")); assert sent(h)[1]["embed"].title == "📖 /minha_ficha"                              # jogador tem preferência
 run(bot.ajuda_comando.callback(h, "personagem")); print("  ", txt(h)); assert txt(h).startswith('Não achei nenhum comando com "personagem". Quis dizer: `/personagem criar`') and sent(h)[1]["ephemeral"]
 run(bot.ajuda_comando.callback(h, "xyzabc")); assert txt(h) == 'Não achei nenhum comando com "xyzabc". Use `/ajuda` pra ver a lista de comandos.'
@@ -887,11 +888,11 @@ run(bot.ajuda_comando.callback(h, "xyzabc")); assert txt(h) == 'Não achei nenhu
 for arg in (None, "atributos", "rolar", "xyz"):
     a, b = inter(211, "A"), inter(211, "A"); run(bot.ajuda_comando.callback(a, arg)); run(bot.help_comando.callback(b, arg))
     assert txt(a) == txt(b) and sent(a)[1] == sent(b)[1] or (sent(a)[1]["embed"].to_dict() == sent(b)[1]["embed"].to_dict())
-# autocomplete: mestre só aparece pra mestre
+# autocomplete do /ajuda: os comandos de mestre não aparecem pra ninguém (ficam no /mestre ajuda)
 ch = run(bot._autocomplete_comando(inter(212, "J"), "atrib")); assert [(c.name, c.value) for c in ch] == [("/atributos", "atributos")]
-ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "atrib")); assert [c.value for c in ch] == ["atributos", "mestre atributos"]
+ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "atrib")); assert [c.value for c in ch] == ["atributos"]
 ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 22 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
-ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "")); assert len(ch) == 25 and all(len(c.name) <= 100 for c in ch)
+ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "")); assert len(ch) == 22 and not any(c.value.startswith("mestre ") for c in ch) and all(len(c.name) <= 100 for c in ch)
 print("M. /ajuda OK")
 
 # ============================ N. reabrir a ficha e a chavinha ORDEM_DA_CRIACAO ============================
@@ -1280,7 +1281,11 @@ def botao(view, rotulo, emoji=None):
     achados = [b for b in view.children if isinstance(b, discord.ui.Button) and b.label == rotulo and (emoji is None or str(b.emoji) == emoji)]
     assert len(achados) == 1, (rotulo, emoji, [(b.label, str(b.emoji)) for b in view.children if isinstance(b, discord.ui.Button)])
     return achados[0]
-def estado(view): return {b.label: (str(b.emoji), b.disabled) for b in view.children if isinstance(b, discord.ui.Button)}
+def estado(view):
+    """Rótulo -> (emoji, desligado) dos botões. Nas telas com abas (ficha e vitais) a linha das abas fica de fora: ela tem testes próprios."""
+    abas = isinstance(view, (paineis.PainelFicha, paineis.PainelVitais))
+    return {b.label: (str(b.emoji), b.disabled) for b in view.children if isinstance(b, discord.ui.Button) and not (abas and b.row == 0)}
+def estado_completo(view): return {b.label: (str(b.emoji), b.disabled) for b in view.children if isinstance(b, discord.ui.Button)}
 def seletor(view):
     achados = [c for c in view.children if isinstance(c, discord.ui.Select)]; return achados[0] if achados else None
 def confere_componentes(view):
@@ -1675,7 +1680,7 @@ run(bot.mestre_ficha.callback(gm, a950, None)); assert "Disciplinas" in campos(g
 
 # --- o botão na ficha ---
 pv = painel_de(950, "Vlad Vampiro", "Vlad"); pv.origem = v; confere_componentes(pv)
-assert estado(pv)["Disciplinas"] == ("🩸", False) and botao(pv, "Disciplinas").style == discord.ButtonStyle.primary and botao(pv, "Disciplinas").row == 0
+assert estado(pv)["Disciplinas"] == ("🩸", False) and botao(pv, "Disciplinas").style == discord.ButtonStyle.primary and botao(pv, "Disciplinas").row == 1
 assert "Disciplinas" not in estado(painel_de(952, "Hugo Humano", "Hugo"))                          # Humano não tem o botão
 
 # --- o painel: menu, texto de cada grau e subir um grau por clique ---
@@ -2320,5 +2325,113 @@ run(bot.mestre_corrigir_classe.callback(gm, alvo(1330, "Vel"), "Ladrão", None))
 # classe de uma habilidade só nunca mostra o botão
 assert "Habilidade" not in estado(painel_de(1301, "Beto Um", "Beto")) and estado(painel_de(1301, "Beto Um", "Beto"))["Classe"] == ("✅", True)
 print("X4. classe e habilidade por botão OK")
+
+# ============================ Y. as abas e as barras de Vida, Sanidade, Mana e Estamina ============================
+def vitais_de(uid, nome): return db.get_vitals_lost(row(uid, nome)["id"])
+def desc_de(c): return editada(c)["embed"].description
+yv = pronto(1400, "Vit", "Vital Vit", classe="Caçador"); YC = row(1400, "Vital Vit")["id"]
+db.set_attributes(YC, {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 2, "alma": 1})     # Caçador: Vida 3x5+35=50, Sanidade 2x5+15=25, Mana (1+2)x3+5=14, Estamina (2+3)x3+20=35
+# --- as abas ---
+pf = painel_de(1400, "Vital Vit", "Vit")
+assert estado_completo(pf)["Ficha"] == ("📋", True) and estado_completo(pf)["Vitais"] == ("❤️", False) and botao(pf, "Ficha").style == discord.ButtonStyle.primary and botao(pf, "Vitais").style == discord.ButtonStyle.secondary
+assert botao(pf, "Ficha").row == 0 and botao(pf, "Vitais").row == 0 and all(b.row >= 1 for b in pf.children if b.label not in ("Ficha", "Vitais")); confere_componentes(pf)
+c = clique(pf, "Vitais", 1400, "Vit"); pv = editada(c)["view"]
+assert isinstance(pv, paineis.PainelVitais) and pf.is_finished() and pv.selecionado == "vida" and editada(c)["embed"].title == "❤️ Vitais de Vital Vit"; confere_componentes(pv)
+assert estado_completo(pv) == {"Ficha": ("📋", False), "Vitais": ("❤️", True), "-10": ("None", False), "-5": ("None", False), "-1": ("None", False), "+1": ("None", False), "+5": ("None", False), "+10": ("None", False), "Valor exato": ("✏️", False), "Restaurar tudo": ("♻️", False)}
+assert [b.label for b in pv.children if isinstance(b, discord.ui.Button) and b.row == 2] == ["-10", "-5", "-1", "+1", "+5"] and [b.label for b in pv.children if isinstance(b, discord.ui.Button) and b.row == 3] == ["+10", "Valor exato", "Restaurar tudo"]
+assert botao(pv, "-5").style == discord.ButtonStyle.danger and botao(pv, "+5").style == discord.ButtonStyle.success
+sel = seletor(pv); assert sel.placeholder == "1. Escolhe a barra" and [(o.label, o.value, o.description, o.default) for o in sel.options] == [("Vida", "vida", "50/50", True), ("Sanidade", "sanidade", "25/25", False), ("Mana", "mana", "14/14", False), ("Estamina", "estamina", "35/35", False)]
+d = desc_de(c); assert "▶️ ❤️ **Vida** · 50/50\n" + "▰" * 10 in d and "▫️ 🧠 **Sanidade** · 25/25" in d and "▫️ 🔷 **Mana** · 14/14" in d and "▫️ ⚡ **Estamina** · 35/35" in d and "1. Escolhe a barra" not in d and "**1.** Escolhe a barra no menu" in d
+# --- dano e cura ---
+c = clique(pv, "-10", 1400, "Vit"); assert vitais_de(1400, "Vital Vit")["vida"] == 10 and "▶️ ❤️ **Vida** · 40/50\n" + "▰" * 8 + "▱" * 2 in desc_de(c) and editada(c)["view"] is pv
+c = clique(pv, "-5", 1400, "Vit"); c = clique(pv, "-1", 1400, "Vit"); assert vitais_de(1400, "Vital Vit")["vida"] == 16 and "Vida** · 34/50" in desc_de(c)
+assert seletor(pv).options[0].description == "34/50"                                                        # o menu também mostra o atual
+for _ in range(5): c = clique(pv, "-10", 1400, "Vit")                                                       # dano demais: para no 0
+assert vitais_de(1400, "Vital Vit")["vida"] == 50 and "Vida** · 0/50" in desc_de(c) and "💀 **Vida em 0.**" in desc_de(c) and editada(c)["embed"].color == discord.Color.dark_grey()
+c = clique(pv, "+10", 1400, "Vit"); assert "Vida** · 10/50" in desc_de(c) and "💀" not in desc_de(c)
+for _ in range(6): c = clique(pv, "+10", 1400, "Vit")                                                       # cura demais: para no máximo
+assert vitais_de(1400, "Vital Vit")["vida"] == 0 and "Vida** · 50/50" in desc_de(c)
+# --- trocar de barra ---
+sel = seletor(pv); sel._values = ["mana"]; c = inter(1400, "Vit"); runp(sel.callback(c))
+assert pv.selecionado == "mana" and "▶️ 🔷 **Mana** · 14/14" in desc_de(c) and "▫️ ❤️ **Vida** · 50/50" in desc_de(c) and [o.default for o in seletor(pv).options] == [False, False, True, False]
+c = clique(pv, "-5", 1400, "Vit"); assert vitais_de(1400, "Vital Vit") == {"vida": 0, "sanidade": 0, "mana": 5, "estamina": 0} and "Mana** · 9/14" in desc_de(c)            # mexeu só na Mana
+sel = seletor(pv); sel._values = ["coragem"]; c = inter(1400, "Vit"); runp(sel.callback(c)); assert c.response.send_message.call_args.args[0] == "Não conheço essa barra. Escolhe uma do menu." and pv.selecionado == "mana"
+# --- valor exato ---
+c = clique(pv, "Valor exato", 1400, "Vit"); m = c.response.send_modal.call_args.args[0]
+assert isinstance(m, paineis.ModalValorExato) and m.title == "Mana: valor exato" and m.campo.default == "9" and m.campo.label == "Quanto de Mana você tem agora? (0 a 14)" and m.campo.required
+def enviar_valor(texto): m.campo._value = texto; c = inter(1400, "Vit"); runp(m.on_submit(c)); return c
+c = enviar_valor("3"); assert vitais_de(1400, "Vital Vit")["mana"] == 11 and "Mana** · 3/14" in desc_de(c) and editada(c)["view"] is pv
+c = enviar_valor("99"); assert vitais_de(1400, "Vital Vit")["mana"] == 0 and "Mana** · 14/14" in desc_de(c)                                   # passou do máximo: fica no máximo
+c = enviar_valor("0"); assert vitais_de(1400, "Vital Vit")["mana"] == 14
+for ruim in ("abc", "-2", "", "3.5", "1 2"):
+    c = enviar_valor(ruim); assert c.response.send_message.call_args.args[0] == "Escreve só um número, tipo 12." and c.response.send_message.call_args.kwargs["ephemeral"] and vitais_de(1400, "Vital Vit")["mana"] == 14
+# --- restaurar tudo ---
+for chave in ("vida", "estamina"): db.set_vital_lost(YC, chave, 7)
+c = clique(pv, "Restaurar tudo", 1400, "Vit"); assert vitais_de(1400, "Vital Vit") == {k: 0 for k in rules.VITAL_KEYS} and "Vida** · 50/50" in desc_de(c) and "Estamina** · 35/35" in desc_de(c)
+# --- o máximo sobe, o atual sobe junto ---
+db.set_vital_lost(YC, "vida", 10); db.set_attributes(YC, {"vitalidade": 4})
+pv2 = criar(paineis.PainelVitais, 1400, YC, "Vit"); assert "Vida** · 45/55" in pv2.embed().description                    # máximo 4x5+35=55, perdeu 10
+db.set_attributes(YC, {"vitalidade": 3}); db.reset_vitals(YC)
+# --- só o dono mexe, e a volta pra ficha guarda o que foi feito ---
+assert runp(pv.interaction_check(inter(999, "Intruso"))) is False and runp(pv.interaction_check(inter(1400, "Vit"))) is True
+db.set_vital_lost(YC, "vida", 20)
+c = clique(pv, "Ficha", 1400, "Vit"); pf2 = editada(c)["view"]; assert isinstance(pf2, paineis.PainelFicha) and pv.is_finished() and estado_completo(pf2)["Ficha"] == ("📋", True) and estado(pf2)["Classe"] == ("✅", True)
+c = clique(pf2, "Vitais", 1400, "Vit"); assert "Vida** · 30/50" in desc_de(c)                                # os números continuam lá
+# --- sem classe não tem máximo: a aba avisa em vez de quebrar ---
+sc = novo(1401, "Sem", "Sem Classe"); psc = painel_de(1401, "Sem Classe", "Sem"); c = clique(psc, "Vitais", 1401, "Sem"); pvs = editada(c)["view"]
+assert "ainda não tem" in desc_de(c) and "aba **Ficha**" in desc_de(c) and set(estado_completo(pvs)) == {"Ficha", "Vitais"} and seletor(pvs) is None
+c = inter(1401, "Sem"); runp(pvs._mudar(5, c)); runp(pvs.aplicar_valor(c, 3)); assert vitais_de(1401, "Sem Classe") == {k: 0 for k in rules.VITAL_KEYS}    # sem classe, nada é gravado
+print("Y. abas e vitais OK")
+
+# ============================ Z. comandos de mestre separados e escondidos, e o aviso dos ADMs no resultado especial ============================
+gm_ = inter(4, "Mestre Belmont", roles=["Mestre"]); jog = inter(1500, "Jogador")
+# --- /mestre ajuda: só mestre ---
+assert bot._eh_mestre in bot.mestre_ajuda.checks and bot._eh_mestre(jog) is False
+run(bot.mestre_ajuda.callback(gm_, None)); e = sent(gm_)[1]["embed"]
+assert sent(gm_)[1]["ephemeral"] and e.title == "🛡️ Ajuda do mestre" and [f.name for f in e.fields] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Ajuda", "Jogadores"] and len(e) <= 6000
+assert sum(f.value.count("`/mestre ") for f in e.fields) == 20 and "`/mestre sorte` mexe na sorte dos d20 de um personagem" in e.fields[2].value
+run(bot.mestre_ajuda.callback(gm_, "dar_xp")); e = sent(gm_)[1]["embed"]; assert e.title == "📖 /mestre dar_xp" and sent(gm_)[1]["ephemeral"]
+run(bot.mestre_ajuda.callback(gm_, "mestre sorte")); assert sent(gm_)[1]["embed"].title == "📖 /mestre sorte"
+run(bot.mestre_ajuda.callback(gm_, "corrigir")); assert txt(gm_) == "Não achei nenhum comando de mestre com \"corrigir\". Quis dizer: `/mestre corrigir_nivel`, `/mestre corrigir_magia`, `/mestre corrigir_raca`, `/mestre corrigir_estado`, `/mestre corrigir_classe`?"
+run(bot.mestre_ajuda.callback(gm_, "zzz")); assert txt(gm_) == "Não achei nenhum comando de mestre com \"zzz\". Usa `/mestre ajuda` pra ver a lista."
+assert [c.value for c in run(bot._autocomplete_comando_mestre(gm_, "xp"))] == ["dar_xp", "exportar"] and [c.name for c in run(bot._autocomplete_comando_mestre(gm_, "escudo"))] == ["/mestre escudo"]
+assert run(bot._autocomplete_comando_mestre(jog, "")) == []                                                      # quem não é mestre não vê nem o autocomplete
+pm = {c.name: c.to_dict(bot.bot.tree) for c in bot.bot.tree.get_commands()}["mestre"]; aj = [o for o in pm["options"] if o["name"] == "ajuda"][0]
+assert len(aj["description"]) <= 100 and [o["name"] for o in aj["options"]] == ["comando"] and not aj["options"][0].get("required") and aj["options"][0].get("autocomplete")
+# --- o /ajuda dos jogadores: os comandos de mestre não existem ---
+for quem in (jog, gm_):
+    ch = run(bot._autocomplete_comando(quem, "")); assert ch and not any("mestre" in c.value for c in ch) and not any("mestre" in c.value for c in run(bot._autocomplete_comando(quem, "mestre")))      # nem pro mestre: fica no /mestre ajuda
+for buscado in ("mestre dar_xp", "dar_xp", "sorte", "escudo", "mestre"):
+    jog2 = inter(1500, "Jogador"); run(bot.ajuda_comando.callback(jog2, buscado)); t = txt(jog2)
+    assert t.startswith(f"Não achei nenhum comando com \"{buscado}\".") and "Quis dizer" not in t and "`/mestre" not in t and t.endswith("Use `/ajuda` pra ver a lista de comandos."), buscado      # sem dica que revele os comandos
+gm2 = inter(4, "Mestre Belmont", roles=["Mestre"]); run(bot.ajuda_comando.callback(gm2, "mestre dar_xp")); assert sent(gm2)[1]["embed"].title == "📖 /mestre dar_xp"      # o mestre ainda pode por aqui
+jog3 = inter(1500, "Jogador"); run(bot.help_comando.callback(jog3, "mestre dar_xp")); assert txt(jog3).startswith("Não achei nenhum comando")
+# --- o grupo /mestre fica escondido de quem não tem Gerenciar servidor ---
+assert bot.ESCONDER_COMANDOS_DE_MESTRE is True and pm["default_member_permissions"] == discord.Permissions(manage_guild=True).value == 32 and pm["dm_permission"] is False
+assert [c.name for c in bot.bot.tree.get_commands() if c.to_dict(bot.bot.tree).get("default_member_permissions") is not None] == ["mestre"]    # os comandos dos jogadores continuam visíveis pra todos
+# --- 66 e 77 marcam o mestre e os ADMs do servidor ---
+def cargo(id_, nome, adm=False, bot_=False): return NS(id=id_, name=nome, mention=f"<@&{id_}>" if nome != "@everyone" else "@everyone", permissions=NS(administrator=adm), managed=bot_)
+todos_ = cargo(1, "@everyone"); r_mestre = cargo(555, "Mestre"); r_dono = cargo(777, "Dono", adm=True); r_bot = cargo(888, "Baptism of Blood", adm=True, bot_=True); r_jogador = cargo(999, "Jogador")
+def com_cargos(i, *cargos): i.guild = NS(roles=list(cargos)); return i
+za = com_cargos(novo(1510, "Zé", "Zé Adm"), todos_, r_jogador, r_mestre, r_dono, r_bot)
+with dados(66): run(bot.raca_inicial.callback(za, None))
+kw = sent(za)[1]; assert kw["content"] == "<@&555> <@&777>" and kw["allowed_mentions"].roles == [r_mestre, r_dono]       # o mestre e o ADM; nem o bot, nem o @everyone, nem o cargo de jogador
+assert cartao_de(za).color.value == 0xC0392B and so_interrogacao(cartao_de(za))
+zs = com_cargos(novo(1511, "Zé", "Zé Sem Mestre"), todos_, r_dono, r_bot)                                        # sem cargo de mestre: só os ADMs
+with dados(77): run(bot.classe_social.callback(zs, None))
+assert sent(zs)[1]["content"] == "<@&777>" and sent(zs)[1]["allowed_mentions"].roles == [r_dono] and cartao_de(zs).color.value == 0xF1C40F
+zn = com_cargos(novo(1512, "Zé", "Zé Ninguém"), todos_, r_jogador, r_bot)                                        # ninguém pra marcar: o cartão sai igual, sem marcação
+with dados(66): run(bot.raca_inicial.callback(zn, None))
+assert "content" not in sent(zn)[1] and "allowed_mentions" not in sent(zn)[1] and so_interrogacao(cartao_de(zn))
+muitos = [cargo(2000 + k, f"Adm{k}", adm=True) for k in range(8)]; zm = com_cargos(novo(1513, "Zé", "Zé Muitos"), r_mestre, *muitos)
+vm_ = vampiro_sem_magia(1514, "Mago", "Zé Mago"); com_cargos(vm_, r_mestre, r_dono)
+with dados(77): run(bot.magia_inicial.callback(vm_, None))
+assert sent(vm_)[1]["content"] == "<@&555> <@&777>"                                                              # na magia também
+with dados(66): run(bot.raca_inicial.callback(zm, None))
+assert sent(zm)[1]["content"].count("<@&") == 5 == len(sent(zm)[1]["allowed_mentions"].roles) and sent(zm)[1]["content"].startswith("<@&555> <@&2000>")      # no máximo 5 cargos
+zc = com_cargos(novo(1515, "Zé", "Zé Cem"), todos_, r_mestre, r_dono)                                            # o 100 da classe social segue marcando só o cargo de mestre
+with dados(100): run(bot.classe_social.callback(zc, None))
+assert sent(zc)[1]["content"] == "<@&555>" and sent(zc)[1]["allowed_mentions"].roles == [r_mestre]
+print("Z. mestre separado e 66/77 OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

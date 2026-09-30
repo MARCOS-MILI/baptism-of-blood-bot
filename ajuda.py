@@ -291,6 +291,16 @@ AJUDA = {
         ),
         "requisito": "Só mestres.",
     },
+    "mestre ajuda": {
+        "grupo": "mestre",
+        "resumo": "a ajuda só dos comandos de mestre",
+        "uso": "/mestre ajuda comando:dar_xp",
+        "detalhes": (
+            "Lista os comandos de mestre por assunto e explica cada um, com exemplo. É separada do `/ajuda` de "
+            "propósito: os jogadores não veem os comandos de mestre nem esta ajuda. Sem `comando`, mostra a lista toda."
+        ),
+        "requisito": "Só mestres.",
+    },
     "mestre sorte": {
         "grupo": "mestre",
         "resumo": "mexe na sorte dos d20 de um personagem",
@@ -420,6 +430,7 @@ MESTRE_SUBGRUPOS = [
     ("Dados", ["sorte"]),
     ("Sorteios", ["apagar", "corrigir_magia", "corrigir_raca", "corrigir_estado"]),
     ("Cena", ["escudo"]),
+    ("Ajuda", ["ajuda"]),
     ("Jogadores", ["jogador", "vagas", "excluir_personagem", "apagar_historico", "exportar"]),
 ]
 
@@ -615,17 +626,47 @@ def visao_geral(status: dict | None, tem_personagem: bool, mestre: bool) -> dict
     for gid, titulo in GRUPOS:
         linhas = [f"`/{k}` {e['resumo']}" for k, e in AJUDA.items() if e["grupo"] == gid]
         campos.append((titulo, "\n".join(linhas)))
-    if mestre:
-        linhas = [
-            f"**{rotulo}:** " + ", ".join(f"`/mestre {c}`" for c in cmds) for rotulo, cmds in MESTRE_SUBGRUPOS
-        ]
-        campos.append(("Comandos de mestre", "\n".join(linhas)))
     return {
         "titulo": "📖 Ajuda do bot",
         "descricao": (
             "É só digitar `/` e escolher o comando. Pra ver como usar um deles, com exemplo, usa "
             "`/ajuda comando:nome`, tipo `/ajuda comando:atributos`."
             + (f"\n\n🎲 Pra rolar dado, nem precisa de barra: escreve `d20+5` no chat." if _dados_por_texto else "")
+            + ("\n\n🛡️ Você é mestre: os comandos de mestre ficam separados, em `/mestre ajuda`." if mestre else "")
         ),
         "campos": campos,
     }
+
+
+def visao_mestre() -> dict:
+    """O /mestre ajuda: só os comandos de mestre, por assunto. Quem não é mestre nunca vê isso."""
+    campos = []
+    for rotulo, cmds in MESTRE_SUBGRUPOS:
+        linhas = [f"`/mestre {c}` {AJUDA[f'mestre {c}']['resumo']}" for c in cmds]
+        campos.append((rotulo, "\n".join(linhas)))
+    return {
+        "titulo": "🛡️ Ajuda do mestre",
+        "descricao": (
+            "Só quem é mestre vê esta ajuda e os comandos `/mestre`. Pra ver como usar um deles, com exemplo, usa "
+            "`/mestre ajuda comando:nome`, tipo `/mestre ajuda comando:dar_xp`."
+        ),
+        "campos": campos,
+    }
+
+
+def sugestoes_mestre(texto: str) -> list[str]:
+    """Os nomes dos comandos de mestre (sem o 'mestre ') pro autocomplete do /mestre ajuda."""
+    t = _normalizar(texto)
+    nomes = [k.split(" ", 1)[1] for k in AJUDA if k.startswith("mestre ")]
+    return [n for n in nomes if not t or t in n][:25]
+
+
+def achar_mestre(texto: str) -> tuple[str | None, list[str]]:
+    """Acha um comando de mestre pelo que foi digitado (com ou sem o 'mestre '). Devolve (chave, sugestões)."""
+    t = _normalizar(texto)
+    t = t[len("mestre "):] if t.startswith("mestre ") else t
+    nomes = [k.split(" ", 1)[1] for k in AJUDA if k.startswith("mestre ")]
+    if t in nomes:
+        return f"mestre {t}", []
+    achados = [n for n in nomes if t and t in n]
+    return (f"mestre {achados[0]}", []) if len(achados) == 1 else (None, achados[:5])

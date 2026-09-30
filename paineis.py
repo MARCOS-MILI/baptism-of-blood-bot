@@ -42,6 +42,7 @@ class Ganchos:
     niveis: Callable            # async (coletor, nome_do_personagem)
     ajuda: Callable             # async (coletor)
     ordem_ligada: Callable      # () -> bool (a chavinha ORDEM_DA_CRIACAO, lida na hora)
+    recursos: Callable          # (personagem) -> {vida, sanidade, mana, estamina: {total...}} (o máximo de cada vital)
 
 
 GANCHOS: Ganchos | None = None
@@ -64,6 +65,32 @@ class _Resposta:
 
     def is_done(self) -> bool:
         return False
+
+
+ABAS = (("ficha", "📋", "Ficha"), ("vitais", "❤️", "Vitais"))
+
+
+def adicionar_abas(view: "_Painel", atual: str) -> None:
+    """A linha de cima de todas as telas principais: pra onde ir. A aba onde a pessoa está fica azul e parada."""
+    for chave, emoji, rotulo in ABAS:
+        aqui = chave == atual
+        botao = discord.ui.Button(
+            label=rotulo, emoji=emoji, row=0, disabled=aqui,
+            style=discord.ButtonStyle.primary if aqui else discord.ButtonStyle.secondary,
+        )
+        botao.callback = functools.partial(_ir_pra_aba, view, chave)
+        view.add_item(botao)
+
+
+async def _ir_pra_aba(view: "_Painel", chave: str, interaction: discord.Interaction) -> None:
+    if chave == "vitais":
+        nova = PainelVitais(view.dono_id, view.personagem_id, view.jogador)
+        embed = nova.embed()
+    else:
+        nova = PainelFicha(view.dono_id, view.personagem_id, view.jogador)
+        embed = GANCHOS.embed_ficha(nova.personagem(), view.jogador)
+    view.passar_pra(nova)
+    await interaction.response.edit_message(embed=embed, view=nova)
 
 
 class Coletor:
@@ -197,35 +224,36 @@ class PainelFicha(_Painel):
         char = self.personagem()
         status = rules.creation_status(char)
         ordem = GANCHOS.ordem_ligada()
+        adicionar_abas(self, "ficha")
 
         for passo, emoji, rotulo in _BOTOES_DE_PASSO:
             situacao = estado_do_passo(status, passo, ordem, char)
             if situacao == "repetir":
                 restam = rules.attempts_left(char, _CAMPO_DO_PASSO[passo])
-                botao = discord.ui.Button(label=f"{rotulo} ({restam})", emoji="🔄", style=discord.ButtonStyle.secondary, row=0)
+                botao = discord.ui.Button(label=f"{rotulo} ({restam})", emoji="🔄", style=discord.ButtonStyle.secondary, row=1)
                 botao.callback = functools.partial(self._clicou_passo, passo)
             elif situacao == "feito" and passo == "classe" and habilidade_pendente(char):
-                botao = discord.ui.Button(label="Habilidade", emoji="✨", style=discord.ButtonStyle.primary, row=0)
+                botao = discord.ui.Button(label="Habilidade", emoji="✨", style=discord.ButtonStyle.primary, row=1)
                 botao.callback = self._abrir_habilidade
             elif situacao == "feito":
-                botao = discord.ui.Button(label=rotulo, emoji="✅", style=discord.ButtonStyle.success, disabled=True, row=0)
+                botao = discord.ui.Button(label=rotulo, emoji="✅", style=discord.ButtonStyle.success, disabled=True, row=1)
             elif situacao == "nao_se_aplica":
-                botao = discord.ui.Button(label="Sem magia", emoji="➖", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+                botao = discord.ui.Button(label="Sem magia", emoji="➖", style=discord.ButtonStyle.secondary, disabled=True, row=1)
             elif situacao == "especial":
-                botao = discord.ui.Button(label=rotulo, emoji="❓", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+                botao = discord.ui.Button(label=rotulo, emoji="❓", style=discord.ButtonStyle.secondary, disabled=True, row=1)
             elif situacao == "aguardando":
-                botao = discord.ui.Button(label=rotulo, emoji="⏳", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+                botao = discord.ui.Button(label=rotulo, emoji="⏳", style=discord.ButtonStyle.secondary, disabled=True, row=1)
             elif situacao == "travado":
-                botao = discord.ui.Button(label=rotulo, emoji="🔒", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+                botao = discord.ui.Button(label=rotulo, emoji="🔒", style=discord.ButtonStyle.secondary, disabled=True, row=1)
             else:
-                botao = discord.ui.Button(label=rotulo, emoji=emoji, style=discord.ButtonStyle.primary, row=0)
+                botao = discord.ui.Button(label=rotulo, emoji=emoji, style=discord.ButtonStyle.primary, row=1)
                 botao.callback = functools.partial(self._clicou_passo, passo)
             self.add_item(botao)
 
         if rules.has_disciplines(char["race"]):
             livres = rules.discipline_points_free(char["level"], char["race"], db.get_disciplines(char["id"]))
             botao = discord.ui.Button(
-                label="Disciplinas", emoji="🩸", row=0,
+                label="Disciplinas", emoji="🩸", row=1,
                 style=discord.ButtonStyle.primary if livres > 0 else discord.ButtonStyle.secondary,
             )
             botao.callback = self._abrir_disciplinas
@@ -235,12 +263,12 @@ class PainelFicha(_Painel):
         liberado = not (ordem and rules.creation_missing_before("atributos", status)) and bool(char["race"])
         sobra = pontos_livres(char) > 0
         for grupo, (emoji, rotulo, _, _) in GRUPOS_ATRIBUTOS.items():
-            botao = discord.ui.Button(label=rotulo, emoji=emoji, style=discord.ButtonStyle.primary, row=1, disabled=not (liberado and sobra))
+            botao = discord.ui.Button(label=rotulo, emoji=emoji, style=discord.ButtonStyle.primary, row=2, disabled=not (liberado and sobra))
             botao.callback = functools.partial(self._abrir_atributos, grupo)
             self.add_item(botao)
 
         for emoji, rotulo, acao in (("🎲", "Dados", self._abrir_dados), ("📈", "Níveis", self._ver_niveis), ("❓", "Ajuda", self._ver_ajuda)):
-            botao = discord.ui.Button(label=rotulo, emoji=emoji, style=discord.ButtonStyle.secondary, row=1)
+            botao = discord.ui.Button(label=rotulo, emoji=emoji, style=discord.ButtonStyle.secondary, row=2)
             botao.callback = acao
             self.add_item(botao)
 
@@ -253,7 +281,7 @@ class PainelFicha(_Painel):
                 )
                 for p in personagens[:25]
             ]
-            seletor = discord.ui.Select(placeholder="Trocar de personagem", options=opcoes, row=2)
+            seletor = discord.ui.Select(placeholder="Trocar de personagem", options=opcoes, row=3)
             seletor.callback = functools.partial(self._trocar_personagem, seletor)
             self.add_item(seletor)
 
@@ -609,6 +637,131 @@ class EscolhaDeHabilidade(_Painel):
         painel = PainelFicha(self.dono_id, self.personagem_id, self.jogador)
         self.passar_pra(painel)
         await entregar(interaction, coletor, GANCHOS.embed_ficha(painel.personagem(), self.jogador), painel)
+
+
+# ---------------------------------------------------------------------------
+# Vitais: as barras de Vida, Sanidade, Mana e Estamina, pra subir e descer com botões
+# ---------------------------------------------------------------------------
+class PainelVitais(_Painel):
+    """Escolhe a barra no menu e aperta os botões. O bot guarda quanto o personagem perdeu de cada uma."""
+
+    def __init__(self, dono_id: int, personagem_id: int, jogador: str, selecionado: str = "vida"):
+        super().__init__(dono_id)
+        self.personagem_id = personagem_id
+        self.jogador = jogador
+        self.selecionado = selecionado if selecionado in rules.VITAL_KEYS else "vida"
+        self._montar()
+
+    def personagem(self):
+        return db.get_character_by_id(self.personagem_id)
+
+    def _dados(self):
+        char = self.personagem()
+        return char, GANCHOS.recursos(char), db.get_vitals_lost(char["id"])
+
+    def embed(self) -> discord.Embed:
+        char, recursos, perdidos = self._dados()
+        if recursos is None:
+            return discord.Embed(
+                title=f"❤️ Vitais de {char['name']}",
+                description=(
+                    "As barras de Vida, Sanidade, Mana e Estamina dependem da classe, e **{nome}** ainda não tem. "
+                    "Vai na aba **Ficha** e aperta **Classe**."
+                ).format(nome=char["name"]),
+                color=discord.Color.dark_grey(),
+            )
+        return vitrine.embed_vitais(char["name"], recursos, perdidos, self.jogador, self.selecionado)
+
+    def _montar(self) -> None:
+        self.clear_items()
+        adicionar_abas(self, "vitais")
+        _, recursos, perdidos = self._dados()
+        if recursos is None:   # sem classe não há máximo: só as abas
+            return
+        opcoes = [
+            discord.SelectOption(
+                label=rules.VITAL_LABELS[k], value=k, emoji=rules.VITAL_EMOJI[k], default=k == self.selecionado,
+                description=f"{rules.vital_current(recursos[k]['total'], perdidos.get(k, 0))}/{recursos[k]['total']}",
+            )
+            for k in rules.VITAL_KEYS
+        ]
+        seletor = discord.ui.Select(placeholder="1. Escolhe a barra", options=opcoes, row=1)
+        seletor.callback = functools.partial(self._escolheu, seletor)
+        self.add_item(seletor)
+        for delta, linha in ((-10, 2), (-5, 2), (-1, 2), (1, 2), (5, 2), (10, 3)):
+            botao = discord.ui.Button(
+                label=f"{delta:+d}", row=linha,
+                style=discord.ButtonStyle.danger if delta < 0 else discord.ButtonStyle.success,
+            )
+            botao.callback = functools.partial(self._mudar, delta)
+            self.add_item(botao)
+        exato = discord.ui.Button(label="Valor exato", emoji="✏️", style=discord.ButtonStyle.secondary, row=3)
+        exato.callback = self._valor_exato
+        restaurar = discord.ui.Button(label="Restaurar tudo", emoji="♻️", style=discord.ButtonStyle.secondary, row=3)
+        restaurar.callback = self._restaurar
+        self.add_item(exato)
+        self.add_item(restaurar)
+
+    async def _redesenhar(self, interaction: discord.Interaction) -> None:
+        self._montar()
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+    async def _escolheu(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        if seletor.values[0] not in rules.VITAL_KEYS:
+            await interaction.response.send_message("Não conheço essa barra. Escolhe uma do menu.", ephemeral=True)
+            return
+        self.selecionado = seletor.values[0]
+        await self._redesenhar(interaction)
+
+    async def _mudar(self, delta: int, interaction: discord.Interaction) -> None:
+        char, recursos, perdidos = self._dados()
+        if recursos is None:
+            await self._redesenhar(interaction)
+            return
+        maximo = recursos[self.selecionado]["total"]
+        db.set_vital_lost(char["id"], self.selecionado, rules.vital_lost_after_change(maximo, perdidos[self.selecionado], delta))
+        await self._redesenhar(interaction)
+
+    async def _valor_exato(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(ModalValorExato(self))
+
+    async def aplicar_valor(self, interaction: discord.Interaction, valor: int) -> None:
+        """Chamado pelo formulário do Valor exato."""
+        char, recursos, _ = self._dados()
+        if recursos is None:
+            await self._redesenhar(interaction)
+            return
+        maximo = recursos[self.selecionado]["total"]
+        db.set_vital_lost(char["id"], self.selecionado, rules.vital_lost_for_value(maximo, valor))
+        await self._redesenhar(interaction)
+
+    async def _restaurar(self, interaction: discord.Interaction) -> None:
+        db.reset_vitals(self.personagem_id)
+        await self._redesenhar(interaction)
+
+
+class ModalValorExato(discord.ui.Modal):
+    def __init__(self, painel: PainelVitais):
+        char, recursos, perdidos = painel._dados()
+        chave = painel.selecionado
+        maximo = recursos[chave]["total"]
+        super().__init__(title=f"{rules.VITAL_LABELS[chave]}: valor exato", timeout=TEMPO_DO_PAINEL)
+        self.painel = painel
+        self.campo = discord.ui.TextInput(
+            label=f"Quanto de {rules.VITAL_LABELS[chave]} você tem agora? (0 a {maximo})"[:45],
+            default=str(rules.vital_current(maximo, perdidos.get(chave, 0))), max_length=6, required=True,
+        )
+        self.add_item(self.campo)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        texto = self.campo.value.strip()
+        if not texto.isdigit():
+            await interaction.response.send_message("Escreve só um número, tipo 12.", ephemeral=True)
+            return
+        await self.painel.aplicar_valor(interaction, int(texto))
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        await _avisar_erro(interaction, error)
 
 
 # ---------------------------------------------------------------------------

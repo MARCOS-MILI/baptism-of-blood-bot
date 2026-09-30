@@ -21,7 +21,7 @@ import dice
 import rules
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -248,6 +248,15 @@ def init_db(path: str | None = None) -> None:
         """)
         # O 'atributo da época': os atributos que o personagem tinha em cada nível que ficou pra trás.
         # O nível atual não tem linha e usa sempre os atributos atuais.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS character_vitals (
+                character_id INTEGER PRIMARY KEY,
+                lost_vida INTEGER NOT NULL DEFAULT 0,
+                lost_sanidade INTEGER NOT NULL DEFAULT 0,
+                lost_mana INTEGER NOT NULL DEFAULT 0,
+                lost_estamina INTEGER NOT NULL DEFAULT 0
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS dice_effects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -567,6 +576,7 @@ def delete_character(character_id: int, deleted_by_id: str, deleted_by_name: str
         )
         conn.execute("DELETE FROM character_disciplines WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM dice_effects WHERE character_id = ?", (character_id,))
+        conn.execute("DELETE FROM character_vitals WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM character_ranks WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM level_attributes WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM xp_log WHERE character_id = ?", (character_id,))
@@ -757,6 +767,32 @@ def set_discipline_grade(character_id: int, discipline: str, grade: int, path: s
             """,
             (character_id, discipline, grade, _now()),
         )
+
+
+# ---------------------------------------------------------------------------
+# Vitais: quanto o personagem PERDEU de Vida, Sanidade, Mana e Estamina (o atual é o máximo menos isso)
+# ---------------------------------------------------------------------------
+def get_vitals_lost(character_id: int, path: str | None = None) -> dict[str, int]:
+    """O que o personagem perdeu de cada vital. Quem nunca mexeu nas barras não perdeu nada (tudo 0)."""
+    with _connect(path) as conn:
+        linha = conn.execute("SELECT * FROM character_vitals WHERE character_id = ?", (character_id,)).fetchone()
+    return {k: (linha[f"lost_{k}"] if linha else 0) for k in rules.VITAL_KEYS}
+
+
+def set_vital_lost(character_id: int, key: str, lost: int, path: str | None = None) -> None:
+    if key not in rules.VITAL_KEYS:
+        raise ValueError(f"Vital desconhecido: {key}")
+    if not isinstance(lost, int) or lost < 0:
+        raise ValueError("O que se perdeu precisa ser um número de 0 pra cima.")
+    with _connect(path) as conn:
+        conn.execute("INSERT OR IGNORE INTO character_vitals (character_id) VALUES (?)", (character_id,))
+        conn.execute(f"UPDATE character_vitals SET lost_{key} = ? WHERE character_id = ?", (lost, character_id))
+
+
+def reset_vitals(character_id: int, path: str | None = None) -> None:
+    """Descansou: tudo de volta no máximo."""
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM character_vitals WHERE character_id = ?", (character_id,))
 
 
 # ---------------------------------------------------------------------------

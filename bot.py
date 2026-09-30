@@ -58,6 +58,9 @@ TOKEN = os.environ.get("DISCORD_TOKEN")
 
 # Quem tem esse cargo (ou a permissão de Gerenciar Servidor) pode usar os comandos /mestre.
 MESTRE_ROLE = os.environ.get("MESTRE_ROLE", "Mestre")
+# Esconde os comandos /mestre de quem não tem a permissão Gerenciar servidor (eles nem aparecem na lista). Pra o cargo
+# Mestre ver, libera no Discord: Configurações do servidor > Integrações > o bot > Comandos > /mestre > adiciona o cargo.
+ESCONDER_COMANDOS_DE_MESTRE = os.environ.get("ESCONDER_COMANDOS_DE_MESTRE", "1") != "0"
 
 # Quantos personagens cada jogador pode ter. Os mestres liberam vagas extras na mão, até o teto.
 LIMITE_BASE = int(os.environ.get("LIMITE_PERSONAGENS", "3"))
@@ -300,12 +303,27 @@ def _texto_especial(personagem, campo: str, para_mestre: bool = False) -> str | 
     return f"{_QUESTAO}\n(aguardando o mestre" + (f", tirou {valor}" if para_mestre else "") + ")"
 
 
-def _ping_mestre(guild: discord.Guild | None) -> dict:
-    """A marcação do cargo de mestre (vazia se o servidor não tem o cargo), pra avisar quem decide."""
-    cargo = _cargo_mestre(guild)
-    if not cargo:
+MAX_CARGOS_MARCADOS = 5
+
+
+def _ping_mestre(guild: discord.Guild | None, admins: bool = False) -> dict:
+    """A marcação de quem decide: o cargo de mestre e, com admins=True, também os cargos de administrador do
+    servidor (os de bot e o @everyone ficam de fora; no máximo 5, pra não marcar meio servidor). Vazia se
+    não tem ninguém pra marcar."""
+    cargos = []
+    mestre = _cargo_mestre(guild)
+    if mestre:
+        cargos.append(mestre)
+    if admins and guild is not None:
+        for r in guild.roles:
+            permissoes = getattr(r, "permissions", None)
+            if (getattr(permissoes, "administrator", False) and not getattr(r, "managed", False)
+                    and r.name != "@everyone" and r not in cargos):
+                cargos.append(r)
+    cargos = cargos[:MAX_CARGOS_MARCADOS]
+    if not cargos:
         return {}
-    return {"content": cargo.mention, "allowed_mentions": discord.AllowedMentions(roles=[cargo])}
+    return {"content": " ".join(c.mention for c in cargos), "allowed_mentions": discord.AllowedMentions(roles=cargos)}
 
 
 def _raca_curta(personagem) -> str:
@@ -1033,7 +1051,7 @@ async def _sortear_definicao(interaction: discord.Interaction, campo: str, perso
         # 66 ou 77: nada é definido. O cartão é só interrogação e um mestre decide o destino.
         db.set_special(char["id"], campo, valor)
         await interaction.response.send_message(
-            **_ping_mestre(interaction.guild), **vitrine.cartao_especial(valor).kwargs()
+            **_ping_mestre(interaction.guild, admins=True), **vitrine.cartao_especial(valor).kwargs()
         )
         return
     cfg["salvar"](char["id"], definido, valor)
@@ -1113,7 +1131,7 @@ async def _sortear_estado(interaction, personagem_nome: str | None, repetir: boo
     if especial:
         # 66 ou 77 no Estado (ou no clero): nada é definido, o cartão é só interrogação e um mestre decide.
         db.set_special(char["id"], "social_class", especial)
-        await interaction.response.send_message(**_ping_mestre(interaction.guild), **vitrine.cartao_especial(especial).kwargs())
+        await interaction.response.send_message(**_ping_mestre(interaction.guild, admins=True), **vitrine.cartao_especial(especial).kwargs())
         return
     db.set_social_status(char["id"], estado, r1.total, clero, r2.total if r2 else None)
 
@@ -1564,13 +1582,23 @@ async def calcular_recursos(
 async def _autocomplete_comando(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     return [
         app_commands.Choice(name=f"/{nome}", value=nome)
-        for nome in ajuda.sugestoes(current, incluir_mestre=_eh_mestre(interaction))
+        for nome in ajuda.sugestoes(current, incluir_mestre=False)   # os de mestre ficam no /mestre ajuda
     ]
+
+
+async def _autocomplete_comando_mestre(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    if not _eh_mestre(interaction):
+        return []
+    return [app_commands.Choice(name=f"/mestre {nome}", value=nome) for nome in ajuda.sugestoes_mestre(current)]
 
 
 async def _responder_ajuda(interaction: discord.Interaction, comando: str | None):
     if comando:
         chave, parecidos = ajuda.achar(comando)
+        if not _eh_mestre(interaction):   # comando de mestre: pra quem não é mestre, é como se não existisse
+            parecidos = [p for p in parecidos if not p.startswith("mestre ")]
+            if chave and chave.startswith("mestre "):
+                chave = None
         if chave is None:
             dica = (
                 " Quis dizer: " + ", ".join(f"`/{p}`" for p in parecidos) + "?"
@@ -1612,7 +1640,28 @@ mestre_grupo = app_commands.Group(
     name="mestre",
     description="Comandos de mestre: XP, níveis, vagas e correções.",
     guild_only=True,
+    default_permissions=discord.Permissions(manage_guild=True) if ESCONDER_COMANDOS_DE_MESTRE else None,
 )
+
+
+@mestre_grupo.command(name="ajuda", description="A ajuda só dos comandos de mestre (os jogadores não veem).")
+@app_commands.describe(comando="Opcional: o comando de mestre que você quer entender (por exemplo: dar_xp)")
+@app_commands.autocomplete(comando=_autocomplete_comando_mestre)
+@app_commands.check(_eh_mestre)
+async def mestre_ajuda(interaction: discord.Interaction, comando: str | None = None):
+    if comando:
+        chave, parecidos = ajuda.achar_mestre(comando)
+        if chave is None:
+            dica = " Quis dizer: " + ", ".join(f"`/mestre {p}`" for p in parecidos) + "?" if parecidos else " Usa `/mestre ajuda` pra ver a lista."
+            await interaction.response.send_message(f"Não achei nenhum comando de mestre com \"{comando}\".{dica}", ephemeral=True)
+            return
+        dados = ajuda.detalhe(chave)
+    else:
+        dados = ajuda.visao_mestre()
+    embed = discord.Embed(title=dados["titulo"], description=dados["descricao"], color=discord.Color.dark_gold())
+    for nome, valor in dados["campos"]:
+        embed.add_field(name=nome, value=valor, inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 _APAGAVEIS = {
     "magic_rank": ["magic_rank"],
@@ -2488,6 +2537,7 @@ paineis.registrar(paineis.Ganchos(
     niveis=lambda coletor, nome: niveis.callback(coletor, nome),
     ajuda=lambda coletor: _responder_ajuda(coletor, None),
     ordem_ligada=lambda: ORDEM_DA_CRIACAO,
+    recursos=_recursos_do_personagem,
 ))
 
 

@@ -237,6 +237,55 @@ def cartao_estado(personagem: str, estado: str, jogador: str, clero: str | None 
 
 
 # ---------------------------------------------------------------------------
+# Vitais: as barras de Vida, Sanidade, Mana e Estamina
+# ---------------------------------------------------------------------------
+TAMANHO_DA_BARRA = 10
+
+
+def barra(atual: int, maximo: int, tamanho: int = TAMANHO_DA_BARRA) -> str:
+    """▰▰▰▰▰▱▱▱▱▱: cheia só se estiver no máximo, e com pelo menos um quadrado se ainda sobrou alguma coisa."""
+    if maximo <= 0:
+        return "▱" * tamanho
+    cheios = round(atual / maximo * tamanho)
+    if atual > 0:
+        cheios = max(1, cheios)
+    if atual < maximo:
+        cheios = min(tamanho - 1, cheios)
+    return "▰" * cheios + "▱" * (tamanho - cheios)
+
+
+def embed_vitais(nome: str, recursos: dict, perdidos: dict, jogador: str | None = None,
+                 selecionado: str = "vida") -> discord.Embed:
+    """As quatro barras do personagem. 'recursos' vem do cálculo por nível; 'perdidos' é o que ele perdeu."""
+    linhas = []
+    for chave in rules.VITAL_KEYS:
+        maximo = recursos[chave]["total"]
+        atual = rules.vital_current(maximo, perdidos.get(chave, 0))
+        seta = "▶️" if chave == selecionado else "▫️"
+        linhas.append(f"{seta} {rules.VITAL_EMOJI[chave]} **{rules.VITAL_LABELS[chave]}** · {atual}/{maximo}\n{barra(atual, maximo)}")
+    vida_max = recursos["vida"]["total"]
+    vida = rules.vital_current(vida_max, perdidos.get("vida", 0))
+    cor = (
+        discord.Color.dark_grey() if vida == 0
+        else discord.Color.red() if vida * 4 <= vida_max
+        else discord.Color.orange() if vida * 2 <= vida_max
+        else discord.Color.green()
+    )
+    aviso = "\n\n💀 **Vida em 0.** Hora de falar com o mestre." if vida == 0 else ""
+    embed = discord.Embed(
+        title=f"❤️ Vitais de {nome}",
+        description=(
+            "Levou dano ou gastou mana? **1.** Escolhe a barra no menu. **2.** Aperta os botões pra descer (**-**) ou "
+            "subir (**+**).\n\n" + "\n\n".join(linhas) + aviso
+        ),
+        color=cor,
+    )
+    if jogador:
+        embed.set_footer(text=f"jogador: {jogador}")
+    return embed
+
+
+# ---------------------------------------------------------------------------
 # Resultado especial (66 ou 77): tudo interrogação
 # ---------------------------------------------------------------------------
 
