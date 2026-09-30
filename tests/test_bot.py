@@ -1105,12 +1105,12 @@ def pronto(uid, jogador, personagem, raca="Humano", classe="Caçador"):
 # --- os cartões saem com a imagem anexada (quando existe) e o texto do resultado ---
 k1 = novo(600, "Ana", "Ana Humana")
 with dados(50): run(bot.raca_inicial.callback(k1, None))
-assert titulo(k1) == "Humanos" and nomes_de_arquivo(k1) == ["raca-humano.png"] and sent(k1)[1]["embed"].image.url == "attachment://raca-humano.png"
+assert titulo(k1) == "Humanos" and nomes_de_arquivo(k1) == ["raca-humano.webp"] and sent(k1)[1]["embed"].image.url == "attachment://raca-humano.webp"
 assert all(isinstance(f, discord.File) for f in sent(k1)[1]["files"]) and not sent(k1)[1].get("ephemeral") and "Raça de Ana Humana" in txt(k1)
 assert "São seres mundanos" in desc(k1) and "Em jogo=" in txt(k1)
 k2 = novo(601, "Beto", "Beto Vampiro")
 with dados(90): run(bot.raca_inicial.callback(k2, None))
-assert titulo(k2) == "Vampiros" and nomes_de_arquivo(k2) == ["raca-vampiro.png"] and "Conde Drácula" in desc(k2)
+assert titulo(k2) == "Vampiros" and nomes_de_arquivo(k2) == ["raca-vampiro.jpg"] and "Conde Drácula" in desc(k2)
 k3 = novo(602, "Caio", "Caio Dhampir")
 with dados(97): run(bot.raca_inicial.callback(k3, None))
 assert titulo(k3) == "Dhampirs" and "files" not in sent(k3)[1] and sent(k3)[1]["embed"].image.url is None and "Alucard" in desc(k3)   # ainda sem arte: cartão sem imagem
@@ -1312,7 +1312,7 @@ assert c1.response.edit_message.call_count == 1 and c1.followup.send.call_count 
 nova = editada(c1)["view"]; assert isinstance(nova, paineis.PainelFicha) and nova is not painel and nova.origem is u
 assert editada(c1)["embed"].title == "📖 Ficha de Ana Painel" and "⚠️ **Ficha incompleta.**" in editada(c1)["embed"].description
 (conteudo, fk), = followups(c1)
-assert conteudo is None and nome_do_cartao(fk["embed"]) == "Humanos" and [f.filename for f in fk["files"]] == ["raca-humano.png"] and "ephemeral" not in fk    # público, com a imagem
+assert conteudo is None and nome_do_cartao(fk["embed"]) == "Humanos" and [f.filename for f in fk["files"]] == ["raca-humano.webp"] and "ephemeral" not in fk    # público, com a imagem
 assert row(800, "Ana Painel")["race"] == "Humano" and [h["purpose"] for h in historico_de(800)] == ["raca_inicial"]
 assert estado(nova)["Raça (2)"] == ("🔄", False) and estado(nova)["Classe"] == ("🔒", True) and botao(nova, "Raça (2)").style == discord.ButtonStyle.secondary   # sobram 2 chances
 assert fk["embed"].footer.text == "jogador: Ana · tentativa 1 de 3"
@@ -1554,7 +1554,7 @@ assert isinstance(editada(c)["view"], paineis.PainelFicha) and c.followup.send.c
 conf = confirmar_de(r1)
 with dados(90): c = inter(900, "Rita"); runp(conf.children[0].callback(c))
 (_, fk), = followups(c); assert nome_do_cartao(fk["embed"]) == "Vampiros" and fk["embed"].footer.text == "jogador: Rita · tentativa 2 de 3" and "ephemeral" not in fk
-assert [f.filename for f in fk["files"]] == ["raca-vampiro.png"]
+assert [f.filename for f in fk["files"]] == ["raca-vampiro.jpg"]
 assert row(900, "Rita Rolos")["race"] == "Vampiro" and row(900, "Rita Rolos")["race_roll"] == 90 and tent(900, "Rita Rolos") == (2, 0)      # a última vale
 assert isinstance(editada(c)["view"], paineis.PainelFicha) and estado(editada(c)["view"])["Raça (1)"] == ("🔄", False)
 assert [h["total"] for h in reversed(historico_de(900))] == [40, 90] and {h["purpose"] for h in historico_de(900)} == {"raca_inicial"}      # todas as rolagens ficam no histórico

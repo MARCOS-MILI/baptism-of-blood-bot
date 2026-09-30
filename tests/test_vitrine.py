@@ -113,8 +113,8 @@ for raca in dice.RACES:
     assert "🎲" not in e.description and "1d100" not in e.description and lore.DIVISOR not in e.description      # sem o dado e sem o divisor antigo
     assert e.color.value == lore.RACAS[raca]["cor"] and [f.name for f in e.fields] == ["Em jogo"]
 h, v, d = (vitrine.cartao_raca("X", r, "J") for r in dice.RACES)
-assert nomes(h) == ["raca-humano.png"] and h.embed.image.url == "attachment://raca-humano.png"
-assert nomes(v) == ["raca-vampiro.png"] and nomes(d) == [] and d.embed.image.url is None
+assert nomes(h) == ["raca-humano.webp"] and h.embed.image.url == "attachment://raca-humano.webp"
+assert nomes(v) == ["raca-vampiro.jpg"] and nomes(d) == [] and d.embed.image.url is None
 assert "Sem Disciplinas" in h.embed.fields[0].value and "Razão até 6" in h.embed.fields[0].value and "Fraquezas" not in h.embed.fields[0].value
 assert "Sem magia inicial, só as classes Feiticeiros e Mestre de Forja têm" in h.embed.fields[0].value and "Tem magia inicial" not in h.embed.fields[0].value
 vf = v.embed.fields[0].value
