@@ -2,8 +2,10 @@
 escritos no chat (dice.parse_texto). Rodar da pasta do bot: python tests/test_vitrine.py"""
 import io
 import os
+import re
 import sys
 import tempfile
+import unicodedata
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RAIZ)
@@ -89,31 +91,48 @@ def confere_limites(embed):
 def nomes(cartao): return [a.filename for a in cartao.arquivos]
 
 
+def rotulo_do_cartao(e):
+    """O rótulo do cabeçalho decorado, sem os enfeites: 'Humanos', '1° Estado —  Clero'."""
+    linha = re.sub(r"<a?:\w+:\d+>", "", e.description.split("\n")[0])
+    for enfeite in (lore.PREENCHE, lore.ORNAMENTO_L, lore.NULO, lore.HIEROGLIFO): linha = linha.replace(enfeite, "")
+    return unicodedata.normalize("NFKC", linha).strip()
+
+
+def esperado_decorado(emoji_titulo, emoji_texto, rotulo, texto):
+    """Como o cartão decorado tem que sair, montado à mão, sem usar as funções da vitrine."""
+    cab = f"{emoji_titulo}{' ' * 12}{lore.PREENCHE * 5}{lore.ORNAMENTO_L}{lore.NULO * 8}{vitrine.enfeitar_rotulo(rotulo)}{lore.NULO * 3}{lore.PREENCHE * 2} {lore.PREENCHE * 2}{lore.HIEROGLIFO}"
+    return f"{cab}\n\n> -# {emoji_texto}{' ' * 6}{lore.NULO * 4}{lore.ORNAMENTO_L}{lore.NULO * 4}**{texto}**"
+
+
 todos = []
 for raca in dice.RACES:
     c = vitrine.cartao_raca("Kairon Flagon", raca, "Marcos", (1, 3)); todos.append(c); e = c.embed
-    assert e.title == raca and e.author.name.endswith("Raça de Kairon Flagon") and e.footer.text == "jogador: Marcos · tentativa 1 de 3"
-    assert e.description == f"{lore.DIVISOR}\n\n> *{lore.RACAS[raca]['texto']}*"                      # sem o dado: só o divisor e o texto
-    assert "🎲" not in e.description and "1d100" not in e.description
+    assert e.title is None and rotulo_do_cartao(e) == {"Humano": "Humanos", "Vampiro": "Vampiros", "Dhampir": "Dhampirs"}[raca]
+    assert e.author.name.endswith("Raça de Kairon Flagon") and e.footer.text == "jogador: Marcos · tentativa 1 de 3"
+    assert e.description == esperado_decorado("<:cruz2:1467276532916686899>", "<:cruz6:1472548114291364023>", lore.RACAS[raca]["rotulo"], lore.RACAS[raca]["texto"])
+    assert "🎲" not in e.description and "1d100" not in e.description and lore.DIVISOR not in e.description      # sem o dado e sem o divisor antigo
     assert e.color.value == lore.RACAS[raca]["cor"] and [f.name for f in e.fields] == ["Em jogo"]
 h, v, d = (vitrine.cartao_raca("X", r, "J") for r in dice.RACES)
 assert nomes(h) == ["raca-humano.png"] and h.embed.image.url == "attachment://raca-humano.png"
 assert nomes(v) == ["raca-vampiro.png"] and nomes(d) == [] and d.embed.image.url is None
 assert "Sem Disciplinas" in h.embed.fields[0].value and "Razão até 6" in h.embed.fields[0].value and "Fraquezas" not in h.embed.fields[0].value
+assert "Sem magia inicial, só as classes Feiticeiros e Mestre de Forja têm" in h.embed.fields[0].value and "Tem magia inicial" not in h.embed.fields[0].value
 vf = v.embed.fields[0].value
 assert "4 pontos de Disciplina na criação (grau máximo 3)" in vf and "Força, Destreza e Vitalidade até 5" in vf and "Fraquezas: Sol, Prata, Fome" in vf
+assert "Tem magia inicial (`/magia_inicial`)" in vf and "Sem magia inicial" not in vf
 df = d.embed.fields[0].value
 assert "3 pontos de Disciplina na criação (grau máximo 3), pode usar as dez" in df and "Limites de atributo ainda a definir" in df and "Sem Sol e sem Fome" in df
+assert "Tem magia inicial (`/magia_inicial`)" in df and "Sem magia inicial" not in df                   # o Dhampir tem magia inicial
 
-for estado, arq in (("3º Estado", "estado-3.png"), ("2º Estado", "estado-2.png"), ("1º Estado", "estado-1.png")):
+for estado, arq, rot in (("3º Estado", "estado-3.png", "3° Estado —  Camponeses"), ("2º Estado", "estado-2.png", "2° Estado —  Nobreza"), ("1º Estado", "estado-1.jpg", "1° Estado —  Clero")):
     c = vitrine.cartao_estado("Ana Ficha", estado, "Ana"); todos.append(c); e = c.embed
-    assert e.title == lore.ESTADOS[estado]["titulo"] and e.author.name.endswith("Classe Social de Ana Ficha")
-    assert e.description == f"{lore.DIVISOR}\n\n> *{lore.ESTADOS[estado]['texto']}*" and e.fields == [] and e.footer.text == "jogador: Ana"
+    assert e.title is None and rotulo_do_cartao(e) == rot and e.author.name.endswith("Classe Social de Ana Ficha")
+    assert e.description == esperado_decorado("<:cruz1:1467276278418636953>", "<:calicesang:1467277986876358656>", lore.ESTADOS[estado]["rotulo"], lore.ESTADOS[estado]["texto"]) and e.fields == [] and e.footer.text == "jogador: Ana"
     assert nomes(c) == [arq] and e.image.url == f"attachment://{arq}" and e.thumbnail.url is None
 for clero, r2 in (("Alto Clero", 63), ("Baixo Clero", 10)):
     c = vitrine.cartao_estado("Padre", "1º Estado", "Ana", clero, (2, 3)); todos.append(c); e = c.embed
-    assert e.title == "1º Estado · Clero" and "🎲" not in e.description and "1d100" not in e.description and "**" not in e.description   # nenhum dos dois dados aparece
-    assert [(f.name, f.value) for f in e.fields] == [(f"✝ {clero}", lore.CLERO[clero])] and nomes(c) == ["estado-1.png"] and e.footer.text == "jogador: Ana · tentativa 2 de 3"
+    assert rotulo_do_cartao(e) == "1° Estado —  Clero" and "🎲" not in e.description and "1d100" not in e.description      # nenhum dos dois dados aparece
+    assert [(f.name, f.value) for f in e.fields] == [(f"✝ {clero}", lore.CLERO[clero])] and nomes(c) == ["estado-1.jpg"] and e.footer.text == "jogador: Ana · tentativa 2 de 3"
 c = vitrine.cartao_estado("Rara", dice.SOCIAL_CLASS_MASTER, "Ana", None, (3, 3)); todos.append(c); e = c.embed
 assert e.title == "🎲 Resultado especial" and "Quem decide o Estado desse personagem é o mestre" in e.description and nomes(c) == [] and "100" not in e.description and e.footer.text.endswith("última chance")
 
@@ -282,5 +301,30 @@ finally: del lore.IMAGENS_URL["especial-77"]
 try: vitrine.cartao_especial(65); raise SystemExit("65 não é especial")
 except KeyError: pass
 print("11. cartão especial OK")
+
+# ---------- 12. estilo decorado: o rótulo enfeitado e a chave do texto pequeno ----------
+E = vitrine.enfeitar_rotulo
+assert E("Humanos") == "\U0001D407umanos" and E("Vampiros") == "\U0001D415ampiros"                        # só a inicial vira negrito matemático
+assert E(f"1° Estado {lore.TRAVESSAO}  Clero") == "\U0001D7CF° \U0001D404stado " + lore.TRAVESSAO + "  \U0001D402lero"     # o número também, e os dois espaços do meio ficam
+assert E("Mestre de Forja") == "\U0001D40Cestre de \U0001D405orja" and E("ação livre") == "ação livre"      # sem maiúscula ASCII, não muda
+assert E("") == "" and E("3º Estado") == "\U0001D7D1º \U0001D404stado"
+assert unicodedata.normalize("NFKC", E("Mestre de Forja")) == "Mestre de Forja"                            # some o enfeite, sobra o texto
+# a chave TEXTO_PEQUENO: sem ela, o "-#" some e o resto fica igual
+texto_pequeno = lore.TEXTO_PEQUENO
+try:
+    lore.TEXTO_PEQUENO = True; com = vitrine.cartao_raca("X", "Humano", "J").embed.description
+    lore.TEXTO_PEQUENO = False; sem = vitrine.cartao_raca("X", "Humano", "J").embed.description
+finally:
+    lore.TEXTO_PEQUENO = texto_pequeno
+assert "> -# " in com and "-#" not in sem and com.replace("> -# ", "> ") == sem
+# texto de mais de um parágrafo: cada linha vira uma citação, e só a primeira leva o emoji
+duas = vitrine._citar_decorado("Primeira linha.\nSegunda linha.", "<:x:1>").split("\n")
+assert len(duas) == 2 and duas[0].startswith("> -# <:x:1>      ") and duas[1].startswith("> -# ") and "<:x:1>" not in duas[1] and duas[1].endswith("**Segunda linha.**")
+# o cabeçalho tem o emoji na frente e o ornamento no fim
+cab = vitrine._cabecalho("Humanos", "<:cruz2:1>")
+assert cab.startswith("<:cruz2:1>" + " " * 12 + lore.PREENCHE * 5 + lore.ORNAMENTO_L + lore.NULO * 8) and cab.endswith(lore.NULO * 3 + lore.PREENCHE * 2 + " " + lore.PREENCHE * 2 + lore.HIEROGLIFO)
+# as classes, a magia e o 100 continuam no estilo de antes (o estilo novo vale só pra raça e Estado, por enquanto)
+assert vitrine.cartao_classe("X", "Sábio", "p", "J").embed.title == "Sábio" and vitrine.cartao_estado("X", dice.SOCIAL_CLASS_MASTER, "J").embed.title == "🎲 Resultado especial"
+print("12. estilo decorado OK")
 
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

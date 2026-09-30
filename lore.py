@@ -16,6 +16,25 @@ outro lugar), coloque em IMAGENS_URL abaixo; o link tem que apontar direto pra i
 # Chave: "<tipo>-<nome>" no mesmo formato do nome do arquivo. Valor: link direto da imagem.
 IMAGENS_URL: dict[str, str] = {}
 
+# ---------------------------------------------------------------------------
+# ESTILO DECORADO (o das mensagens do servidor): cabeçalho enfeitado, texto pequeno em citação e em negrito,
+# emojis do servidor e a imagem embaixo. Hoje vale pros cartões de raça e de Estado.
+# Os emojis abaixo são do servidor do Marcos: o bot precisa estar nesse servidor (ou ter a permissão "Usar
+# emojis externos") pra eles aparecerem. Se aparecer o código escrito, é por isso. Pra trocar, cola o código do
+# emoji (<:nome:123456789012345678>) ou um emoji comum (✝️).
+# ---------------------------------------------------------------------------
+EMOJI_TITULO = "<:cruz2:1467276532916686899>"          # abre o cabeçalho das raças
+EMOJI_TEXTO = "<:cruz6:1472548114291364023>"           # abre o texto das raças
+EMOJI_TITULO_ESTADO = "<:cruz1:1467276278418636953>"   # abre o cabeçalho dos Estados
+EMOJI_TEXTO_ESTADO = "<:calicesang:1467277986876358656>"  # abre o texto dos Estados
+TEXTO_PEQUENO = True   # o texto sai em letra pequena (-#). Se aparecer o "-#" escrito, troca pra False
+# Os caracteres do enfeite (os mesmos das mensagens do servidor):
+PREENCHE = "\u3164"        # ㅤ preenchimento que empurra o texto
+ORNAMENTO_L = "\U0001D4F5"  # 𝓵
+NULO = "\U0001D159"         # 𝅙 (não aparece, só dá espaço)
+HIEROGLIFO = "\U00013085"   # 𓂅
+TRAVESSAO = "\u2014"        # o traço que o Marcos usa nos rótulos dos Estados
+
 # ENFEITES dos cartões. Dá pra trocar por emojis do seu servidor (os animados também): cola o código do emoji,
 # tipo <a:fogo:123456789012345678>. O divisor abre o texto de cada cartão.
 DIVISOR = "✦ ━━━━━━━ ⚜️ ━━━━━━━ ✦"
@@ -27,6 +46,9 @@ DIVISOR_CURTO = "✦ ━━━ ⚜️ ━━━ ✦"
 RACAS = {
     "Humano": {
         "emoji": "🕯️",
+        "rotulo": "Humanos",
+        "emoji_titulo": EMOJI_TITULO,
+        "emoji_texto": EMOJI_TEXTO,
         "cor": 0xC9A66B,
         "texto": (
             "São seres mundanos, sujeitos ao envelhecimento e à morte. Contudo, não se engane: suas vidas podem "
@@ -39,19 +61,25 @@ RACAS = {
     },
     "Vampiro": {
         "emoji": "🩸",
+        "rotulo": "Vampiros",
+        "emoji_titulo": EMOJI_TITULO,
+        "emoji_texto": EMOJI_TEXTO,
         "cor": 0x8B0000,
         "texto": (
             "Essas criaturas estiveram na terra por anos, se escondendo, presentes em cada momento da história. "
             "O primeiro vampiro que temos conhecimento é o Conde Drácula, ou Vlad, e precisa ser derrotado a cada "
             "100 anos. Quando você é transformado num vampiro, apesar das vantagens como imortalidade, poderes "
-            "mágicos ou feitiçaria e status sobre-humanos, coisas como água corrente, sol e decapitação, além da "
-            "sede incessante por sangue, então não se afunde muito nas suas vitórias. Aqueles que os fazem são os "
+            "mágicos ou feitiçaria e status sobrehumanos, coisas como água corrente, sol e decapitação, além da "
+            "sede incessante por sangue, então não se afunde muito nas suas vitórias, aqueles que os fazem são os "
             "primeiros a morrer."
         ),
         "fraquezas": "Sol, Prata, Fome, Estaca, Decapitação, Água Sagrada e Armas Sagradas",
     },
     "Dhampir": {
         "emoji": "🌒",
+        "rotulo": "Dhampirs",
+        "emoji_titulo": EMOJI_TITULO,
+        "emoji_texto": EMOJI_TEXTO,
         "cor": 0x6A3D9A,
         "texto": (
             "A junção de humano com vampiro. Alucard é um Dhampir. É um meio termo: perde algumas fraquezas do "
@@ -68,6 +96,9 @@ RACAS = {
 ESTADOS = {
     "3º Estado": {
         "titulo": "3º Estado · Camponeses",
+        "rotulo": f"3° Estado {TRAVESSAO}  Camponeses",
+        "emoji_titulo": EMOJI_TITULO_ESTADO,
+        "emoji_texto": EMOJI_TEXTO_ESTADO,
         "emoji": "⚜️",
         "cor": 0x7C8592,
         "texto": (
@@ -78,6 +109,9 @@ ESTADOS = {
     },
     "2º Estado": {
         "titulo": "2º Estado · Nobreza",
+        "rotulo": f"2° Estado {TRAVESSAO}  Nobreza",
+        "emoji_titulo": EMOJI_TITULO_ESTADO,
+        "emoji_texto": EMOJI_TEXTO_ESTADO,
         "emoji": "⚜️",
         "cor": 0xD4AF37,
         "texto": (
@@ -88,13 +122,15 @@ ESTADOS = {
     },
     "1º Estado": {
         "titulo": "1º Estado · Clero",
+        "rotulo": f"1° Estado {TRAVESSAO}  Clero",
+        "emoji_titulo": EMOJI_TITULO_ESTADO,
+        "emoji_texto": EMOJI_TEXTO_ESTADO,
         "emoji": "⚜️",
         "cor": 0x8E6FBF,
         "texto": (
-            "Você é do primeiro estado, parabéns! Representando cerca de 1% a 2% da população francesa, são a "
-            "ponta da pirâmide. Conhecido como a Igreja católica, temos o Clero, mais detentor de imensas riquezas, "
-            "terras e privilégios da sociedade atual. Junto com a Nobreza, o clero compunha a aristocracia que "
-            "sustenta o sistema, tendo mais de 10% das terras da França..."
+            "Você faz parte do clero, que sorte! Os revolucionários ainda têm respeito por Deus, então vocês não "
+            "são o principal alvo deles, mas tome cuidado ao esbanjar suas riquezas, Deus pode tirá-la tão rápido "
+            "quanto a deu."
         ),
     },
 }

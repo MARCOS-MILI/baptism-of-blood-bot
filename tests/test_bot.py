@@ -7,6 +7,7 @@ import re
 import sqlite3
 import sys
 import tempfile
+import unicodedata
 from datetime import datetime
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock, MagicMock
@@ -59,7 +60,13 @@ def txt(i):
     return (c or "") + ((" | " + (e.author.name or "") + " | " + (e.title or "") + " | " + (e.description or "") + " | " + " ; ".join(f"{f.name}={f.value}" for f in e.fields)) if e else "")
 
 def desc(i): return sent(i)[1]["embed"].description
-def titulo(i): return sent(i)[1]["embed"].title
+def nome_do_cartao(e):
+    """O título do cartão: o embed.title, ou (nos cartões decorados, que não têm título) o rótulo do cabeçalho."""
+    if e.title: return e.title
+    linha = re.sub(r"<a?:\w+:\d+>", "", e.description.split("\n")[0])
+    for enfeite in (lore.PREENCHE, lore.ORNAMENTO_L, lore.NULO, lore.HIEROGLIFO): linha = linha.replace(enfeite, "")
+    return unicodedata.normalize("NFKC", linha).strip()
+def titulo(i): return nome_do_cartao(sent(i)[1]["embed"])
 def rodape(i): return sent(i)[1]["embed"].footer.text
 def row(uid, nome): return db.find_character(str(uid), nome)
 def historico_de(uid, nome=None):
@@ -141,11 +148,12 @@ run(bot.rolar.callback(marcos, "1d6", None, "Fantasma")); assert "Não achei" in
 run(bot.rolar.callback(marcos, "abc", None, None)); assert "inválida" in txt(marcos)
 run(bot.magia_inicial.callback(marcos, None)); assert "Ainda não dá pra usar `/magia_inicial`" in txt(marcos) and row(1, "Kairon Flagon")["magic_rank"] is None   # sem raça nem classe: fechado
 with dados(96): run(bot.raca_inicial.callback(marcos, None))                                                # 96 é Dhampir
-assert "Raça de Kairon Flagon" in txt(marcos) and titulo(marcos) == "Dhampir" and row(1, "Kairon Flagon")["race"] == "Dhampir"
+assert "Raça de Kairon Flagon" in txt(marcos) and titulo(marcos) == "Dhampirs" and row(1, "Kairon Flagon")["race"] == "Dhampir"
 run(bot.raca_inicial.callback(marcos, None))                                                                 # já tem raça: pergunta antes de trocar, e não rola nada
 assert titulo(marcos) == "🔄 Rolar a raça de novo?" and isinstance(sent(marcos)[1]["view"], paineis.ConfirmarRepeticao) and sent(marcos)[1]["ephemeral"]
 assert "**Dhampir**" in desc(marcos) and "troca esse resultado" in desc(marcos) and "sobram 1" in desc(marcos) and row(1, "Kairon Flagon")["race_attempts"] == 1
-run(bot.raca_inicial.callback(marcos, "Akari Amaya")); assert "Raça de Akari Amaya" in txt(marcos)
+with dados(50): run(bot.raca_inicial.callback(marcos, "Akari Amaya"))
+assert "Raça de Akari Amaya" in txt(marcos) and titulo(marcos) == "Humanos"
 # o Rank de magia vem depois da raça e da classe, e só pra quem tem magia (Dhampir só com classe mágica: Kairon é Mestre de Forja)
 with dados(20): run(bot.classe_social.callback(marcos, None))
 run(bot.magia_inicial.callback(marcos, None)); assert "Ainda não dá pra usar `/magia_inicial`" in txt(marcos) and "▶️ Escolher a classe: `/classe`" in txt(marcos)
@@ -207,17 +215,17 @@ print("C. mestre e correções OK")
 # ============================ D. classe social ============================
 p1 = novo(10, "Ana", "Ana Camponesa")
 with dados(50): run(bot.classe_social.callback(p1, None))
-assert titulo(p1) == "3º Estado · Camponeses" and "Classe Social de" in txt(p1) and "🎲" not in desc(p1) and rodape(p1) == "jogador: Ana · tentativa 1 de 3" and "content" not in sent(p1)[1] and [h["purpose"] for h in historico_de(10)] == ["classe_social"]
+assert titulo(p1) == "3° Estado —  Camponeses" and "Classe Social de" in txt(p1) and "🎲" not in desc(p1) and rodape(p1) == "jogador: Ana · tentativa 1 de 3" and "content" not in sent(p1)[1] and [h["purpose"] for h in historico_de(10)] == ["classe_social"]
 with dados(): run(bot.classe_social.callback(p1, None))
 assert titulo(p1) == "🔄 Rolar a classe social de novo?" and sent(p1)[1]["ephemeral"] and "3º Estado · Camponeses" in desc(p1) and row(10, "Ana Camponesa")["social_class_attempts"] == 1
-for n, esperado in [(80, "3º Estado · Camponeses"), (81, "2º Estado · Nobreza"), (91, "2º Estado · Nobreza")]:
+for n, esperado in [(80, "3° Estado —  Camponeses"), (81, "2° Estado —  Nobreza"), (91, "2° Estado —  Nobreza")]:
     u = novo(20 + n, f"J{n}", f"Fulano {n}")
     with dados(n): run(bot.classe_social.callback(u, None))
     assert titulo(u) == esperado and "🎲" not in desc(u) and rodape(u) == f"jogador: J{n} · tentativa 1 de 3" and len(historico_de(20 + n)) == 1
 for n1, n2, clero in [(92, 49, "Baixo Clero"), (92, 50, "Alto Clero"), (99, 100, "Alto Clero"), (95, 1, "Baixo Clero")]:
     u = novo(300 + n1 + n2, "Clerigo", "Padre Teste")
     with dados(n1, n2): run(bot.classe_social.callback(u, None))
-    assert titulo(u) == "1º Estado · Clero" and "🎲" not in desc(u) and f"✝ {clero}=" in txt(u)
+    assert titulo(u) == "1° Estado —  Clero" and "🎲" not in desc(u) and f"✝ {clero}=" in txt(u)
     c = row(300 + n1 + n2, "Padre Teste"); assert (c["social_class_roll"], c["clergy"], c["clergy_roll"]) == (n1, clero, n2)
     assert [(h["purpose"], h["total"]) for h in reversed(historico_de(300 + n1 + n2))] == [("classe_social", n1), ("clero", n2)]
 mestre_papel = NS(id=555, name="Mestre", mention="<@&555>")
@@ -460,7 +468,7 @@ assert bot._quando("lixo") == "lixo UTC"
 assert dice.race_for(95) == "Vampiro" and dice.race_for(96) == "Dhampir" and dice.race_for(100) == "Dhampir" and dice.RACES == ["Humano", "Vampiro", "Dhampir"]
 r = inter(82, "Rara"); run(bot.personagem_criar.callback(r, "Rara Raça"))
 with dados(96): run(bot.raca_inicial.callback(r, None))
-assert titulo(r) == "Dhampir" and "Meio humano" not in txt(r) and not sent(r)[1].get("ephemeral")            # continua público
+assert titulo(r) == "Dhampirs" and "Meio humano" not in txt(r) and not sent(r)[1].get("ephemeral")            # continua público
 print("H. horário e Dhampir OK")
 
 # ============================ I. ficha automática: classe, atributos e recursos ============================
@@ -1097,23 +1105,23 @@ def pronto(uid, jogador, personagem, raca="Humano", classe="Caçador"):
 # --- os cartões saem com a imagem anexada (quando existe) e o texto do resultado ---
 k1 = novo(600, "Ana", "Ana Humana")
 with dados(50): run(bot.raca_inicial.callback(k1, None))
-assert titulo(k1) == "Humano" and nomes_de_arquivo(k1) == ["raca-humano.png"] and sent(k1)[1]["embed"].image.url == "attachment://raca-humano.png"
+assert titulo(k1) == "Humanos" and nomes_de_arquivo(k1) == ["raca-humano.png"] and sent(k1)[1]["embed"].image.url == "attachment://raca-humano.png"
 assert all(isinstance(f, discord.File) for f in sent(k1)[1]["files"]) and not sent(k1)[1].get("ephemeral") and "Raça de Ana Humana" in txt(k1)
 assert "São seres mundanos" in desc(k1) and "Em jogo=" in txt(k1)
 k2 = novo(601, "Beto", "Beto Vampiro")
 with dados(90): run(bot.raca_inicial.callback(k2, None))
-assert titulo(k2) == "Vampiro" and nomes_de_arquivo(k2) == ["raca-vampiro.png"] and "Conde Drácula" in desc(k2)
+assert titulo(k2) == "Vampiros" and nomes_de_arquivo(k2) == ["raca-vampiro.png"] and "Conde Drácula" in desc(k2)
 k3 = novo(602, "Caio", "Caio Dhampir")
 with dados(97): run(bot.raca_inicial.callback(k3, None))
-assert titulo(k3) == "Dhampir" and "files" not in sent(k3)[1] and sent(k3)[1]["embed"].image.url is None and "Alucard" in desc(k3)   # ainda sem arte: cartão sem imagem
+assert titulo(k3) == "Dhampirs" and "files" not in sent(k3)[1] and sent(k3)[1]["embed"].image.url is None and "Alucard" in desc(k3)   # ainda sem arte: cartão sem imagem
 assert row(602, "Caio Dhampir")["race"] == "Dhampir" and [h["purpose"] for h in historico_de(602)] == ["raca_inicial"]
-for n, esperado_titulo, arquivo in [(50, "3º Estado · Camponeses", "estado-3.png"), (85, "2º Estado · Nobreza", "estado-2.png")]:
+for n, esperado_titulo, arquivo in [(50, "3° Estado —  Camponeses", "estado-3.png"), (85, "2° Estado —  Nobreza", "estado-2.png")]:
     u = novo(610 + n, f"E{n}", f"Estado {n}")
     with dados(n): run(bot.classe_social.callback(u, None))
     assert titulo(u) == esperado_titulo and nomes_de_arquivo(u) == [arquivo] and not sent(u)[1].get("ephemeral")
 u = novo(690, "Clero", "Padre Imagem")
 with dados(95, 70): run(bot.classe_social.callback(u, None))
-assert titulo(u) == "1º Estado · Clero" and nomes_de_arquivo(u) == ["estado-1.png"] and "🎲" not in desc(u) and "✝ Alto Clero=O Alto Clero, de bispos e abades" in txt(u)
+assert titulo(u) == "1° Estado —  Clero" and nomes_de_arquivo(u) == ["estado-1.jpg"] and "🎲" not in desc(u) and "✝ Alto Clero=O Alto Clero, de bispos e abades" in txt(u)
 assert [h["purpose"] for h in reversed(historico_de(690))] == ["classe_social", "clero"]
 m100 = inter(691, "Sortudo"); m100.guild = NS(roles=[NS(id=1, name="Jogador", mention="<@&1>"), NS(id=555, name="Mestre", mention="<@&555>")])
 run(bot.personagem_criar.callback(m100, "Raro Imagem"))
@@ -1304,14 +1312,14 @@ assert c1.response.edit_message.call_count == 1 and c1.followup.send.call_count 
 nova = editada(c1)["view"]; assert isinstance(nova, paineis.PainelFicha) and nova is not painel and nova.origem is u
 assert editada(c1)["embed"].title == "📖 Ficha de Ana Painel" and "⚠️ **Ficha incompleta.**" in editada(c1)["embed"].description
 (conteudo, fk), = followups(c1)
-assert conteudo is None and fk["embed"].title == "Humano" and [f.filename for f in fk["files"]] == ["raca-humano.png"] and "ephemeral" not in fk    # público, com a imagem
+assert conteudo is None and nome_do_cartao(fk["embed"]) == "Humanos" and [f.filename for f in fk["files"]] == ["raca-humano.png"] and "ephemeral" not in fk    # público, com a imagem
 assert row(800, "Ana Painel")["race"] == "Humano" and [h["purpose"] for h in historico_de(800)] == ["raca_inicial"]
 assert estado(nova)["Raça (2)"] == ("🔄", False) and estado(nova)["Classe"] == ("🔒", True) and botao(nova, "Raça (2)").style == discord.ButtonStyle.secondary   # sobram 2 chances
 assert fk["embed"].footer.text == "jogador: Ana · tentativa 1 de 3"
 
 # --- Classe social, depois a escolha da classe com confirmação ---
 with dados(50): c2 = clique(nova, "Classe social", 800, "Ana")
-assert followups(c2)[0][1]["embed"].title == "3º Estado · Camponeses" and [f.filename for f in followups(c2)[0][1]["files"]] == ["estado-3.png"]
+assert nome_do_cartao(followups(c2)[0][1]["embed"]) == "3° Estado —  Camponeses" and [f.filename for f in followups(c2)[0][1]["files"]] == ["estado-3.png"]
 nova2 = editada(c2)["view"]; assert estado(nova2)["Classe"] == ("🎓", False) and estado(nova2)["Classe social (2)"] == ("🔄", False)
 c3 = clique(nova2, "Classe", 800, "Ana")
 esc = editada(c3)["view"]; assert isinstance(esc, paineis.EscolhaDeClasse) and c3.followup.send.call_count == 0 and nova2.is_finished()
@@ -1532,7 +1540,7 @@ def confirmar_de(i):
 # --- raça pelo comando: a primeira rola direto; das próximas em diante, pergunta antes de trocar ---
 r1 = novo(900, "Rita", "Rita Rolos"); gm900 = alvo(900, "Rita")
 with dados(40): run(bot.raca_inicial.callback(r1, None))
-assert titulo(r1) == "Humano" and rodape(r1) == "jogador: Rita · tentativa 1 de 3" and tent(900, "Rita Rolos") == (1, 0)
+assert titulo(r1) == "Humanos" and rodape(r1) == "jogador: Rita · tentativa 1 de 3" and tent(900, "Rita Rolos") == (1, 0)
 with dados():                                                                                             # pedir de novo NÃO rola: só pergunta
     run(bot.raca_inicial.callback(r1, None))
 assert titulo(r1) == "🔄 Rolar a raça de novo?" and "Rolando de novo, sobram 1." in desc(r1) and "Você já usou 1 de 3 chances" in desc(r1) and tent(900, "Rita Rolos") == (1, 0)
@@ -1545,7 +1553,7 @@ assert isinstance(editada(c)["view"], paineis.PainelFicha) and c.followup.send.c
 # "Rolar de novo": troca o resultado, gasta uma chance, o cartão sai público e o painel volta
 conf = confirmar_de(r1)
 with dados(90): c = inter(900, "Rita"); runp(conf.children[0].callback(c))
-(_, fk), = followups(c); assert fk["embed"].title == "Vampiro" and fk["embed"].footer.text == "jogador: Rita · tentativa 2 de 3" and "ephemeral" not in fk
+(_, fk), = followups(c); assert nome_do_cartao(fk["embed"]) == "Vampiros" and fk["embed"].footer.text == "jogador: Rita · tentativa 2 de 3" and "ephemeral" not in fk
 assert [f.filename for f in fk["files"]] == ["raca-vampiro.png"]
 assert row(900, "Rita Rolos")["race"] == "Vampiro" and row(900, "Rita Rolos")["race_roll"] == 90 and tent(900, "Rita Rolos") == (2, 0)      # a última vale
 assert isinstance(editada(c)["view"], paineis.PainelFicha) and estado(editada(c)["view"])["Raça (1)"] == ("🔄", False)
@@ -1553,7 +1561,7 @@ assert [h["total"] for h in reversed(historico_de(900))] == [40, 90] and {h["pur
 # a terceira é a última
 r1b = inter(900, "Rita"); runp(bot.raca_inicial.callback(r1b, None)); conf = confirmar_de(r1b); assert "sobram 0." in desc(r1b)
 with dados(97): c = inter(900, "Rita"); runp(conf.children[0].callback(c))
-assert followups(c)[0][1]["embed"].title == "Dhampir" and followups(c)[0][1]["embed"].footer.text == "jogador: Rita · última chance" and tent(900, "Rita Rolos") == (3, 0)
+assert nome_do_cartao(followups(c)[0][1]["embed"]) == "Dhampirs" and followups(c)[0][1]["embed"].footer.text == "jogador: Rita · última chance" and tent(900, "Rita Rolos") == (3, 0)
 assert estado(editada(c)["view"])["Raça"] == ("✅", True)                                                       # acabaram as chances: botão verde e desligado
 # passou de 3: o comando recusa, sem rolar
 with dados(): r2 = inter(900, "Rita"); runp(bot.raca_inicial.callback(r2, None))
@@ -1572,11 +1580,11 @@ assert "já tem Rank de Magia: **Raro**" in txt(mg) and "view" not in sent(mg)[1
 # --- classe social: rolar de novo troca o Estado e o clero ---
 e1 = novo(902, "Est", "Est Rolos"); a902 = alvo(902, "Est")
 with dados(95, 70): run(bot.classe_social.callback(e1, None))
-assert titulo(e1) == "1º Estado · Clero" and "✝ Alto Clero=" in txt(e1) and tent(902, "Est Rolos") == (0, 1)
+assert titulo(e1) == "1° Estado —  Clero" and "✝ Alto Clero=" in txt(e1) and tent(902, "Est Rolos") == (0, 1)
 run(bot.classe_social.callback(e1, None)); assert titulo(e1) == "🔄 Rolar a classe social de novo?" and "**1º Estado · Clero (Alto Clero)**" in desc(e1)
 conf = confirmar_de(e1)
 with dados(50): c = inter(902, "Est"); runp(conf.children[0].callback(c))
-(_, fk), = followups(c); assert fk["embed"].title == "3º Estado · Camponeses" and fk["embed"].fields == [] and fk["embed"].footer.text == "jogador: Est · tentativa 2 de 3"
+(_, fk), = followups(c); assert nome_do_cartao(fk["embed"]) == "3° Estado —  Camponeses" and fk["embed"].fields == [] and fk["embed"].footer.text == "jogador: Est · tentativa 2 de 3"
 ch = row(902, "Est Rolos"); assert (ch["social_class"], ch["clergy"], ch["clergy_roll"], ch["social_class_roll"], ch["social_class_attempts"]) == ("3º Estado", None, None, 50, 2)   # o clero antigo some
 assert [h["purpose"] for h in reversed(historico_de(902))] == ["classe_social", "clero", "classe_social"]
 run(bot.classe_social.callback(e1, None)); conf = confirmar_de(e1)
@@ -1592,7 +1600,7 @@ assert "já usou as 3 chances de rolar a Classe Social e ficou com **2º Estado 
 # --- mestre: apagar devolve as chances; corrigir na mão fecha ---
 run(bot.mestre_apagar.callback(gm, a902, "social_class", None)); assert tent(902, "Est Rolos") == (0, 0) and row(902, "Est Rolos")["social_class"] is None
 with dados(20): run(bot.classe_social.callback(e1, None))
-assert titulo(e1) == "3º Estado · Camponeses" and rodape(e1) == "jogador: Est · tentativa 1 de 3" and tent(902, "Est Rolos") == (0, 1)     # de novo com 3 chances
+assert titulo(e1) == "3° Estado —  Camponeses" and rodape(e1) == "jogador: Est · tentativa 1 de 3" and tent(902, "Est Rolos") == (0, 1)     # de novo com 3 chances
 run(bot.mestre_corrigir_raca.callback(gm, a902, "Vampiro", None)); assert tent(902, "Est Rolos")[0] == 3
 with dados(): r = inter(902, "Est"); runp(bot.raca_inicial.callback(r, None))
 assert "já usou as 3 chances de rolar a Raça e ficou com **Vampiro**" in txt(r)
@@ -1621,7 +1629,7 @@ with dados(50): c = clique(criar(paineis.PainelFicha, 904, row(904, "Pan Chances
 pn = editada(c)["view"]; assert estado(pn)["Classe social (2)"] == ("🔄", False) and estado(pn)["Raça (2)"] == ("🔄", False)
 c = clique(pn, "Classe social (2)", 904, "Pan"); tela = editada(c)["view"]; assert isinstance(tela, paineis.ConfirmarRepeticao) and editada(c)["embed"].title == "🔄 Rolar a classe social de novo?"
 with dados(85): c = inter(904, "Pan"); runp(tela.children[0].callback(c))
-assert followups(c)[0][1]["embed"].title == "2º Estado · Nobreza" and tent(904, "Pan Chances") == (1, 2) and estado(editada(c)["view"])["Classe social (1)"] == ("🔄", False)
+assert nome_do_cartao(followups(c)[0][1]["embed"]) == "2° Estado —  Nobreza" and tent(904, "Pan Chances") == (1, 2) and estado(editada(c)["view"])["Classe social (1)"] == ("🔄", False)
 # painel com a chavinha da ordem desligada: rolar de novo continua valendo
 bot.ORDEM_DA_CRIACAO = False
 try:
@@ -1983,6 +1991,9 @@ print("V. Escudo do Mestre OK")
 # ============================ W. Resultado especial: 66 e 77 nos sorteios de criação ============================
 VERMELHO, AMARELO = 0xC0392B, 0xF1C40F
 papel_mestre = NS(id=555, name="Mestre", mention="<@&555>")
+def sem_numero(i, n):
+    """O número não aparece na resposta. Os horários (<t:1790782581:d>) são ignorados: os dígitos deles mudam a cada segundo."""
+    return str(n) not in re.sub(r"<t:\d+:\w>", "", txt(i))
 def cartao_de(i): return sent(i)[1]["embed"]
 def so_interrogacao(e):
     tudo = " ".join([e.title or "", e.author.name or "", e.description or "", e.footer.text or ""] + [f.name + f.value for f in e.fields])
@@ -1998,21 +2009,21 @@ assert not kw.get("ephemeral") and "files" not in kw and "view" not in kw       
 c = row(1100, "Sombra"); assert (c["race"], c["race_roll"], c["race_set_at"], c["race_special"], c["race_attempts"]) == (None, None, None, 66, 1)
 assert [(h["purpose"], h["total"]) for h in historico_de(1100)] == [("raca_inicial", 66)]      # a rolagem fica no histórico
 # o histórico é público: o número do sorteio especial não aparece ali, mas uma rolagem comum de 66 aparece normal
-run(bot.historico.callback(z, None, 10, None)); assert [f.name for f in sent(z)[1]["embed"].fields] == ["1d100 = ??? (raca_inicial)"] and "66" not in txt(z)
+run(bot.historico.callback(z, None, 10, None)); assert [f.name for f in sent(z)[1]["embed"].fields] == ["1d100 = ??? (raca_inicial)"] and sem_numero(z, 66)
 db.log_roll(user_id="1100", username="Zé", guild_id=None, notation="1d100", rolls=[66], total=66, purpose="ataque", character_id=c["id"], character_name="Sombra")
 run(bot.historico.callback(z, None, 10, None)); assert [f.name for f in sent(z)[1]["embed"].fields] == ["1d100 = 66 (ataque)", "1d100 = ??? (raca_inicial)"]
 # não rola de novo (nem pelo comando), e a resposta não diz o que saiu
 with dados(): run(bot.raca_inicial.callback(z, None))
-assert "Algo diferente aconteceu" in txt(z) and "66" not in txt(z) and sent(z)[1]["ephemeral"] and row(1100, "Sombra")["race_attempts"] == 1
+assert "Algo diferente aconteceu" in txt(z) and sem_numero(z, 66) and sent(z)[1]["ephemeral"] and row(1100, "Sombra")["race_attempts"] == 1
 # a ficha do jogador só mostra interrogação; a do mestre mostra o número
-run(bot.minha_ficha.callback(z, None)); assert campos(z)["Raça"] == "❓ ???\n(aguardando o mestre)" and "66" not in txt(z)
+run(bot.minha_ficha.callback(z, None)); assert campos(z)["Raça"] == "❓ ???\n(aguardando o mestre)" and sem_numero(z, 66)
 run(bot.mestre_ficha.callback(gm, alvo(1100, "Zé"), None)); assert campos(gm)["Raça"] == "❓ ???\n(aguardando o mestre, tirou 66)"
 run(bot.personagem_listar.callback(z)); assert "raça: ❓ ???" in txt(z)
 # o botão da raça fica travado com ❓, e os outros passos seguem o que já valia
 pf = criar(paineis.PainelFicha, 1100, c["id"], "Zé"); est = estado(pf)
 assert est["Raça"] == ("❓", True) and est["Classe social"] == ("⚜️", False) and est["Classe"] == ("🔒", True) and est["Magia"] == ("🔒", True); confere_componentes(pf)
 # a ajuda entende: o próximo passo é com o mestre e não manda rolar de novo
-run(bot.ajuda_comando.callback(z, None)); assert "algo diferente aconteceu no seu sorteio" in txt(z) and "66" not in txt(z)
+run(bot.ajuda_comando.callback(z, None)); assert "algo diferente aconteceu no seu sorteio" in txt(z) and sem_numero(z, 66)
 # o mestre decide: escolhe a raça na mão, o especial some e a raça vale como qualquer outra
 run(bot.mestre_corrigir_raca.callback(gm, alvo(1100, "Zé"), "Humano", None)); assert "**❓ ??? (tirou 66)** → **Humano**" in txt(gm)
 c = row(1100, "Sombra"); assert (c["race"], c["race_roll"], c["race_special"]) == ("Humano", None, None) and rules.reroll_block(c, "race") == "tentativas"
@@ -2023,7 +2034,7 @@ assert cartao_de(y).color.value == AMARELO and row(1101, "Ya Sombra")["race_spec
 run(bot.mestre_apagar.callback(gm, alvo(1101, "Ya"), "race", None)); c = row(1101, "Ya Sombra")
 assert (c["race"], c["race_special"], c["race_attempts"]) == (None, None, 0)
 with dados(50): run(bot.raca_inicial.callback(y, None))
-assert titulo(y) == "Humano" and row(1101, "Ya Sombra")["race"] == "Humano"                   # depois, rola normal
+assert titulo(y) == "Humanos" and row(1101, "Ya Sombra")["race"] == "Humano"                   # depois, rola normal
 
 # --- classe social 77 (amarelo), inclusive um 66 ou 77 no sorteio do clero ---
 q = com_cargo(novo(1102, "Quim", "Quimera"))
@@ -2032,7 +2043,7 @@ e, kw = cartao_de(q), sent(q)[1]
 assert e.color.value == AMARELO and so_interrogacao(e) and kw["content"] == "<@&555>" and not kw.get("ephemeral")
 c = row(1102, "Quimera"); assert (c["social_class"], c["social_class_roll"], c["clergy"], c["social_class_special"], c["social_class_attempts"]) == (None, None, None, 77, 1)
 with dados(): run(bot.classe_social.callback(q, None))
-assert "Algo diferente aconteceu" in txt(q) and "77" not in txt(q)
+assert "Algo diferente aconteceu" in txt(q) and sem_numero(q, 77)
 run(bot.mestre_ficha.callback(gm, alvo(1102, "Quim"), None)); assert campos(gm)["Classe Social"] == "❓ ???\n(aguardando o mestre, tirou 77)"
 cl = com_cargo(novo(1103, "Clero", "Padre Misterioso"))
 with dados(95, 66): run(bot.classe_social.callback(cl, None))                                # 1º Estado, e o dado do clero deu 66
@@ -2053,7 +2064,7 @@ e, kw = cartao_de(mg), sent(mg)[1]
 assert e.color.value == AMARELO and so_interrogacao(e) and kw["content"] == "<@&555>" and "🎲" not in txt(mg)
 c = row(1104, "Mago Sombrio"); assert (c["magic_rank"], c["magic_rank_roll"], c["magic_rank_special"]) == (None, None, 77)
 with dados(): run(bot.magia_inicial.callback(mg, None))
-assert "Algo diferente aconteceu" in txt(mg) and "77" not in txt(mg)                          # nem a magia (uma rolagem só) roda de novo
+assert "Algo diferente aconteceu" in txt(mg) and sem_numero(mg, 77)                          # nem a magia (uma rolagem só) roda de novo
 run(bot.historico.callback(mg, None, 10, None)); assert [f.name for f in sent(mg)[1]["embed"].fields] == ["1d100 = ??? (magia_inicial)"]
 run(bot.minha_ficha.callback(mg, None)); assert campos(mg)["Rank de Magia"] == "❓ ???\n(aguardando o mestre)"
 run(bot.atributos.callback(mg, forca=1)); assert "algo diferente aconteceu num dos seus sorteios" in txt(mg)
@@ -2073,9 +2084,9 @@ c2 = row(1105, "Rui Rolos"); assert (c2["race"], c2["race_special"], c2["race_at
 for k, (n, raca) in enumerate(((65, "Humano"), (67, "Humano"), (76, "Humano"), (78, "Humano"))):
     v = com_cargo(novo(1110 + k, f"Viz{n}", f"Vizinho {n}"))
     with dados(n): run(bot.raca_inicial.callback(v, None))
-    assert titulo(v) == raca and not so_interrogacao(cartao_de(v)) and row(1110 + k, f"Vizinho {n}")["race_special"] is None
+    assert titulo(v) == "Humanos" and not so_interrogacao(cartao_de(v)) and row(1110 + k, f"Vizinho {n}")["race_special"] is None
     with dados(n): run(bot.classe_social.callback(v, None))
-    assert cartao_de(v).title == "3º Estado · Camponeses"
+    assert nome_do_cartao(cartao_de(v)) == "3° Estado —  Camponeses"
     assert row(1110 + k, f"Vizinho {n}")["social_class_special"] is None
 vm = vampiro_sem_magia(1115, "Vm", "Vizinho Magia")
 with dados(78): run(bot.magia_inicial.callback(vm, None))

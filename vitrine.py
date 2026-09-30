@@ -90,12 +90,56 @@ def resultado_atual(personagem, campo: str) -> str:
     return f"{titulo} ({personagem['clergy']})" if personagem["clergy"] else titulo
 
 
+def _negrito_matematico(c: str) -> str:
+    """A letra maiúscula ou o número em negrito matemático (𝐇, 𝟏), como nas mensagens do servidor."""
+    if "A" <= c <= "Z":
+        return chr(0x1D400 + ord(c) - ord("A"))
+    if "0" <= c <= "9":
+        return chr(0x1D7CE + ord(c) - ord("0"))
+    return c
+
+
+def enfeitar_rotulo(rotulo: str) -> str:
+    """'Humanos' vira '𝐇umanos': só a inicial de cada palavra (e os números) em negrito matemático."""
+    saida, inicio = [], True
+    for c in rotulo:
+        saida.append(_negrito_matematico(c) if c.isdigit() or (inicio and c.isalpha()) else c)
+        inicio = c == " "
+    return "".join(saida)
+
+
+def _cabecalho(rotulo: str, emoji: str) -> str:
+    """A linha do título no estilo do servidor: emoji, espaço, ornamento e o rótulo enfeitado."""
+    return (
+        f"{emoji}{' ' * 12}{lore.PREENCHE * 5}{lore.ORNAMENTO_L}{lore.NULO * 8}{enfeitar_rotulo(rotulo)}"
+        f"{lore.NULO * 3}{lore.PREENCHE * 2} {lore.PREENCHE * 2}{lore.HIEROGLIFO}"
+    )
+
+
+def _citar_decorado(texto: str, emoji: str) -> str:
+    """O texto em citação, em negrito e (se lore.TEXTO_PEQUENO) em letra pequena, com o emoji na frente."""
+    pequeno = "-# " if lore.TEXTO_PEQUENO else ""
+    linhas = [l.strip() for l in texto.splitlines() if l.strip()]
+    saida = []
+    for i, linha in enumerate(linhas):
+        abre = f"{emoji}{' ' * 6}" if i == 0 else ""
+        saida.append(f"> {pequeno}{abre}{lore.NULO * 4}{lore.ORNAMENTO_L}{lore.NULO * 4}**{linha}**")
+    return "\n".join(saida)
+
+
 def _montar(*, autor: str, titulo: str, cor: int, topo: str | None = None, texto: str | None = None,
             italico: bool = False, campos: list[tuple[str, str, bool]] = (), imagem=None, miniatura=None,
-            rodape: str | None = None) -> Cartao:
-    embed = discord.Embed(title=titulo, color=cor)
+            rodape: str | None = None, decorado: tuple[str, str, str] | None = None) -> Cartao:
+    """decorado = (rótulo, emoji do cabeçalho, emoji do texto) usa o estilo do servidor: sem título do embed
+    (o rótulo enfeitado abre a descrição) e o texto em citação pequena e em negrito."""
+    embed = discord.Embed(title=None if decorado else titulo, color=cor)
     embed.set_author(name=autor)
-    partes = [p for p in (topo, _citar(texto, italico) if texto else None) if p]
+    if decorado:
+        rotulo, emoji_titulo, emoji_texto = decorado
+        partes = [_cabecalho(rotulo, emoji_titulo), _citar_decorado(texto, emoji_texto) if texto else None]
+        partes = [p for p in partes if p]
+    else:
+        partes = [p for p in (topo, _citar(texto, italico) if texto else None) if p]
     if partes:
         embed.description = "\n\n".join(partes)
     for nome, valor, em_linha in campos:
@@ -131,12 +175,14 @@ def _em_jogo_da_raca(raca: str) -> str:
     if raca == "Humano":
         return (
             "Sem Disciplinas\n"
+            "Sem magia inicial, só as classes Feiticeiros e Mestre de Forja têm\n"
             f"Força, Destreza e Vitalidade até {lim['forca']} e Razão até {lim['razao']} na criação"
         )
     pontos = rules.INITIAL_DISCIPLINE_POINTS[raca]
     linhas = [
         f"{pontos} pontos de Disciplina na criação (grau máximo {rules.DISCIPLINE_CREATION_MAX_GRADE})"
-        + (", pode usar as dez" if raca == "Dhampir" else "")
+        + (", pode usar as dez" if raca == "Dhampir" else ""),
+        "Tem magia inicial (`/magia_inicial`)",
     ]
     if lim:
         linhas.append(f"Força, Destreza e Vitalidade até {lim['forca']} na criação")
@@ -153,12 +199,11 @@ def cartao_raca(personagem: str, raca: str, jogador: str, tentativa: tuple[int, 
         autor=f"{info['emoji']} Raça de {personagem}",
         titulo=raca,
         cor=info["cor"],
-        topo=lore.DIVISOR,
         texto=info["texto"],
-        italico=True,
         campos=[("Em jogo", _em_jogo_da_raca(raca), False)],
         imagem=achar_imagem("raca", raca),
         rodape=_rodape(jogador, tentativa),
+        decorado=(info["rotulo"], info["emoji_titulo"], info["emoji_texto"]),
     )
 
 
@@ -184,9 +229,10 @@ def cartao_estado(personagem: str, estado: str, jogador: str, clero: str | None 
         campos.append((f"✝ {clero}", lore.CLERO[clero], False))
         miniatura = achar_imagem("clero", clero.split()[0])
     return _montar(
-        autor=autor, titulo=info["titulo"], cor=info["cor"], topo=lore.DIVISOR, texto=info["texto"], italico=True,
+        autor=autor, titulo=info["titulo"], cor=info["cor"], texto=info["texto"],
         campos=campos, imagem=achar_imagem("estado", estado[0]), miniatura=miniatura,
         rodape=_rodape(jogador, tentativa),
+        decorado=(info["rotulo"], info["emoji_titulo"], info["emoji_texto"]),
     )
 
 
