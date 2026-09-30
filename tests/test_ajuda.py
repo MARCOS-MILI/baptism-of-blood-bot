@@ -96,7 +96,7 @@ print("3. achar comando OK")
 
 # ---------- sugestões do autocomplete ----------
 tudo = ajuda.sugestoes("", incluir_mestre=True)
-assert len(tudo) == 25 and tudo[:5] == ["personagem criar", "raca_inicial", "classe_social", "classe", "magia_inicial"]           # sem digitar, começa pelo passo a passo
+assert len(tudo) == 25 and tudo[:6] == ["personagem criar", "raca_inicial", "classe_social", "classe", "habilidade", "magia_inicial"]           # sem digitar, começa pelo passo a passo
 jogador = ajuda.sugestoes("", incluir_mestre=False)
 assert jogador == [k for k in ajuda.ORDEM_SUGESTAO if k in ajuda.AJUDA] and not any(k.startswith("mestre ") for k in jogador)
 assert ajuda.sugestoes("atrib", False) == ["atributos"] and ajuda.sugestoes("atrib", True) == ["atributos", "mestre atributos"]
@@ -169,5 +169,14 @@ assert ajuda.texto_bloqueio("Sombra", e1).startswith("🔒 A ficha de **Sombra**
 for texto in (*l, *ajuda.linhas_passo_a_passo(e1), *ajuda.linhas_passo_a_passo(e2), ajuda.proximo_passo(e3), ajuda.texto_bloqueio("Sombra", e2)):
     assert "66" not in texto and "77" not in texto, texto                                            # nada diz o número que saiu
 print("8. resultado especial OK")
+
+# ---------- 9. os comandos novos desta rodada ----------
+for chave in ("habilidade", "mestre sorte"):
+    e = ajuda.AJUDA[chave]; assert e["resumo"] and e["uso"].startswith("/") and 0 < len(e["detalhes"]) <= 600 and "—" not in e["detalhes"], chave
+assert ajuda.AJUDA["habilidade"]["grupo"] == "personagem" and ajuda.AJUDA["mestre sorte"]["grupo"] == "mestre" and ajuda.AJUDA["mestre sorte"]["requisito"] == "Só mestres."
+assert ("Dados", ["sorte"]) in ajuda.MESTRE_SUBGRUPOS and "habilidade" in ajuda.ORDEM_SUGESTAO and len(ajuda.ORDEM_SUGESTAO) == 22
+assert "3#d20+5" in ajuda.AJUDA["rolar"]["detalhes"] and "🍀" in ajuda.AJUDA["rolar"]["detalhes"] and "/habilidade" in ajuda.AJUDA["classe"]["detalhes"] and "+4" in ajuda.AJUDA["niveis"]["detalhes"]
+assert "discreto" in ajuda.AJUDA["mestre sorte"]["detalhes"] and "não mexe nos sorteios da criação nem na iniciativa" in ajuda.AJUDA["mestre sorte"]["detalhes"]   # o que o comando NÃO faz está dito
+print("9. comandos novos OK")
 
 print("\nTODOS OS TESTES DA AJUDA PASSARAM")

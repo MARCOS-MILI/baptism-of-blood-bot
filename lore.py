@@ -170,38 +170,284 @@ CLERO = {
 }
 
 # ---------------------------------------------------------------------------
-# Classes (o texto de cada uma é o do site)
+# Classes (os textos e as habilidades são os do site, copiados dele; o capítulo Habilidades de Classe do
+# site ainda é rascunho em revisão, então isso muda quando ele mudar)
 # ---------------------------------------------------------------------------
-CLASSES = {
+CLASSES = {  # o texto de cada classe
     "Caçador": (
-        "Os caçadores devotam suas vidas ao extermínio das trevas, buscando, de um jeito ou de outro, purificar o "
-        "mundo do inferno e dos servos que por ele vagam. Vivem entre a fé e a violência, treinados pra reconhecer "
-        "e abater o que a maioria prefere fingir que não existe."
+        "Os caçadores devotam suas vidas ao extermínio das trevas, buscando, de um jeito ou de outro, "
+        "purificar o mundo do inferno e dos servos que por ele vagam. Vivem entre a fé e a violência, "
+        "treinados pra reconhecer e abater o que a maioria prefere fingir que não existe."
+    ),
+    "Clérigo": (
+        "Cuidam do corpo e da alma de quem chega até eles. Servem à fé, ou ao que sobrou dela, num tempo "
+        "em que a própria Igreja se divide: com a mão sobre o ferido e a palavra sobre o moribundo, são o "
+        "último abrigo de quem já não sabe em quem confiar. Não precisam vestir batina: cura quem sabe "
+        "curar."
     ),
     "Feiticeiros": (
-        "Estudiosos do proibido, buscam nas páginas antigas e nos rituais esquecidos um poder que a maioria teme "
-        "sequer nomear. Cada segredo aprendido cobra um preço, e nem todo feiticeiro percebe o quanto já pagou "
-        "até ser tarde demais."
+        "Estudiosos do proibido, buscam nas páginas antigas e nos rituais esquecidos um poder que a "
+        "maioria teme sequer nomear. Cada segredo aprendido cobra um preço, e nem todo feiticeiro percebe "
+        "o quanto já pagou até ser tarde demais."
     ),
     "Ladrão": (
-        "Sobrevive pela lâmina afiada da língua e pela sombra que nunca o larga. Não busca glória nem verdade. "
-        "Busca o próximo passo, a próxima porta trancada, a próxima chance de sumir antes que alguém perceba que "
-        "ele esteve ali."
+        "Sobrevive pela lâmina afiada da língua e pela sombra que nunca o larga. Não busca glória nem "
+        "verdade. Busca o próximo passo, a próxima porta trancada, a próxima chance de sumir antes que "
+        "alguém perceba que ele esteve ali."
+    ),
+    "Mercenário": (
+        "Viveu a vida lutando: com a espada, com as mãos, com o corpo inteiro. Cobra pelo serviço, ou "
+        "luta de graça por quem precisa, e aprendeu cedo que o mal do mundo não vem só de vampiros e "
+        "demônios: os homens dão conta de sobra. Talvez nunca tenha visto o sobrenatural, mas conhece o "
+        "perigo como poucos."
     ),
     "Mestre de Forja": (
-        "Funde o conhecimento das mãos com o conhecimento proibido: entende que uma lâmina comum não fere o que "
-        "espreita na escuridão, e dedica a vida a forjar o que realmente pode. Cada peça que sai da sua bigorna "
-        "carrega um propósito."
+        "Funde o conhecimento das mãos com o conhecimento proibido: entende que uma lâmina comum não fere "
+        "o que espreita na escuridão, e que toda alma pesa, e o que pesa pode ser moldado. Na bigorna, "
+        "almas viram lâmina, ferramenta e armadura; no ritual, corpos sem vida voltam como criaturas da "
+        "noite, tão fiéis quanto cães a quem os forjou. Cada peça e cada criatura carrega o preço de quem "
+        "foi antes."
     ),
     "Mundano": (
-        "Você vive um dia de cada vez, cuidando dos seus afazeres cotidianos e se preocupando, no máximo, com o "
-        "que vai comer no almoço. Sua vida segue sem muitas preocupações, até que as trevas decidam o contrário."
+        "Você vive um dia de cada vez, cuidando dos seus afazeres cotidianos e se preocupando, no máximo, "
+        "com o que vai comer no almoço. Sua vida segue sem muitas preocupações, até que as trevas decidam "
+        "o contrário. Ainda não escolheu o seu lugar no mundo, e talvez o encontre: conquistar uma classe "
+        "exige RP e conversa com o mestre."
     ),
     "Sábio": (
-        "Os sábios buscam o saber que liberta da fome, do medo e da ignorância. Mas, neste mundo de trevas, quem "
-        "seria capaz de encontrá-lo? Preferem a biblioteca ao campo de batalha, mas o que aprendem muitas vezes "
-        "os arrasta pra lá de qualquer jeito."
+        "Os sábios buscam o saber que liberta da fome, do medo e da ignorância. Mas, neste mundo de "
+        "trevas, quem seria capaz de encontrá-lo? Preferem a biblioteca ao campo de batalha, mas o que "
+        "aprendem muitas vezes os arrasta pra lá de qualquer jeito."
     ),
+}
+
+CLASSE_FRASE = {  # a frase curta embaixo do nome
+    "Caçador": "Fé e violência",
+    "Clérigo": "Cura e fé",
+    "Feiticeiros": "Estudo proibido",
+    "Ladrão": "Sombra e lábia",
+    "Mercenário": "Corpo e espada",
+    "Mestre de Forja": "Almas na bigorna",
+    "Mundano": "Ainda sem lugar",
+    "Sábio": "Saber e dúvida",
+}
+
+CLASSE_COMBINA = {  # profissões que combinam (exemplos)
+    "Caçador": ["Pastor", "Soldado", "Guarda real", "Monge"],
+    "Clérigo": ["Padre", "Freira", "Pastor", "Hospedeiro"],
+    "Feiticeiros": ["Alfaiate", "Conselheiro real", "Meretriz", "Abade"],
+    "Ladrão": ["Criado Doméstico", "Meretriz", "Diplomata", "Dama de Companhia"],
+    "Mercenário": ["Soldado", "Coronel", "Ferreiro", "Agricultor"],
+    "Mestre de Forja": ["Ferreiro", "Alfaiate", "Marceneiro", "Monge"],
+    "Mundano": ["Padeiro", "Comerciante", "Dama de Companhia", "Padre"],
+    "Sábio": ["Juiz", "Conselheiro Jurídico", "Monge", "Comerciante"],
+}
+
+# A habilidade inicial de cada classe. "escolha": a classe oferece duas e o jogador leva uma.
+# Cada habilidade: nome, marcas (tipo e custo), frase e a lista de efeitos (rótulo, texto).
+HABILIDADES = {
+    "Caçador": {
+        "escolha": False,
+        "opcoes": [
+            {
+                "nome": "Sem Dúvidas",
+                "marcas": ["Inicial", "Passiva", "Físico", "Custo: 10 Estamina no Efeito²"],
+                "frase": (
+                    "Antes de iniciar uma caçada, o caçador precisa saber separar o que é mundano do que "
+                    "é profano: o que é obra do homem e da natureza e o que vem de bruxos e demônios. Uma "
+                    "vez confirmada a presença das trevas, a investigação começa."
+                ),
+                "efeitos": [
+                    ("Efeito¹", (
+                        "Ao iniciar uma cena de investigação, recebe vantagem para descobrir se algo é "
+                        "profano ou não natural. Não gasta nada."
+                    )),
+                    ("Efeito² (Presa Marcada)", (
+                        "Ao confirmar que um alvo é sobrenatural, o caçador o marca, gastando 10 de "
+                        "Estamina. Tem vantagem nos ataques e em Percepção contra ele até o fim da cena, "
+                        "e só mantém uma marca por vez."
+                    )),
+                ],
+            },
+        ],
+    },
+    "Clérigo": {
+        "escolha": True,
+        "opcoes": [
+            {
+                "nome": "Mãos que Curam",
+                "marcas": ["Inicial", "Ativa", "Fé", "Custo: 15 Mana"],
+                "frase": "Onde os outros veem uma ferida, o clérigo vê alguém que ainda pode ser salvo.",
+                "efeitos": [
+                    ("Efeito¹", (
+                        "Gasta 15 de Mana e toca um aliado. Faz um teste de Fé (DT 15): se passar, o "
+                        "aliado recupera Vida igual a Alma × 5. Pode repetir quantas vezes a Mana "
+                        "aguentar."
+                    )),
+                    ("Efeito²", "Estabilizar quem está com a Vida em 0 custa 20 de Mana e não precisa de teste."),
+                ],
+            },
+            {
+                "nome": "Bênção",
+                "marcas": ["Inicial", "Ativa", "Fé", "Custo: 10 Mana"],
+                "frase": "Um gesto, uma palavra, e a arma passa a servir a algo maior do que quem a empunha.",
+                "efeitos": [
+                    ("Efeito¹", (
+                        "Gasta 10 de Mana e abençoa um alvo ao alcance do toque: um aliado ou o próprio "
+                        "clérigo (teste de Fé, DT 15). Até o fim da cena, o dano do abençoado se torna "
+                        "sagrado."
+                    )),
+                    ("Efeito²", "O dano sagrado segue a regra de Armas Sagradas (ver Fraquezas)."),
+                ],
+            },
+        ],
+    },
+    "Feiticeiros": {
+        "escolha": False,
+        "opcoes": [
+            {
+                "nome": "Dom Nato",
+                "marcas": ["Inicial", "Passiva", "Magia"],
+                "frase": (
+                    "Nascidos pra criar e aprimorar o que os outros só temem, os feiticeiros dobram a mão "
+                    "no que já sabem fazer."
+                ),
+                "efeitos": [
+                    ("Efeito¹", "Toda magia do feiticeiro recebe +1 dado de efeito (dano, cura etc.)."),
+                    ("Efeito²", (
+                        "Gasta menos Mana pra lançar magias: cada magia custa Razão × 5 de Mana a menos, "
+                        "com custo mínimo de 1."
+                    )),
+                ],
+            },
+        ],
+    },
+    "Ladrão": {
+        "escolha": True,
+        "opcoes": [
+            {
+                "nome": "Mão Leve",
+                "marcas": ["Inicial", "Ativa", "Físico", "Custo: 10 Estamina"],
+                "frase": (
+                    "Uma mão tão suave quanto uma pluma. O que o ladrão deseja, ele consegue, desde que "
+                    "ninguém o note."
+                ),
+                "efeitos": [
+                    ("Efeito¹", (
+                        "Gasta 10 de Estamina e faz um teste de Furtividade com vantagem contra a "
+                        "Percepção do alvo. Se passar, rouba um item pequeno ou médio do inventário dele, "
+                        "ou coloca um no lugar."
+                    )),
+                    ("Efeito²", "Cada tentativa gasta a Estamina, dê certo ou não."),
+                ],
+            },
+            {
+                "nome": "Língua de Prata",
+                "marcas": ["Inicial", "Ativa", "Social", "Custo: 10 Estamina"],
+                "frase": "A arma mais afiada que o ladrão carrega não tem cabo.",
+                "efeitos": [
+                    ("Efeito¹", (
+                        "Gasta 10 de Estamina e faz um teste de Enganação com vantagem pra vender uma "
+                        "mentira, distrair um guarda ou sair de uma conversa que ia mal."
+                    )),
+                ],
+            },
+        ],
+    },
+    "Mercenário": {
+        "escolha": False,
+        "opcoes": [
+            {
+                "nome": "Ombro a Ombro",
+                "marcas": ["Inicial", "Ativa", "Físico", "Custo: 10 Estamina"],
+                "frase": (
+                    "Quem vive de espada sabe que o perigo mais comum tem rosto de homem, e que o corpo é "
+                    "o escudo mais barato que existe."
+                ),
+                "efeitos": [
+                    ("Efeito¹", (
+                        "Quando um aliado ao alcance é atacado, gasta a sua reação e 10 de Estamina pra "
+                        "se colocar na frente e receber o ataque no lugar dele, com vantagem no teste de "
+                        "defesa."
+                    )),
+                ],
+            },
+        ],
+    },
+    "Mestre de Forja": {
+        "escolha": False,
+        "opcoes": [
+            {
+                "nome": "Forja de Almas",
+                "marcas": ["Inicial", "Ativa", "Ritual", "Custo: Mana por Rank"],
+                "frase": "Toda alma pesa, e o que pesa pode ser moldado.",
+                "efeitos": [
+                    ("Efeito¹ (Catalisador)", (
+                        "Todo ritual pede um instrumento, que serve de catalisador: um martelo, uma faca, "
+                        "até uma dama de ferro. Pede também um recipiente pra alma: um corpo já morto, "
+                        "que vira uma criatura da noite, ou um objeto, que vira arma, ferramenta ou peça."
+                    )),
+                    ("Efeito² (A alma)", (
+                        "A alma que o mestre de forja prende decide o resultado. Quanto mais forte foi a "
+                        "alma em vida, mais alto o Rank da criatura ou do objeto que ela consegue "
+                        "sustentar. Um corpo comum rende pouco."
+                    )),
+                    ("Efeito³ (O preço)", (
+                        "O ritual gasta Mana conforme o Rank do que se quer forjar, com o custo definido "
+                        "pelo mestre, como nas magias. Faz um teste de Ritualismo: falhar gasta a Mana do "
+                        "mesmo jeito, e um 1 natural faz a alma reagir. A criatura se volta contra quem a "
+                        "forjou, ou o objeto sai amaldiçoado."
+                    )),
+                ],
+            },
+        ],
+    },
+    "Mundano": {
+        "escolha": False,
+        "opcoes": [
+            {
+                "nome": "Aprimoração",
+                "marcas": ["Inicial", "Passiva"],
+                "frase": (
+                    "Quem vive no mundo comum ainda não escolheu o seu lugar nele. Quando as trevas "
+                    "chegam, algo desperta, e a rotina vira aprendizado."
+                ),
+                "efeitos": [
+                    ("Efeito¹ (Vida vivida)", (
+                        "+5 pontos de perícia na criação, além dos 25 comuns (30 no total), porque o "
+                        "Mundano vive a vida e aprende de tudo um pouco."
+                    )),
+                    ("Efeito² (Aprimoração)", (
+                        "Durante o RP, o Mundano pode se aprimorar pra uma das classes existentes. Não é "
+                        "automático: só acontece por RP, em conversa com o mestre. Ao trocar, passa a ter "
+                        "os recursos, a vantagem de perícias e a habilidade da nova classe no lugar dos "
+                        "de Mundano, e os 5 pontos ficam. Se a nova classe tem magia inicial, sorteia na "
+                        "hora."
+                    )),
+                ],
+            },
+        ],
+    },
+    "Sábio": {
+        "escolha": False,
+        "opcoes": [
+            {
+                "nome": "Saber e Poder",
+                "marcas": ["Inicial", "Passiva", "Ativa", "Saber", "Custo: 10 Mana no Efeito²"],
+                "frase": (
+                    "Quem sabe mais aprende mais depressa, e quem aprende depressa passa a mandar no que "
+                    "sabe."
+                ),
+                "efeitos": [
+                    ("Efeito¹", "Ganha o dobro de pontos de perícia por nível: +4 em vez de +2."),
+                    ("Efeito²", (
+                        "Pode gastar 10 de Mana pra ganhar vantagem em um teste de Razão. O custo vale "
+                        "por teste."
+                    )),
+                ],
+            },
+        ],
+    },
 }
 COR_CLASSE = 0x2E7D5B
 

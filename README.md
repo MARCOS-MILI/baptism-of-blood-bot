@@ -6,7 +6,8 @@ Bot de Discord que rola dados, guarda o histórico de cada rolagem (jogador, per
 
 **Rolagens**
 
-- `/rolar dado:1d20+3 motivo:teste de acerto personagem:Kairon Flagon` rola e salva no histórico. `motivo` e `personagem` são opcionais; sem `personagem`, vale o que você está usando no momento.
+- `/rolar dado:1d20+3 motivo:teste de acerto personagem:Kairon Flagon` rola e salva no histórico. `motivo` e `personagem` são opcionais; sem `personagem`, vale o que você está usando no momento. Com o `#` na frente o dado rola **várias vezes, cada uma separada**: `3#d20+5` rola o d20+5 três vezes (de 1 a 10) e o cartão mostra uma linha por rolagem e o maior e o menor no fim, como uma vantagem que o jogador escolhe. No histórico, cada rolagem vira uma linha.
+- `/habilidade` mostra a habilidade inicial da sua classe. O Clérigo (Mãos que Curam ou Bênção) e o Ladrão (Mão Leve ou Língua de Prata) oferecem duas: `/habilidade escolha:Bênção` escolhe uma, vale uma vez e fica na ficha (o mestre refaz trocando a classe com `/mestre corrigir_classe`). O bot só mostra o texto; quem usa a habilidade e cobra o custo é a mesa.
 - **Dados direto no chat, sem barra:** escreve `d20`, `d20+5` ou `2d6-1` numa mensagem e o bot rola, responde na própria mensagem e salva no histórico, como o `/rolar`. Com um `+` na frente, o que vem depois do dado vira o motivo: `+d20+5 ataque com a espada`. Sem o `+`, a mensagem inteira precisa ser só o dado, então conversa normal ("d20 é o melhor dado") nunca rola. Vale a mesma regra da ficha pronta do `/rolar` (os mestres passam direto). No d20, um 20 ou um 1 natural ganha um destaque visual, sem efeito nenhum de regra. Precisa do **Message Content Intent** ligado (ver "Dados por texto" abaixo).
 - `/historico usuario:@alguém limite:10 personagem:Akari Amaya` mostra as últimas rolagens de alguém (padrão: você mesmo). Com `personagem`, mostra só as daquele personagem. A data e a hora aparecem no fuso de quem está lendo.
 
@@ -146,6 +147,21 @@ Só **Vampiro e Dhampir** têm. São dez: Potência, Celeridade, Ofuscação, Pr
 - **Não trava a ficha pronta:** um Vampiro pode terminar a criação sem gastar nenhum ponto de Disciplina e gastar depois.
 - A ficha ganha o campo **Disciplinas** (pontos usados e o grau de cada uma). O texto de cada grau fica em `lore.py` (`DISCIPLINAS`). Os graus 4 e 5 são sempre "em aberto".
 
+## Classes e habilidades
+
+São **oito classes**, iguais às do site: Caçador, Clérigo, Feiticeiros, Ladrão, Mercenário, Mestre de Forja, Mundano e Sábio. Clérigo e Mercenário são as novas. Cada classe tem bônus de Vida, Sanidade, Mana e Estamina (em `rules.py`), vantagem em duas perícias e uma habilidade inicial. O texto de cada classe, a frase curta, os exemplos de profissão e as habilidades ficam em `lore.py` (`CLASSES`, `CLASSE_FRASE`, `CLASSE_COMBINA` e `HABILIDADES`), **copiados do site**: o capítulo Habilidades de Classe do site ainda é rascunho, então esses textos mudam quando ele mudar. O cartão da classe mostra tudo isso, e a prévia do menu também.
+
+- **Duas opções:** só o Clérigo e o Ladrão. A escolha vai pra coluna `class_ability` da ficha e zera quando a classe muda.
+- **Sábio:** ganha o dobro de pontos de perícia por nível (+4 em vez de +2), e o `/niveis` e os avisos de nível já mostram isso.
+- **Mundano:** o +5 de perícias na criação e a aprimoração são só texto por enquanto, porque o bot ainda não controla os pontos de perícia.
+- Magia inicial continua só pra Vampiro, Dhampir, Feiticeiros e Mestre de Forja: Clérigo e Mercenário não têm.
+
+## Sorte do mestre
+
+`/mestre sorte` põe um efeito nos próximos d20 de um personagem (não do jogador: cada personagem tem os seus): **vantagem** (fica o maior de 2 d20), **desvantagem**, **bônus** ou **penalidade** no total, **dado mínimo**, **dado máximo** ou **dado fixo**. `usos` (de 1 a 20) diz em quantas rolagens ele vale, `Ver` lista os ativos e `Limpar` tira todos. Vários efeitos podem valer ao mesmo tempo (vantagem e desvantagem se anulam). O cartão da rolagem mostra a marca 🍀 com o que aconteceu, a menos que o mestre ligue `discreto`. Tudo fica no registro das ações de mestre.
+
+Só afeta **um d20 sozinho** (`1d20`, `d20+5`, cada rolagem de um `3#d20`), rolado pelo `/rolar`, pela bandeja ou escrito no chat. **Não** mexe nos sorteios da criação nem na iniciativa, nem em outros dados (d6, d100, 2d20). A regra fica em `dice.py` (`aplicar_sorte`) e os efeitos ficam na tabela `dice_effects`.
+
 ## Cenas, intenções e o Escudo do Mestre
 
 Pra cena com muita gente (7, 8 jogadores ou mais), pra ninguém mandar dez mensagens no canal. Uma cena vive num **canal** (uma cena aberta por canal).
@@ -173,7 +189,7 @@ Quase tudo da criação e do jogo dá pra fazer clicando:
 
 - **`/minha_ficha`** (e a mensagem de boas-vindas do `/personagem criar`) vêm com botões embaixo da ficha:
   - **Raça, Classe social, Magia:** sorteiam na hora e o cartão com imagem sai no canal pra todo mundo. O botão de um passo que ainda não abriu fica trancado 🔒, o que já foi feito fica verde ✅, o resultado 100 da classe social fica ⏳ (esperando o mestre) e quem não tem magia vê "Sem magia" ➖.
-  - **Classe:** abre um menu com as seis classes. Escolher no menu só mostra uma prévia (texto, vantagem e bônus); a classe só vale depois de apertar **Confirmar classe**, porque não dá pra desfazer. Tem botão **Voltar**.
+  - **Classe:** abre um menu com as oito classes. Escolher no menu só mostra uma prévia (texto, vantagem e bônus); a classe só vale depois de apertar **Confirmar classe**, porque não dá pra desfazer. Tem botão **Voltar**.
   - **Físicos e Mentais:** abrem um formulário com três atributos cada (o Discord só aceita 5 campos por formulário, e são 6 atributos), já preenchidos com o valor atual. Passa pelas mesmas conferências do `/atributos`: só aumenta, confere o total de pontos e os limites da raça. Os botões desligam quando não sobra ponto.
   - **Dados, Níveis, Ajuda:** atalhos pra bandeja de dados, pra tabela de níveis e pra `/ajuda`.
   - **Trocar de personagem:** um menu aparece quando o jogador tem mais de um personagem.
@@ -195,7 +211,7 @@ Quando alguém sorteia a raça, a classe social, a classe ou o Rank de magia, o 
 
 ## Dados por texto (sem barra)
 
-Pra o bot ler o que você escreve no chat (o `d20+5`), o Discord exige que o **Message Content Intent** esteja ligado. É uma vez só:
+O `3#d20+5` também funciona escrito no chat. Pra o bot ler o que você escreve no chat (o `d20+5`), o Discord exige que o **Message Content Intent** esteja ligado. É uma vez só:
 
 1. Abre discord.com/developers, entra no seu aplicativo e vai em **Bot**.
 2. Rola até **Privileged Gateway Intents** e liga **Message Content Intent**. Salva.
@@ -212,6 +228,7 @@ Só quem tem o cargo `Mestre` ou a permissão de Gerenciar Servidor. Sem `person
 - `/mestre corrigir_nivel usuario:@alguém nivel:...` põe o personagem no começo de um nível, com o XP mínimo dele, pra consertar um erro.
 - `/mestre rank_pericia usuario:@alguém pericia:... rank:...` define o Rank (0 a 10) de uma perícia especial.
 - `/mestre disciplina usuario:@alguém disciplina:... grau:...` define o grau (0 a 5) de uma Disciplina, sem conferir pontos, com registro. Os graus 1 a 3 contam como pontos gastos do jogador; os graus 4 e 5 (que só o mestre concede) não gastam ponto. Só pra Vampiro e Dhampir, e a Sanguessugia fica bloqueada (ver "Disciplinas").
+- `/mestre sorte usuario:@alguém efeito:Vantagem usos:2` mexe na sorte dos d20 de um personagem (ver "Sorte do mestre" abaixo).
 - `/mestre escudo` abre o Escudo do Mestre (ver "Cenas, intenções e o Escudo do Mestre").
 - `/mestre apagar usuario:@alguém definicao:...` apaga Rank de magia, Raça, Classe social ou tudo isso, pro jogador poder rolar de novo. A rolagem antiga continua no histórico. Enquanto ele não rolar de novo, a ficha dele fica incompleta e os comandos de jogo dele fecham.
 - `/mestre corrigir_magia`, `/mestre corrigir_raca` e `/mestre corrigir_estado` definem o valor na mão, sem rolar. O `corrigir_estado` é o jeito de resolver o 100 do sorteio de Classe social.
@@ -295,11 +312,11 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 - `dice.py`: notação de dados e as tabelas de sorteio (magia, raça, classe social, clero).
 - `rules.py`: regras do sistema (XP e níveis, ganhos por nível, classes, perícias especiais, cálculo de recursos). Se uma regra mudar no site, muda aqui.
 - `db.py`: banco SQLite (histórico, personagens, XP e extrato, vagas, ranks, personagens excluídos, registro das ações de mestre).
-- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_rules.py`, `python tests/test_ajuda.py`, `python tests/test_vitrine.py`, `python tests/test_cena.py`, `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
+- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_rules.py`, `python tests/test_dice.py`, `python tests/test_ajuda.py`, `python tests/test_vitrine.py`, `python tests/test_cena.py`, `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
 
 ## Bancos antigos
 
-Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 8, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
+Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 9, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
 
 ## O que ainda falta
 

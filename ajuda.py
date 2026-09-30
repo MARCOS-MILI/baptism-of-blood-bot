@@ -67,10 +67,23 @@ AJUDA = {
         "resumo": "escolhe a classe do personagem",
         "uso": "/classe classe:Caçador",
         "detalhes": (
-            "Vale uma vez só; depois, só um mestre muda. Mostra a vantagem em perícias e o bônus de Vida, Sanidade, "
-            "Mana e Estamina da classe."
+            "São oito classes. Vale uma vez só; depois, só um mestre muda. Mostra o texto da classe, a vantagem em "
+            "perícias, o bônus de Vida, Sanidade, Mana e Estamina e a habilidade inicial dela (ainda em rascunho, os "
+            "números vão mudar). O Clérigo e o Ladrão têm duas habilidades: a escolha é no `/habilidade`."
         ),
         "requisito": "Só depois de sortear a raça e a classe social.",
+    },
+    "habilidade": {
+        "grupo": "personagem",
+        "resumo": "mostra a habilidade da sua classe, ou escolhe uma das duas",
+        "uso": "/habilidade escolha:Bênção",
+        "detalhes": (
+            "Toda classe tem uma habilidade inicial, e o comando mostra o texto dela. Só o Clérigo (Mãos que Curam ou "
+            "Bênção) e o Ladrão (Mão Leve ou Língua de Prata) oferecem duas: a escolha vale uma vez e fica na ficha; "
+            "só um mestre muda. A habilidade se soma à Habilidade Própria que você cria com o mestre. O bot mostra o "
+            "texto; quem usa e cobra o custo (Estamina ou Mana) é a mesa."
+        ),
+        "requisito": "Precisa ter escolhido a classe.",
     },
     "atributos": {
         "grupo": "personagem",
@@ -127,8 +140,11 @@ AJUDA = {
         "resumo": "rola um dado e guarda no histórico",
         "uso": "/rolar dado:1d20+3 motivo:ataque com a espada",
         "detalhes": (
-            "Aceita dado e modificador, tipo 1d20, 2d6+3 ou 1d100-2. O motivo e o personagem são opcionais; sem "
-            "personagem, vale o que você está usando. A rolagem sai no nome dele e fica no histórico."
+            "Aceita dado e modificador, tipo 1d20, 2d6+3 ou 1d100-2. Com o # na frente ele rola várias vezes, cada "
+            "uma separada: 3#d20+5 rola o d20+5 três vezes (de 1 a 10 vezes) e mostra o maior e o menor, como uma "
+            "vantagem que você escolhe. O motivo e o personagem são opcionais; sem personagem, vale o que você está "
+            "usando. A rolagem sai no nome dele e fica no histórico. Um mestre pode mexer na sorte de um d20 (o cartão mostra "
+            "🍀 quando ele não pede pra esconder)."
         ),
         "requisito": "Só com a ficha do personagem pronta.",
     },
@@ -216,7 +232,7 @@ AJUDA = {
         "uso": "/niveis personagem:Kairon Flagon",
         "detalhes": (
             "A tabela de 1 a 10, com o XP total de cada nível, o que ele dá e qual é o seu. Pra sair do nível N são "
-            "N × 1.000 XP, somados."
+            "N × 1.000 XP, somados. O Sábio ganha o dobro de pontos de perícia por nível (+4)."
         ),
     },
     "calcular_recursos": {
@@ -270,6 +286,20 @@ AJUDA = {
             "a vez e marca o jogador; ➕ põe NPC; o menu de baixo edita a iniciativa de alguém ou o tira. Mostrar iniciativa "
             "posta o quadro público, que nunca mostra o texto das intenções. A tela é privada e só atualiza quando você "
             "aperta algo: 🔄 mostra o que chegou. Uma cena por canal."
+        ),
+        "requisito": "Só mestres.",
+    },
+    "mestre sorte": {
+        "grupo": "mestre",
+        "resumo": "mexe na sorte dos d20 de um personagem",
+        "uso": "/mestre sorte usuario:@alguém efeito:Vantagem usos:2",
+        "detalhes": (
+            "Põe um efeito nos próximos d20 do personagem: vantagem (fica o maior de 2), desvantagem, bônus ou "
+            "penalidade no total, dado mínimo, dado máximo ou dado fixo. `usos` diz em quantas rolagens ele vale (de 1 "
+            "a 20). O cartão da rolagem mostra a marca 🍀 pra todo mundo, a menos que você ligue `discreto`. Só afeta um "
+            "d20 sozinho (1d20, d20+5, 3#d20), rolado pelo `/rolar`, pela bandeja ou escrito no chat; não mexe nos "
+            "sorteios da criação nem na iniciativa. `Ver` lista os efeitos ativos e `Limpar` tira todos. Fica no "
+            "registro das ações de mestre."
         ),
         "requisito": "Só mestres.",
     },
@@ -385,6 +415,7 @@ AJUDA = {
 MESTRE_SUBGRUPOS = [
     ("XP e nível", ["dar_xp", "upar", "corrigir_nivel"]),
     ("Ficha", ["ficha", "atributos", "corrigir_classe", "rank_pericia", "disciplina"]),
+    ("Dados", ["sorte"]),
     ("Sorteios", ["apagar", "corrigir_magia", "corrigir_raca", "corrigir_estado"]),
     ("Cena", ["escudo"]),
     ("Jogadores", ["jogador", "vagas", "excluir_personagem", "apagar_historico", "exportar"]),
@@ -392,7 +423,7 @@ MESTRE_SUBGRUPOS = [
 
 # Só comandos, em ordem, pra sugerir no autocomplete quando a pessoa ainda não digitou nada.
 ORDEM_SUGESTAO = [
-    "personagem criar", "raca_inicial", "classe_social", "classe", "magia_inicial", "atributos", "minha_ficha",
+    "personagem criar", "raca_inicial", "classe_social", "classe", "habilidade", "magia_inicial", "atributos", "minha_ficha",
     "rolar", "dados", "iniciativa", "intencao", "niveis", "rank", "calcular_recursos", "historico", "extrato_xp", "personagem usar",
     "personagem listar", "personagem excluir", "disciplinas", "ajuda",
 ]

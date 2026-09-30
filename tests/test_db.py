@@ -40,7 +40,7 @@ db.init_db(p); db.init_db(p)                                              # roda
 with sqlite3.connect(p) as c:
     assert c.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     tabelas = {r[0] for r in c.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%'")}
-assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes","character_disciplines","scenes","scene_participants","scene_intentions"}, tabelas
+assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes","character_disciplines","scenes","scene_participants","scene_intentions","dice_effects"}, tabelas
 print("2. init_db OK")
 
 # ---------- 3. personagens ----------
@@ -503,7 +503,7 @@ print("17. Disciplinas OK")
 # ---------- 18. resultado especial (66 e 77) ----------
 p8 = novo_banco("especial.db")
 cid = db.create_character("1", "Sombra", path=p8)["id"]; G = lambda: db.get_character_by_id(cid, p8)
-assert db.SCHEMA_VERSION == 8 and (G()["race_special"], G()["social_class_special"], G()["magic_rank_special"]) == (None, None, None)
+assert db.SCHEMA_VERSION == 9 and (G()["race_special"], G()["social_class_special"], G()["magic_rank_special"]) == (None, None, None)
 db.set_race(cid, "Humano", 50, p8); assert G()["race_attempts"] == 1
 db.set_special(cid, "race", 66, p8); c = G()                                                        # rolar de novo e cair 66 troca o Humano
 assert (c["race"], c["race_roll"], c["race_set_at"], c["race_special"], c["race_attempts"]) == (None, None, None, 66, 2)
@@ -538,12 +538,64 @@ with sqlite3.connect(p7) as cn:
 with sqlite3.connect(p7) as cn: assert "race_special" not in {r[1] for r in cn.execute("PRAGMA table_info(characters)")}      # de fato é o formato antigo
 db.init_db(p7); db.init_db(p7)                                                                      # duas vezes: idempotente
 with sqlite3.connect(p7) as cn:
-    assert cn.execute("PRAGMA user_version").fetchone()[0] == 8
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 9      # um banco v7 chega direto na versão atual
     colunas = {r[1] for r in cn.execute("PRAGMA table_info(characters)")}
     assert {"race_special", "social_class_special", "magic_rank_special"} <= colunas
     linha = cn.execute("SELECT name, level, xp, race, race_roll, social_class, class_name, race_attempts, social_class_attempts, race_special, social_class_special, magic_rank_special FROM characters").fetchone()
 assert tuple(linha) == ("Kairon Flagon", 4, 6000, "Vampiro", 90, "3º Estado", "Caçador", 1, 1, None, None, None)      # nada mudou, as colunas novas nascem vazias
 k7 = db.find_character("7", "Kairon Flagon", p7); db.set_special(k7["id"], "magic_rank", 77, p7); assert db.get_character_by_id(k7["id"], p7)["magic_rank_special"] == 77
 print("19. migração v7 -> v8 OK")
+
+# ---------- 20. a habilidade de classe escolhida ----------
+p20 = novo_banco("habilidade.db")
+h = db.create_character("1", "Padre", path=p20)["id"]; H = lambda: db.get_character_by_id(h, p20)
+assert H()["class_ability"] is None
+db.set_class(h, "Clérigo", p20); db.set_class_ability(h, "Bênção", p20); assert (H()["class_name"], H()["class_ability"]) == ("Clérigo", "Bênção")
+db.set_class(h, "Clérigo", p20); assert H()["class_ability"] is None                                     # trocar (ou refazer) a classe zera a escolha
+db.set_class_ability(h, "Mãos que Curam", p20); db.set_class(h, "Ladrão", p20); assert (H()["class_name"], H()["class_ability"]) == ("Ladrão", None)
+db.set_class_ability(h, None, p20); assert H()["class_ability"] is None
+snap = db.delete_character(h, "9", "Mestre", p20); assert snap["class_ability"] is None and "class_ability" in snap      # a coluna vai junto na cópia de quem foi excluído
+print("20. habilidade escolhida OK")
+
+# ---------- 21. efeitos de sorte do mestre ----------
+p21 = novo_banco("sorte.db")
+k = db.create_character("1", "Kairon", path=p21)["id"]; e = lambda: [(r["kind"], r["value"], r["uses_left"], r["quiet"], r["note"]) for r in db.get_dice_effects(k, p21)]
+assert e() == [] and db.MAX_DICE_EFFECT_USES == 20
+a = db.add_dice_effect(k, "vantagem", 12, 2, False, "boa noite", "9", p21)                                 # o valor é ignorado onde não se aplica
+b = db.add_dice_effect(k, "bonus", 3, 1, True, None, "9", p21)
+assert e() == [("vantagem", None, 2, 0, "boa noite"), ("bonus", 3, 1, 1, None)] and [r["id"] for r in db.get_dice_effects(k, p21)] == [a, b]
+db.use_dice_effects([a], p21); assert e() == [("vantagem", None, 1, 0, "boa noite"), ("bonus", 3, 1, 1, None)]
+db.use_dice_effects([a, b], p21); assert e() == []                                                          # sem uso, o efeito some
+c = db.add_dice_effect(k, "minimo", 10, 5, False, None, "9", p21); db.use_dice_effects([c, c, c], p21); assert e() == [("minimo", 10, 2, 0, None)]     # um id repetido gasta várias vezes
+db.use_dice_effects([c, c, c, c], p21); assert e() == [] and db.get_dice_effects(k, p21) == []            # gastar além do que tem não passa de zero
+other = db.create_character("2", "Outro", path=p21)["id"]; db.add_dice_effect(other, "fixo", 20, 1, False, None, "9", p21)
+db.add_dice_effect(k, "penalidade", 2, 3, False, None, "9", p21); db.add_dice_effect(k, "maximo", 15, 1, False, None, "9", p21)
+assert db.clear_dice_effects(k, p21) == 2 and e() == [] and len(db.get_dice_effects(other, p21)) == 1          # limpar só mexe no personagem dele
+assert db.clear_dice_effects(k, p21) == 0
+for args in (("explosivo", 1, 1), ("bonus", None, 1), ("bonus", 0, 1), ("bonus", 21, 1), ("fixo", "x", 1), ("vantagem", None, 0), ("vantagem", None, 21)):
+    try: db.add_dice_effect(k, args[0], args[1], args[2], False, None, "9", p21); raise SystemExit(f"deveria recusar {args}")
+    except ValueError: pass
+assert e() == []                                                                                             # as recusas não gravaram nada
+db.add_dice_effect(other, "vantagem", None, 1, False, None, "9", p21); db.delete_character(other, "9", "Mestre", p21); assert db.get_dice_effects(other, p21) == []      # excluir o personagem leva os efeitos
+print("21. efeitos de sorte OK")
+
+# ---------- 22. migração v8 -> v9: o banco que está no Railway ganha a coluna e a tabela sem perder nada ----------
+p8 = novo_banco("v8_real.db")
+with sqlite3.connect(p8) as cn:
+    cn.execute("ALTER TABLE characters DROP COLUMN class_ability"); cn.execute("DROP TABLE dice_effects")
+    cn.execute("INSERT INTO characters (user_id, name, name_key, created_at, level, xp, race, race_roll, class_name)"
+               " VALUES ('7', 'Kairon Flagon', 'kairon flagon', '2026-09-18T00:00:00+00:00', 4, 6000, 'Vampiro', 90, 'Mestre de Forja')")
+    cn.execute("PRAGMA user_version = 8")
+with sqlite3.connect(p8) as cn:
+    assert "class_ability" not in {r[1] for r in cn.execute("PRAGMA table_info(characters)")}
+    assert not cn.execute("SELECT 1 FROM sqlite_master WHERE name = 'dice_effects'").fetchone()               # de fato é o formato antigo
+db.init_db(p8); db.init_db(p8)                                                                              # duas vezes: idempotente
+with sqlite3.connect(p8) as cn:
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert "class_ability" in {r[1] for r in cn.execute("PRAGMA table_info(characters)")} and cn.execute("SELECT COUNT(*) FROM dice_effects").fetchone()[0] == 0
+    linha = cn.execute("SELECT name, level, xp, race, race_roll, class_name, class_ability FROM characters").fetchone()
+assert tuple(linha) == ("Kairon Flagon", 4, 6000, "Vampiro", 90, "Mestre de Forja", None)                    # nada mudou
+k8 = db.find_character("7", "Kairon Flagon", p8); db.add_dice_effect(k8["id"], "vantagem", None, 1, False, None, "9", p8); assert len(db.get_dice_effects(k8["id"], p8)) == 1
+print("22. migração v8 -> v9 OK")
 
 print("\nTODOS OS TESTES DO BANCO PASSARAM")

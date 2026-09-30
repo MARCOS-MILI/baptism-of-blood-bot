@@ -17,10 +17,11 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+import dice
 import rules
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -83,6 +84,8 @@ _CHARACTER_COLUMNS = {
     "xp": "INTEGER NOT NULL DEFAULT 0",
     "class_name": "TEXT",
     "class_set_at": "TEXT",
+    # A habilidade de classe escolhida (só nas classes que oferecem duas); vazio até o jogador escolher.
+    "class_ability": "TEXT",
     "race_attempts": "INTEGER NOT NULL DEFAULT 0",
     "social_class_attempts": "INTEGER NOT NULL DEFAULT 0",
     # Resultado especial (66 ou 77) num sorteio de criação: guarda qual foi, e o valor do campo fica vazio
@@ -245,6 +248,20 @@ def init_db(path: str | None = None) -> None:
         """)
         # O 'atributo da época': os atributos que o personagem tinha em cada nível que ficou pra trás.
         # O nível atual não tem linha e usa sempre os atributos atuais.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dice_effects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                value INTEGER,
+                uses_left INTEGER NOT NULL,
+                quiet INTEGER NOT NULL DEFAULT 0,
+                note TEXT,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_dice_effects_character ON dice_effects (character_id)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS scenes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -549,6 +566,7 @@ def delete_character(character_id: int, deleted_by_id: str, deleted_by_name: str
              deleted_by_id, deleted_by_name, _now()),
         )
         conn.execute("DELETE FROM character_disciplines WHERE character_id = ?", (character_id,))
+        conn.execute("DELETE FROM dice_effects WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM character_ranks WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM level_attributes WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM xp_log WHERE character_id = ?", (character_id,))
@@ -739,6 +757,54 @@ def set_discipline_grade(character_id: int, discipline: str, grade: int, path: s
             """,
             (character_id, discipline, grade, _now()),
         )
+
+
+# ---------------------------------------------------------------------------
+# Sorte do mestre: efeitos que mexem no d20 de um personagem (a regra está no dice.py)
+# ---------------------------------------------------------------------------
+MAX_DICE_EFFECT_USES = 20
+
+
+def add_dice_effect(character_id: int, kind: str, value: int | None, uses: int, quiet: bool,
+                    note: str | None, created_by: str, path: str | None = None) -> int:
+    """Põe um efeito de sorte no personagem. 'uses' é quantas rolagens ele ainda pode afetar."""
+    if kind not in dice.EFEITOS:
+        raise ValueError(f"Efeito desconhecido: {kind}")
+    if kind in dice.EFEITOS_COM_VALOR and not (isinstance(value, int) and 1 <= value <= 20):
+        raise ValueError("O valor do efeito precisa ser de 1 a 20.")
+    if kind not in dice.EFEITOS_COM_VALOR:
+        value = None
+    if not 1 <= uses <= MAX_DICE_EFFECT_USES:
+        raise ValueError(f"Os usos precisam ser de 1 a {MAX_DICE_EFFECT_USES}.")
+    with _connect(path) as conn:
+        cur = conn.execute(
+            "INSERT INTO dice_effects (character_id, kind, value, uses_left, quiet, note, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (character_id, kind, value, uses, int(quiet), note, created_by, _now()),
+        )
+        return cur.lastrowid
+
+
+def get_dice_effects(character_id: int, path: str | None = None) -> list[sqlite3.Row]:
+    """Os efeitos que ainda têm uso, do mais antigo pro mais novo."""
+    with _connect(path) as conn:
+        return conn.execute(
+            "SELECT * FROM dice_effects WHERE character_id = ? AND uses_left > 0 ORDER BY id", (character_id,)
+        ).fetchall()
+
+
+def use_dice_effects(ids: list[int], path: str | None = None) -> None:
+    """Gasta um uso de cada id da lista (um id repetido gasta mais de um). O efeito que fica sem uso some."""
+    with _connect(path) as conn:
+        for effect_id in ids:
+            conn.execute("UPDATE dice_effects SET uses_left = uses_left - 1 WHERE id = ? AND uses_left > 0", (effect_id,))
+        conn.execute("DELETE FROM dice_effects WHERE uses_left <= 0")
+
+
+def clear_dice_effects(character_id: int, path: str | None = None) -> int:
+    """Tira todos os efeitos do personagem. Devolve quantos tinha."""
+    with _connect(path) as conn:
+        return conn.execute("DELETE FROM dice_effects WHERE character_id = ?", (character_id,)).rowcount
 
 
 # ---------------------------------------------------------------------------
@@ -1043,9 +1109,14 @@ def rank_players(path: str | None = None) -> list[sqlite3.Row]:
 def set_class(character_id: int, class_name: str, path: str | None = None) -> None:
     with _connect(path) as conn:
         conn.execute(
-            "UPDATE characters SET class_name = ?, class_set_at = ? WHERE id = ?",
+            "UPDATE characters SET class_name = ?, class_set_at = ?, class_ability = NULL WHERE id = ?",
             (class_name, _now(), character_id),
         )
+
+
+def set_class_ability(character_id: int, ability: str | None, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE characters SET class_ability = ? WHERE id = ?", (ability, character_id))
 
 
 def attributes_of(personagem) -> dict[str, int]:

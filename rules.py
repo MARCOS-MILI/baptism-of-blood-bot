@@ -11,6 +11,7 @@ START_LEVEL = 1
 MAX_LEVEL = 10
 XP_STEP = 1000                  # pra sair do nível N o personagem precisa de N x 1000 XP
 SKILL_POINTS_PER_LEVEL = 2      # a cada nível ganho: +2 pontos de Perícia
+SKILL_POINTS_BY_CLASS = {"Sábio": 4}   # o Sábio ganha o dobro (habilidade Saber e Poder)
 LEVELS_PER_ATTRIBUTE = 2        # a cada 2 níveis: +1 ponto de Atributo e uma habilidade nova ou melhorada
 
 # Quem tem sangue de vampiro ganha +1 ponto de Disciplina a cada 2 níveis.
@@ -71,30 +72,35 @@ def bar(value: int, maximum: int) -> str:
 # Ganhos de cada nível
 # ---------------------------------------------------------------------------
 
-def gains_for_level(level: int, race: str | None = None) -> dict[str, int]:
+def skill_points_per_level(classe: str | None = None) -> int:
+    return SKILL_POINTS_BY_CLASS.get(classe or "", SKILL_POINTS_PER_LEVEL)
+
+
+def gains_for_level(level: int, race: str | None = None, classe: str | None = None) -> dict[str, int]:
     """O que se ganha ao ALCANÇAR esse nível. O nível 1 é a ficha inicial e não ganha nada."""
     if level <= START_LEVEL:
         return {"pericia": 0, "atributo": 0, "habilidade": 0, "disciplina": 0}
     par = level % LEVELS_PER_ATTRIBUTE == 0
     return {
-        "pericia": SKILL_POINTS_PER_LEVEL,
+        "pericia": skill_points_per_level(classe),
         "atributo": int(par),
         "habilidade": int(par),
         "disciplina": int(par and race in VAMPIRIC_RACES),
     }
 
 
-def gains_between(old_level: int, new_level: int, race: str | None = None) -> dict[str, int]:
+def gains_between(old_level: int, new_level: int, race: str | None = None,
+                  classe: str | None = None) -> dict[str, int]:
     """Soma dos ganhos de todos os níveis depois de old_level, até new_level inclusive."""
     total = {"pericia": 0, "atributo": 0, "habilidade": 0, "disciplina": 0}
     for nivel in range(old_level + 1, new_level + 1):
-        for chave, valor in gains_for_level(nivel, race).items():
+        for chave, valor in gains_for_level(nivel, race, classe).items():
             total[chave] += valor
     return total
 
 
-def total_gains(level: int, race: str | None = None) -> dict[str, int]:
-    return gains_between(START_LEVEL, level, race)
+def total_gains(level: int, race: str | None = None, classe: str | None = None) -> dict[str, int]:
+    return gains_between(START_LEVEL, level, race, classe)
 
 
 def _plural(n: int, singular: str, plural: str) -> str:
@@ -116,14 +122,14 @@ def describe_gains(g: dict[str, int]) -> str:
     return " · ".join(partes) if partes else "nada (ficha inicial)"
 
 
-def level_line(level: int, race: str | None = None) -> str:
+def level_line(level: int, race: str | None = None, classe: str | None = None) -> str:
     """Uma linha da tabela de vantagens, sem marcação de 'nível atual'."""
     if level <= START_LEVEL:
         extra = ""
         if race in INITIAL_DISCIPLINE_POINTS:
             extra = f" (com {INITIAL_DISCIPLINE_POINTS[race]} pontos de Disciplina)"
         return f"**Nível {level}** · 0 XP · ficha inicial, feita na criação{extra}"
-    g = gains_for_level(level, race)
+    g = gains_for_level(level, race, classe)
     texto = f"**Nível {level}** · {fmt_xp(xp_at_level_start(level))} XP · +{g['pericia']} perícia"
     if g["atributo"]:
         texto += " · +1 atributo · habilidade nova ou melhorada"
@@ -134,11 +140,12 @@ def level_line(level: int, race: str | None = None) -> str:
     return texto
 
 
-def level_table_lines(current_level: int | None = None, race: str | None = None) -> list[str]:
+def level_table_lines(current_level: int | None = None, race: str | None = None,
+                      classe: str | None = None) -> list[str]:
     linhas = []
     for nivel in range(START_LEVEL, MAX_LEVEL + 1):
         marca = "▶️" if nivel == current_level else "▫️"
-        linhas.append(f"{marca} {level_line(nivel, race)}")
+        linhas.append(f"{marca} {level_line(nivel, race, classe)}")
     return linhas
 
 
@@ -167,8 +174,10 @@ CLASS_NONE = "Nenhuma"
 # Bônus de cada classe somado a Vida, Sanidade, Mana e Estamina.
 CLASSES = {
     "Caçador":         {"vida": 35, "sanidade": 15, "mana": 5,  "estamina": 20},
+    "Clérigo":         {"vida": 20, "sanidade": 30, "mana": 15, "estamina": 10},
     "Feiticeiros":     {"vida": 20, "sanidade": 20, "mana": 25, "estamina": 5},
     "Ladrão":          {"vida": 25, "sanidade": 20, "mana": 10, "estamina": 15},
+    "Mercenário":      {"vida": 30, "sanidade": 20, "mana": 5,  "estamina": 20},
     "Mestre de Forja": {"vida": 15, "sanidade": 35, "mana": 15, "estamina": 20},
     "Mundano":         {"vida": 10, "sanidade": 15, "mana": 10, "estamina": 10},
     "Sábio":           {"vida": 15, "sanidade": 35, "mana": 20, "estamina": 5},
@@ -178,13 +187,47 @@ CLASS_CHOICES = [CLASS_NONE, *CLASSES]
 # Vantagem nas perícias de cada classe.
 CLASS_SKILLS = {
     "Caçador": "Religião e Luta ou Pontaria",
+    "Clérigo": "Religião e Medicina",
     "Feiticeiros": "Investigação e Ocultismo",
     "Ladrão": "Furtividade e Enganação",
+    "Mercenário": "Tática e Luta ou Pontaria",
     "Mestre de Forja": "Ocultismo e Tática",
     "Mundano": "duas à sua escolha",
     "Sábio": "Ciências e Investigação",
 }
 _SEM_BONUS = {"vida": 0, "sanidade": 0, "mana": 0, "estamina": 0}
+
+# A habilidade inicial de cada classe (o texto delas está no lore.py). Quando a classe oferece duas, o
+# jogador leva uma e ela fica guardada na ficha. Igual ao capítulo Habilidades de Classe do site.
+CLASS_ABILITIES = {
+    "Caçador": ("Sem Dúvidas",),
+    "Clérigo": ("Mãos que Curam", "Bênção"),
+    "Feiticeiros": ("Dom Nato",),
+    "Ladrão": ("Mão Leve", "Língua de Prata"),
+    "Mercenário": ("Ombro a Ombro",),
+    "Mestre de Forja": ("Forja de Almas",),
+    "Mundano": ("Aprimoração",),
+    "Sábio": ("Saber e Poder",),
+}
+
+
+def class_ability_options(classe: str | None) -> tuple[str, ...]:
+    """As habilidades que a classe oferece (uma ou duas). Vazio se não tem classe."""
+    return CLASS_ABILITIES.get(classe or "", ())
+
+
+def class_needs_ability_choice(classe: str | None) -> bool:
+    return len(class_ability_options(classe)) > 1
+
+
+def class_ability_of(personagem) -> str | None:
+    """A habilidade de classe do personagem: a que ele escolheu, ou a única da classe. None se ainda não
+    tem classe, ou se a classe oferece duas e ele ainda não escolheu."""
+    opcoes = class_ability_options(personagem["class_name"])
+    if len(opcoes) == 1:
+        return opcoes[0]
+    escolhida = personagem["class_ability"] if "class_ability" in personagem.keys() else None
+    return escolhida if escolhida in opcoes else None
 
 
 # Atributos que entram nas contas de recursos. Destreza e Razão não entram.

@@ -312,6 +312,12 @@ def _raca_curta(personagem) -> str:
     return personagem["race"] or (_QUESTAO if _especial_de(personagem, "race") else "sem raça")
 
 
+def _texto_habilidade(personagem) -> str:
+    """A linha da habilidade de classe na ficha: o nome, ou o aviso de que falta escolher entre as duas."""
+    habilidade = rules.class_ability_of(personagem)
+    return f"✨ {habilidade}" if habilidade else "✨ escolha com `/habilidade`"
+
+
 def _texto_definicao(personagem, campo: str, comando: str, para_mestre: bool = False) -> str:
     especial = _texto_especial(personagem, campo, para_mestre)
     if especial:
@@ -478,7 +484,7 @@ def _embed_ficha(personagem, jogador: str, para_mestre: bool = False) -> discord
     embed.add_field(
         name="Classe",
         value=(
-            f"{classe}\n(vantagem em {rules.CLASS_SKILLS.get(classe, 'perícias da classe')})"
+            f"{classe}\n(vantagem em {rules.CLASS_SKILLS.get(classe, 'perícias da classe')})\n{_texto_habilidade(personagem)}"
             if classe else "ainda não definida\n(use `/classe`)"
         ),
         inline=True,
@@ -515,9 +521,42 @@ def _embed_ficha(personagem, jogador: str, para_mestre: bool = False) -> discord
 # Rolagens e histórico
 # ---------------------------------------------------------------------------
 
-@bot.tree.command(name="rolar", description="Rola um dado (ex: 1d20, 2d6+3) e guarda no histórico.")
+def _rolar_com_sorte(char, notacao: str):
+    """Rola a notação (que pode ser um N#dado, tipo 3#d20+5) já com a sorte que o mestre pôs no personagem, e
+    gasta os usos dela. Devolve (resultados, marcas de cada um). Levanta DiceError se a notação for inválida."""
+    efeitos = []
+    if char:
+        efeitos = [
+            dice.EfeitoDeSorte(e["id"], e["kind"], e["value"], e["uses_left"], bool(e["quiet"]))
+            for e in db.get_dice_effects(char["id"])
+        ]
+    resultados, marcas, usados = dice.roll_many(notacao, efeitos)
+    if usados:
+        db.use_dice_effects(usados)
+    return resultados, marcas
+
+
+def _registrar_e_montar_cartao(uid: str, jogador: str, guild_id: str | None, char, notacao: str,
+                               motivo: str | None, resultados, marcas):
+    """Guarda cada rolagem no histórico (um N#dado vira uma linha por rolagem) e monta o cartão."""
+    vezes, expr = dice.split_repeticao(notacao)
+    for r in resultados:
+        db.log_roll(
+            user_id=uid, username=jogador, guild_id=guild_id,
+            notation=notacao if vezes == 1 else expr.strip(),
+            rolls=r.rolls, total=r.total, purpose=motivo,
+            character_id=char["id"] if char else None,
+            character_name=char["name"] if char else None,
+        )
+    quem = char["name"] if char else jogador
+    if vezes == 1:
+        return vitrine.cartao_rolagem(quem, notacao, resultados[0], motivo, jogador, bool(char), marcas[0])
+    return vitrine.cartao_rolagens(quem, notacao, resultados, motivo, jogador, bool(char), marcas)
+
+
+@bot.tree.command(name="rolar", description="Rola um dado (ex: 1d20, 2d6+3, 3#d20+5) e guarda no histórico.")
 @app_commands.describe(
-    dado="Notação do dado, tipo 1d20 ou 2d6+3",
+    dado="Notação do dado: 1d20, 2d6+3, ou 3#d20+5 pra rolar o d20+5 três vezes, cada uma separada",
     motivo="Opcional: pra que é essa rolagem",
     personagem="Opcional: rolar por outro personagem seu (padrão: o que você está usando)",
 )
@@ -525,8 +564,8 @@ def _embed_ficha(personagem, jogador: str, para_mestre: bool = False) -> discord
 @app_commands.check(_exigir_personagem_pronto)
 async def rolar(interaction: discord.Interaction, dado: str, motivo: str | None = None, personagem: str | None = None):
     uid = str(interaction.user.id)
-    try:
-        resultado = dice.roll(dado)
+    try:  # confere a notação antes de qualquer coisa, sem rolar e sem gastar a sorte do personagem
+        dice.validate(dado)
     except dice.DiceError as e:
         await interaction.response.send_message(f"⚠️ {e}", ephemeral=True)
         return
@@ -542,20 +581,11 @@ async def rolar(interaction: discord.Interaction, dado: str, motivo: str | None 
     else:
         char = db.get_active_character(uid)  # pode ser None: rolar sem personagem continua valendo
 
-    db.log_roll(
-        user_id=uid,
-        username=str(interaction.user.display_name),
-        guild_id=str(interaction.guild_id) if interaction.guild_id else None,
-        notation=dado,
-        rolls=resultado.rolls,
-        total=resultado.total,
-        purpose=motivo,
-        character_id=char["id"] if char else None,
-        character_name=char["name"] if char else None,
+    resultados, marcas = _rolar_com_sorte(char, dado)
+    cartao = _registrar_e_montar_cartao(
+        uid, str(interaction.user.display_name), str(interaction.guild_id) if interaction.guild_id else None,
+        char, dado, motivo, resultados, marcas,
     )
-
-    quem = char["name"] if char else interaction.user.display_name
-    cartao = vitrine.cartao_rolagem(quem, dado, resultado, motivo, interaction.user.display_name, bool(char))
     await interaction.response.send_message(**cartao.kwargs())
 
 
@@ -577,8 +607,8 @@ async def _rolar_por_texto(message: discord.Message, pedido: dice.PedidoDeDado):
     if bloqueio:
         await message.reply(bloqueio, mention_author=False, delete_after=20)
         return
-    try:
-        resultado = dice.roll(pedido.notacao)
+    try:  # confere a notação antes de qualquer coisa, sem rolar e sem gastar a sorte do personagem
+        dice.validate(pedido.notacao)
     except dice.DiceError as e:
         if pedido.explicito:  # só responde erro a quem pediu com o "+"; conversa normal passa batido
             await message.reply(f"⚠️ {e}", mention_author=False, delete_after=15)
@@ -586,19 +616,11 @@ async def _rolar_por_texto(message: discord.Message, pedido: dice.PedidoDeDado):
 
     char = db.get_active_character(uid)  # pode ser None: rolar sem personagem continua valendo
     jogador = str(message.author.display_name)
-    db.log_roll(
-        user_id=uid,
-        username=jogador,
-        guild_id=str(message.guild.id) if message.guild else None,
-        notation=pedido.notacao,
-        rolls=resultado.rolls,
-        total=resultado.total,
-        purpose=pedido.motivo,
-        character_id=char["id"] if char else None,
-        character_name=char["name"] if char else None,
+    resultados, marcas = _rolar_com_sorte(char, pedido.notacao)
+    cartao = _registrar_e_montar_cartao(
+        uid, jogador, str(message.guild.id) if message.guild else None, char, pedido.notacao, pedido.motivo,
+        resultados, marcas,
     )
-    quem = char["name"] if char else jogador
-    cartao = vitrine.cartao_rolagem(quem, pedido.notacao, resultado, pedido.motivo, jogador, bool(char))
     await message.reply(mention_author=False, **cartao.kwargs())
 
 
@@ -1138,7 +1160,61 @@ async def classe_escolher(interaction: discord.Interaction, classe: str, persona
     else:
         magia = ""
     proximo = ajuda.proximo_passo(status_novo) if ORDEM_DA_CRIACAO else "Agora distribua os pontos de atributo com `/atributos`."
-    cartao = vitrine.cartao_classe(char["name"], classe, f"{magia}{proximo}", interaction.user.display_name)
+    habilidade = "Escolha a sua habilidade de classe com `/habilidade`. " if rules.class_needs_ability_choice(classe) else ""
+    cartao = vitrine.cartao_classe(char["name"], classe, f"{habilidade}{magia}{proximo}", interaction.user.display_name)
+    await interaction.response.send_message(**cartao.kwargs(), ephemeral=True)
+
+
+async def _autocomplete_habilidade(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """As habilidades que o personagem em uso pode escolher (ou todas as que têm escolha, se ainda não tem classe)."""
+    ativo = db.get_active_character(_dono_do_autocomplete(interaction))
+    opcoes = rules.class_ability_options(ativo["class_name"]) if ativo and ativo["class_name"] else ()
+    if not rules.class_needs_ability_choice(ativo["class_name"] if ativo else None):
+        opcoes = tuple(o for c in rules.CLASS_ABILITIES if rules.class_needs_ability_choice(c) for o in rules.CLASS_ABILITIES[c])
+    busca = current.casefold()
+    return [app_commands.Choice(name=o, value=o) for o in opcoes if busca in o.casefold()][:25]
+
+
+@bot.tree.command(name="habilidade", description="Mostra a habilidade da sua classe, ou escolhe uma das duas (Clérigo e Ladrão).")
+@app_commands.describe(
+    escolha="Só pras classes que oferecem duas habilidades: qual você leva (vale uma vez)",
+    personagem="Opcional: qual personagem seu (padrão: o que você está usando)",
+)
+@app_commands.autocomplete(escolha=_autocomplete_habilidade, personagem=_autocomplete_personagem)
+async def habilidade(interaction: discord.Interaction, escolha: str | None = None, personagem: str | None = None):
+    char, erro = _resolver(str(interaction.user.id), personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    classe = char["class_name"]
+    if not classe:
+        await interaction.response.send_message(
+            f"**{char['name']}** ainda não tem classe. Escolhe a classe com `/classe` e depois volta aqui.", ephemeral=True
+        )
+        return
+    opcoes = rules.class_ability_options(classe)
+    if escolha:
+        if not rules.class_needs_ability_choice(classe):
+            await interaction.response.send_message(
+                f"A classe **{classe}** só tem uma habilidade (**{opcoes[0]}**), então não tem o que escolher.", ephemeral=True
+            )
+            return
+        alvo = next((o for o in opcoes if o.casefold() == escolha.strip().casefold()), None)
+        if alvo is None:
+            await interaction.response.send_message(
+                f"**{escolha}** não é uma habilidade de **{classe}**. As opções são: {' ou '.join(f'**{o}**' for o in opcoes)}.",
+                ephemeral=True,
+            )
+            return
+        atual = rules.class_ability_of(char)
+        if atual:
+            await interaction.response.send_message(
+                f"**{char['name']}** já levou **{atual}**. Fala com um mestre se precisar mudar.", ephemeral=True
+            )
+            return
+        db.set_class_ability(char["id"], alvo)
+        char = db.get_character_by_id(char["id"])
+    cartao = vitrine.cartao_habilidade(char["name"], classe, rules.class_ability_of(char), interaction.user.display_name)
     await interaction.response.send_message(**cartao.kwargs(), ephemeral=True)
 
 
@@ -1273,10 +1349,11 @@ async def niveis(interaction: discord.Interaction, personagem: str | None = None
 
     atual = char["level"] if char else None
     raca = char["race"] if char else None
+    classe = char["class_name"] if char else None
     descricao = (
-        "\n".join(rules.level_table_lines(atual, raca))
+        "\n".join(rules.level_table_lines(atual, raca, classe))
         + f"\n\n**Somando tudo, do 1 ao {rules.MAX_LEVEL}:** "
-        + rules.describe_gains(rules.total_gains(rules.MAX_LEVEL, raca))
+        + rules.describe_gains(rules.total_gains(rules.MAX_LEVEL, raca, classe))
     )
     if raca not in rules.VAMPIRIC_RACES:
         descricao += "\nVampiros e Dhampirs ganham também +1 ponto de Disciplina a cada 2 níveis."
@@ -1288,7 +1365,7 @@ async def niveis(interaction: discord.Interaction, personagem: str | None = None
             proximo = "nível máximo, não tem próximo"
         else:
             proximo = (
-                f"nível {atual + 1}: {rules.describe_gains(rules.gains_for_level(atual + 1, raca))}"
+                f"nível {atual + 1}: {rules.describe_gains(rules.gains_for_level(atual + 1, raca, classe))}"
                 f" (faltam {rules.fmt_xp(precisa - dentro)} XP)"
             )
         embed.add_field(
@@ -1296,7 +1373,7 @@ async def niveis(interaction: discord.Interaction, personagem: str | None = None
             value=(
                 f"{_barra_xp(xp)}\n"
                 f"XP total: {rules.fmt_xp(xp)}\n"
-                f"Já ganhou: {rules.describe_gains(rules.total_gains(atual, raca))}\n"
+                f"Já ganhou: {rules.describe_gains(rules.total_gains(atual, raca, classe))}\n"
                 f"Próximo, {proximo}"
             ),
             inline=False,
@@ -1692,7 +1769,7 @@ def _embed_xp(char, res: dict, motivo: str | None, mestre: str) -> discord.Embed
     linhas = [f"XP total: **{rules.fmt_xp(res['after_xp'])}**", _barra_xp(res["after_xp"])]
     if depois > antes:
         titulo = f"⬆️ {char['name']} subiu de nível! ({_mais(aplicado)} XP)"
-        g = rules.gains_between(antes, depois, char["race"])
+        g = rules.gains_between(antes, depois, char["race"], char["class_name"])
         linhas.append(f"\nNível **{antes}** → **{depois}**\nGanhos: {rules.describe_gains(g)}")
         if g["atributo"]:
             linhas.append(
@@ -1936,6 +2013,82 @@ async def mestre_disciplina(
     )
     embed.set_footer(text="Os graus 1 a 3 contam como pontos gastos do jogador; o mestre não é barrado por eles.")
     await interaction.response.send_message(embed=embed)
+
+
+_ESCOLHAS_DE_SORTE = [
+    app_commands.Choice(name="Vantagem (fica o maior de 2 d20)", value="vantagem"),
+    app_commands.Choice(name="Desvantagem (fica o menor de 2 d20)", value="desvantagem"),
+    app_commands.Choice(name="Bônus no total", value="bonus"),
+    app_commands.Choice(name="Penalidade no total", value="penalidade"),
+    app_commands.Choice(name="Dado mínimo (o d20 não cai abaixo)", value="minimo"),
+    app_commands.Choice(name="Dado máximo (o d20 não passa disso)", value="maximo"),
+    app_commands.Choice(name="Dado fixo (o d20 sai sempre esse número)", value="fixo"),
+    app_commands.Choice(name="Ver os efeitos ativos", value="ver"),
+    app_commands.Choice(name="Limpar todos os efeitos", value="limpar"),
+]
+
+
+def _linha_de_efeito(e) -> str:
+    partes = [dice.descrever_efeito(e["kind"], e["value"]), f"{e['uses_left']} {'uso' if e['uses_left'] == 1 else 'usos'}"]
+    if e["quiet"]:
+        partes.append("discreto")
+    if e["note"]:
+        partes.append(f"nota: {e['note']}")
+    return "• " + " · ".join(partes)
+
+
+@mestre_grupo.command(name="sorte", description="Mexe na sorte dos d20 de um personagem: vantagem, bônus, dado mínimo...")
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    efeito="O que fazer com a sorte dele",
+    valor="Pro bônus, a penalidade, o dado mínimo, o máximo e o fixo (de 1 a 20)",
+    usos="Quantas rolagens de d20 o efeito afeta (de 1 a 20, padrão 1)",
+    discreto="Ligado, o cartão da rolagem NÃO mostra a marca 🍀 (por padrão ela aparece)",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+    motivo="Opcional: uma anotação sua (o jogador não vê)",
+)
+@app_commands.choices(efeito=_ESCOLHAS_DE_SORTE)
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_sorte(
+    interaction: discord.Interaction, usuario: discord.Member, efeito: str,
+    valor: app_commands.Range[int, 1, 20] | None = None, usos: app_commands.Range[int, 1, 20] = 1,
+    discreto: bool = False, personagem: str | None = None, motivo: app_commands.Range[str, 1, 100] | None = None,
+):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    if efeito == "ver":
+        ativos = db.get_dice_effects(char["id"])
+        texto = "\n".join(_linha_de_efeito(e) for e in ativos) if ativos else "Nenhum efeito ativo."
+        await interaction.response.send_message(f"🍀 **Sorte de {char['name']}**\n{texto}", ephemeral=True)
+        return
+    if efeito == "limpar":
+        quantos = db.clear_dice_effects(char["id"])
+        _auditar(interaction, usuario, char, "sorte_limpar", f"{quantos} efeito(s) tirado(s)")
+        await interaction.response.send_message(
+            f"🍀 Tirei {quantos} {'efeito' if quantos == 1 else 'efeitos'} de sorte de **{char['name']}**.", ephemeral=True
+        )
+        return
+    if efeito in dice.EFEITOS_COM_VALOR and valor is None:
+        await interaction.response.send_message(
+            f"O efeito **{dice.EFEITO_NOME[efeito]}** precisa do campo `valor` (de 1 a 20).", ephemeral=True
+        )
+        return
+    db.add_dice_effect(char["id"], efeito, valor, usos, discreto, motivo, str(interaction.user.id))
+    descrito = dice.descrever_efeito(efeito, valor if efeito in dice.EFEITOS_COM_VALOR else None)
+    _auditar(
+        interaction, usuario, char, "sorte",
+        f"{descrito} x{usos}" + (" (discreto)" if discreto else "") + (f": {motivo}" if motivo else ""),
+    )
+    await interaction.response.send_message(
+        f"🍀 **{char['name']}** agora tem **{descrito}** nas próximas {usos} {'rolagem' if usos == 1 else 'rolagens'} de d20.\n"
+        + ("Nada aparece no cartão da rolagem (discreto). " if discreto else "O cartão da rolagem mostra a marca 🍀. ")
+        + "Vale só pra um d20 sozinho (`1d20`, `d20+5`, `3#d20`), rolado pelo `/rolar`, pela bandeja ou escrito no chat. "
+        "Não mexe nos sorteios da criação nem na iniciativa. Confere com `efeito: Ver`.",
+        ephemeral=True,
+    )
 
 
 @mestre_grupo.command(name="escudo", description="Abre o Escudo do Mestre: iniciativa e intenções da cena deste canal.")

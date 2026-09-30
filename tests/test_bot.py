@@ -94,12 +94,12 @@ def novo(uid, nome, personagem, quantos=1):
 
 # ============================ A. o que o Discord vai receber ============================
 raiz = {c.name: c for c in bot.bot.tree.get_commands()}
-assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","dados","disciplinas","iniciativa","intencao","personagem","mestre"}, sorted(raiz)
+assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","dados","disciplinas","iniciativa","intencao","habilidade","personagem","mestre"}, sorted(raiz)
 pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
 assert sorted(o["name"] for o in pay["personagem"]["options"]) == ["criar","excluir","listar","usar"]
-assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
+assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","sorte","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
 req = lambda opts: {o["name"] for o in opts if o.get("required")}
 assert req(pay["rolar"]["options"]) == {"dado"} and req(pay["raca_inicial"].get("options", [])) == set()
 assert req(sub_("mestre", "dar_xp")["options"]) == {"usuario", "quantidade"}
@@ -115,13 +115,18 @@ assert [c["value"] for c in opt(sub_("mestre", "corrigir_estado"), "estado")["ch
 assert [c["value"] for c in opt(pay["rank"], "tipo")["choices"]] == ["personagens", "jogadores"] and not opt(pay["rank"], "tipo").get("required")
 assert (opt(pay["rank"], "limite")["min_value"], opt(pay["rank"], "limite")["max_value"]) == (3, 25)
 cr = pay["calcular_recursos"]; assert req(cr["options"]) == {"classe","vitalidade","forca","vontade","alma"}
-assert [c["value"] for c in opt(cr, "classe")["choices"]] == ["Nenhuma","Caçador","Feiticeiros","Ladrão","Mestre de Forja","Mundano","Sábio"]
+assert [c["value"] for c in opt(cr, "classe")["choices"]] == ["Nenhuma","Caçador","Clérigo","Feiticeiros","Ladrão","Mercenário","Mestre de Forja","Mundano","Sábio"]
 assert pay["mestre"].get("dm_permission") is False or pay["mestre"].get("contexts") == [0]
 at = pay["atributos"]; assert [o["name"] for o in at["options"]] == ["forca","destreza","vitalidade","razao","vontade","alma","personagem"] and req(at["options"]) == set()
 assert all((opt(at, a)["min_value"], opt(at, a)["max_value"]) == (0, 20) for a in ("forca","destreza","vitalidade","razao","vontade","alma")) and opt(at, "personagem")["autocomplete"] is True
-assert [c["value"] for c in opt(pay["classe"], "classe")["choices"]] == ["Caçador","Feiticeiros","Ladrão","Mestre de Forja","Mundano","Sábio"] and req(pay["classe"]["options"]) == {"classe"}
+assert [c["value"] for c in opt(pay["classe"], "classe")["choices"]] == ["Caçador","Clérigo","Feiticeiros","Ladrão","Mercenário","Mestre de Forja","Mundano","Sábio"] and req(pay["classe"]["options"]) == {"classe"}
 ma = sub_("mestre", "atributos"); assert req(ma["options"]) == {"usuario"} and all((opt(ma, a)["min_value"], opt(ma, a)["max_value"]) == (0, 30) for a in ("forca","alma"))
-mc = sub_("mestre", "corrigir_classe"); assert req(mc["options"]) == {"usuario", "classe"} and [c["value"] for c in opt(mc, "classe")["choices"]] == ["Caçador","Feiticeiros","Ladrão","Mestre de Forja","Mundano","Sábio"]
+ph = pay["habilidade"]; assert [o["name"] for o in ph["options"]] == ["escolha", "personagem"] and req(ph["options"]) == set() and opt(ph, "escolha").get("autocomplete") and opt(ph, "personagem").get("autocomplete")
+assert len(ph["description"]) <= 100 and "3#d20+5" in opt(pay["rolar"], "dado")["description"] and len(opt(pay["rolar"], "dado")["description"]) <= 100
+ms = sub_("mestre", "sorte"); assert req(ms["options"]) == {"usuario", "efeito"} and len(ms["description"]) <= 100 and all(len(o["description"]) <= 100 for o in ms["options"])
+assert [c["value"] for c in opt(ms, "efeito")["choices"]] == ["vantagem", "desvantagem", "bonus", "penalidade", "minimo", "maximo", "fixo", "ver", "limpar"] and all(len(c["name"]) <= 100 for c in opt(ms, "efeito")["choices"])
+assert (opt(ms, "valor")["min_value"], opt(ms, "valor")["max_value"], opt(ms, "usos")["min_value"], opt(ms, "usos")["max_value"], opt(ms, "motivo")["max_length"]) == (1, 20, 1, 20, 100) and opt(ms, "discreto")["type"] == 5
+mc = sub_("mestre", "corrigir_classe"); assert req(mc["options"]) == {"usuario", "classe"} and [c["value"] for c in opt(mc, "classe")["choices"]] == ["Caçador","Clérigo","Feiticeiros","Ladrão","Mercenário","Mestre de Forja","Mundano","Sábio"]
 assert not sub_("mestre", "exportar").get("options")
 def walk(d, p=""):
     for o in d.get("options", []):
@@ -180,7 +185,7 @@ print("B. fluxo básico OK")
 # ============================ C. mestre: permissão e correções ============================
 assert bot._eh_mestre(inter(2,"Zé", admin=True)) and bot._eh_mestre(inter(2,"Zé", manage=True))
 assert bot._eh_mestre(inter(2,"Zé", roles=["mestre"])) and not bot._eh_mestre(inter(2,"Zé", roles=["Jogador"])) and not bot._eh_mestre(inter(2,"Zé"))
-todos = list(bot.mestre_grupo.commands); assert len(todos) == 18
+todos = list(bot.mestre_grupo.commands); assert len(todos) == 19
 for c in todos:                                                     # TODOS os comandos de mestre barram quem não é mestre
     p = inter(3, "Intruso")
     assert run(c._check_can_run(p)) is False, c.name
@@ -510,7 +515,7 @@ assert titulo(ana) == "Caçador" and "Classe de Ana Ficha" in txt(ana) and "Vant
 assert "Bônus=Vida +35 · Sanidade +15 · Mana +5 · Estamina +20" in txt(ana) and "/atributos" in txt(ana) and sent(ana)[1]["ephemeral"]
 run(bot.classe_escolher.callback(ana, "Sábio", None)); assert "já é da classe **Caçador**" in txt(ana) and ficha()["class_name"] == "Caçador"
 run(bot.minha_ficha.callback(ana, None)); c = campos(ana)
-assert c["Classe"] == "Caçador\n(vantagem em Religião e Luta ou Pontaria)"
+assert c["Classe"] == "Caçador\n(vantagem em Religião e Luta ou Pontaria)\n✨ Sem Dúvidas"
 assert c["Rank de Magia"] == "sem magia\n(só Vampiros, Dhampirs, Feiticeiros e Mestres de Forja têm magia)"
 n_antes = len(historico_de(100)); run(bot.magia_inicial.callback(ana, None)); m = txt(ana)
 assert m.startswith("🚫 **Ana Ficha** não sorteia o Rank de magia") and "essa combinação é Humano com Caçador" in m and sent(ana)[1]["ephemeral"]
@@ -885,7 +890,7 @@ for arg in (None, "atributos", "rolar", "xyz"):
 # autocomplete: mestre só aparece pra mestre
 ch = run(bot._autocomplete_comando(inter(212, "J"), "atrib")); assert [(c.name, c.value) for c in ch] == [("/atributos", "atributos")]
 ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "atrib")); assert [c.value for c in ch] == ["atributos", "mestre atributos"]
-ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 21 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
+ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 22 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
 ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "")); assert len(ch) == 25 and all(len(c.name) <= 100 for c in ch)
 print("M. /ajuda OK")
 
@@ -2096,5 +2101,133 @@ with dados(100): run(bot.classe_social.callback(cem, None))
 assert row(1116, "Cem Por Cento")["social_class"] == dice.SOCIAL_CLASS_MASTER and row(1116, "Cem Por Cento")["social_class_special"] is None and cartao_de(cem).title == "🎲 Resultado especial"
 # (o texto do 100 continua o mesmo de antes: ele é o "mestre decide" conhecido, o 66 e o 77 é que são o mistério)
 print("W. Resultado especial 66/77 OK")
+
+# ============================ X. classes novas, /habilidade, 3#d20 e /mestre sorte ============================
+@contextlib.contextmanager
+def d20s(*valores):
+    """Fixa o número de cada d20 (os lados e o modificador continuam os de verdade) e confere que não sobrou nem faltou dado."""
+    seq = list(valores); real = dice.roll
+    def fake(notacao):
+        assert seq, "rolou mais dado do que o esperado"
+        r = real(notacao); r.rolls = [seq.pop(0)] + r.rolls[1:]; return r
+    dice.roll = fake
+    try: yield
+    finally:
+        dice.roll = real
+        assert not seq, f"sobrou dado: {seq}"
+def campos_do_cartao(i): return [f.name for f in sent(i)[1]["embed"].fields]
+def valor_do_campo(i, nome): return next(f.value for f in sent(i)[1]["embed"].fields if f.name == nome)
+
+# --- /habilidade ---
+sem_pers = inter(1299, "Sem"); run(bot.habilidade.callback(sem_pers, None, None)); assert "Você ainda não tem personagem" in txt(sem_pers) and sent(sem_pers)[1]["ephemeral"]
+p = novo(1200, "Pat", "Padre Pat"); preparar(1200, "Padre Pat", "Humano", None)
+run(bot.habilidade.callback(p, None, None)); assert "ainda não tem classe" in txt(p) and sent(p)[1]["ephemeral"]
+run(bot.classe_escolher.callback(p, "Clérigo", None))                                                             # o cartão da classe já avisa da escolha
+assert campos_do_cartao(p) == ["Vantagem nas perícias", "Bônus", "Combina com (exemplos)", "Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção", "Continue a criação"]
+assert valor_do_campo(p, "Continue a criação").startswith("Escolha a sua habilidade de classe com `/habilidade`. Sua raça e sua classe não têm magia") and valor_do_campo(p, "Vantagem nas perícias") == "Religião e Medicina"
+assert valor_do_campo(p, "Combina com (exemplos)") == "Padre · Freira · Pastor · Hospedeiro" and row(1200, "Padre Pat")["class_ability"] is None
+run(bot.minha_ficha.callback(p, None)); assert campos(p)["Classe"] == "Clérigo\n(vantagem em Religião e Medicina)\n✨ escolha com `/habilidade`"
+run(bot.habilidade.callback(p, None, None)); e = sent(p)[1]["embed"]
+assert sent(p)[1]["ephemeral"] and e.author.name == "✨ Habilidade de Padre Pat" and campos_do_cartao(p) == ["Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção"]
+assert valor_do_campo(p, "Habilidade de classe") == "Escolha uma das duas: **Mãos que Curam** ou **Bênção**. Use `/habilidade` pra escolher."
+run(bot.habilidade.callback(p, "não existe", None)); assert txt(p) == "**não existe** não é uma habilidade de **Clérigo**. As opções são: **Mãos que Curam** ou **Bênção**." and row(1200, "Padre Pat")["class_ability"] is None
+run(bot.habilidade.callback(p, "mão leve", None)); assert "não é uma habilidade de **Clérigo**" in txt(p) and row(1200, "Padre Pat")["class_ability"] is None     # a do Ladrão não vale
+run(bot.habilidade.callback(p, "  bÊnção ", None)); assert row(1200, "Padre Pat")["class_ability"] == "Bênção"                                    # sem ligar pra maiúscula nem pra espaço
+assert campos_do_cartao(p) == ["Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção ✅"] and valor_do_campo(p, "Habilidade de classe") == "Você levou **Bênção**."
+run(bot.habilidade.callback(p, "Mãos que Curam", None)); assert txt(p) == "**Padre Pat** já levou **Bênção**. Fala com um mestre se precisar mudar." and row(1200, "Padre Pat")["class_ability"] == "Bênção"
+run(bot.minha_ficha.callback(p, None)); assert campos(p)["Classe"] == "Clérigo\n(vantagem em Religião e Medicina)\n✨ Bênção"
+run(bot.habilidade.callback(p, None, "Fantasma")); assert "Não achei nenhum personagem seu chamado **Fantasma**" in txt(p)
+run(bot.mestre_corrigir_classe.callback(gm, alvo(1200, "Pat"), "Clérigo", None)); assert row(1200, "Padre Pat")["class_ability"] is None      # o mestre refez a classe: a escolha volta a ficar aberta
+run(bot.minha_ficha.callback(p, None)); assert campos(p)["Classe"].endswith("✨ escolha com `/habilidade`")
+# classes de uma habilidade só
+c1 = novo(1201, "Cac", "Cacador Cac"); preparar(1201, "Cacador Cac", "Humano", None); run(bot.classe_escolher.callback(c1, "Caçador", None))
+assert campos_do_cartao(c1) == ["Vantagem nas perícias", "Bônus", "Combina com (exemplos)", "✨ Sem Dúvidas", "Continue a criação"] and "Escolha a sua habilidade" not in valor_do_campo(c1, "Continue a criação")
+run(bot.habilidade.callback(c1, "Sem Dúvidas", None)); assert txt(c1) == "A classe **Caçador** só tem uma habilidade (**Sem Dúvidas**), então não tem o que escolher." and row(1201, "Cacador Cac")["class_ability"] is None
+run(bot.habilidade.callback(c1, None, None)); assert campos_do_cartao(c1) == ["✨ Sem Dúvidas"]
+run(bot.minha_ficha.callback(c1, None)); assert campos(c1)["Classe"] == "Caçador\n(vantagem em Religião e Luta ou Pontaria)\n✨ Sem Dúvidas"
+# o Ladrão também escolhe, e a classe nova Mercenário tem a dela
+l1 = novo(1202, "Lad", "Ladrao Lad"); preparar(1202, "Ladrao Lad", "Humano", None); run(bot.classe_escolher.callback(l1, "Ladrão", None)); run(bot.habilidade.callback(l1, "Língua de Prata", None))
+assert row(1202, "Ladrao Lad")["class_ability"] == "Língua de Prata" and campos_do_cartao(l1) == ["Habilidade de classe", "✨ Mão Leve", "✨ Língua de Prata ✅"]
+m1 = novo(1203, "Mer", "Mercenario Mer"); preparar(1203, "Mercenario Mer", "Humano", None); run(bot.classe_escolher.callback(m1, "Mercenário", None))
+assert campos_do_cartao(m1)[3] == "✨ Ombro a Ombro" and valor_do_campo(m1, "Vantagem nas perícias") == "Tática e Luta ou Pontaria" and valor_do_campo(m1, "Bônus") == "Vida +30 · Sanidade +20 · Mana +5 · Estamina +20"
+# o menu de sugestões: só o que o personagem pode escolher
+def sugestoes_hab(uid, busca=""): return [c.value for c in run(bot._autocomplete_habilidade(inter(uid, "J"), busca))]
+assert sugestoes_hab(1200) == ["Mãos que Curam", "Bênção"] and sugestoes_hab(1200, "bên") == ["Bênção"] and sugestoes_hab(1202) == ["Mão Leve", "Língua de Prata"]
+assert sugestoes_hab(1201) == ["Mãos que Curam", "Bênção", "Mão Leve", "Língua de Prata"] and sugestoes_hab(1299) == sugestoes_hab(1201)       # quem não tem escolha a fazer vê todas
+# o Sábio ganha o dobro de pontos de perícia
+sab = pronto(1210, "Sab", "Sabio Sab", classe="Sábio"); run(bot.niveis.callback(sab, None)); d = desc(sab)
+assert "**Nível 2** · " in d and " +4 perícia" in d and " +2 perícia" not in d and "+36 pontos de Perícia" in d
+cac = pronto(1211, "Cac2", "Cacador Dois"); run(bot.niveis.callback(cac, None)); d = desc(cac); assert " +2 perícia" in d and " +4 perícia" not in d and "+18 pontos de Perícia" in d
+print("X1. /habilidade e classes novas OK")
+
+# --- 3#d20: rolagens separadas, no comando e no chat ---
+r1 = pronto(1220, "Rol", "Rolador Rol")
+with d20s(14, 1, 20): i = inter(1220, "Rol"); run(bot.rolar.callback(i, "3#d20+5", "ataque", None))
+e = sent(i)[1]["embed"]; assert not sent(i)[1].get("ephemeral") and e.title == "🎲 Rolador Rol rolou 3#d20+5" and e.footer.text == "ataque · jogador: Rol"
+assert e.description == "**1.** 14 + 5 = **19**\n**2.** 1 + 5 = **6** 💀\n**3.** 20 + 5 = **25** 🌟\n\n⬆️ Maior **25** · ⬇️ Menor **6**"
+assert [(h["purpose"], h["notation"], h["total"], h["character_name"]) for h in reversed(historico_de(1220))] == [("ataque", "d20+5", 19, "Rolador Rol"), ("ataque", "d20+5", 6, "Rolador Rol"), ("ataque", "d20+5", 25, "Rolador Rol")]
+with d20s(): i = inter(1220, "Rol"); run(bot.rolar.callback(i, "11#d20", None, None))
+assert txt(i) == "⚠️ A repetição precisa ser de 1 a 10 (por exemplo 3#d20+5)." and sent(i)[1]["ephemeral"] and len(historico_de(1220)) == 3     # recusou sem rolar nem gravar
+with d20s(): i = inter(1220, "Rol"); run(bot.rolar.callback(i, "3#abc", None, None)); assert txt(i).startswith("⚠️ Notação de dado inválida: 'abc'")
+with d20s(9): i = inter(1220, "Rol"); run(bot.rolar.callback(i, "1#d20", None, None))                          # 1# é um dado só, no cartão de sempre
+assert sent(i)[1]["embed"].title == "🎲 Rolador Rol rolou 1#d20" and sent(i)[1]["embed"].description == "**9 = 9**" and "⬆️" not in desc(i) and len(historico_de(1220)) == 4
+r2 = pronto(1221, "Rol2", "Rolador Dois")
+with d20s(14, 1, 20): m = msg(1221, "Rol2", "+3#d20+5 ataque"); run(bot.on_message(m))
+_, kw = resposta(m); assert kw["embed"].description == "**1.** 14 + 5 = **19**\n**2.** 1 + 5 = **6** 💀\n**3.** 20 + 5 = **25** 🌟\n\n⬆️ Maior **25** · ⬇️ Menor **6**"
+assert [(h["purpose"], h["total"]) for h in reversed(historico_de(1221))] == [("ataque", 19), ("ataque", 6), ("ataque", 25)]
+with d20s(): m = msg(1221, "Rol2", "3#d20 ola gente"); run(bot.on_message(m)); assert m.reply.call_count == 0          # conversa normal nunca rola
+with d20s(): m = msg(1221, "Rol2", "+11#d20"); run(bot.on_message(m))
+assert resposta(m)[0] == "⚠️ A repetição precisa ser de 1 a 10 (por exemplo 3#d20+5)." and len(historico_de(1221)) == 3
+print("X2. 3#d20 OK")
+# --- /mestre sorte ---
+s1 = pronto(1230, "Sor", "Sortudo Sor"); A = alvo(1230, "Sor"); CID = row(1230, "Sortudo Sor")["id"]
+efs = lambda: [(r["kind"], r["value"], r["uses_left"], r["quiet"], r["note"]) for r in db.get_dice_effects(CID)]
+def acoes_de_sorte():
+    with sqlite3.connect(db.DB_PATH) as cn: return [tuple(r) for r in cn.execute("SELECT action, detail FROM master_actions WHERE action IN ('sorte', 'sorte_limpar') ORDER BY id")]
+assert bot._eh_mestre in bot.mestre_sorte.checks and bot._eh_mestre(inter(1230, "Sor")) is False              # só mestre usa
+run(bot.mestre_sorte.callback(gm, A, "vantagem", None, 2, False, None, "abençoado")); t = txt(gm)
+assert t.startswith("🍀 **Sortudo Sor** agora tem **vantagem** nas próximas 2 rolagens de d20.\nO cartão da rolagem mostra a marca 🍀. ") and "Não mexe nos sorteios da criação nem na iniciativa" in t and sent(gm)[1]["ephemeral"]
+assert efs() == [("vantagem", None, 2, 0, "abençoado")] and db.get_dice_effects(CID)[0]["created_by"] == "4" and acoes_de_sorte() == [("sorte", "vantagem x2: abençoado")]
+ri = inter(1230, "Sor")
+with d20s(4, 15): run(bot.rolar.callback(ri, "1d20+5", None, None))                                               # fica o maior
+assert sent(ri)[1]["embed"].description == "**15 + 5 = 20**\n🍀 vantagem (4 e 15)" and efs() == [("vantagem", None, 1, 0, "abençoado")]
+assert [(h["total"], h["rolls_json"]) for h in historico_de(1230)][0] == (20, "[15]")                             # o histórico guarda o dado que valeu
+run(bot.mestre_sorte.callback(gm, A, "bonus", 3, 1, True, None, None)); assert "agora tem **bônus +3** nas próximas 1 rolagem de d20" in txt(gm) and "Nada aparece no cartão da rolagem (discreto)." in txt(gm)
+run(bot.mestre_sorte.callback(gm, A, "ver", None, 1, False, None, None)); assert txt(gm) == "🍀 **Sorte de Sortudo Sor**\n• vantagem · 1 uso · nota: abençoado\n• bônus +3 · 1 uso · discreto"
+with d20s(12, 3): ri = inter(1230, "Sor"); run(bot.rolar.callback(ri, "1d20+5", None, None))                     # a vantagem aparece, o bônus discreto não (mas soma)
+assert sent(ri)[1]["embed"].description == "**12 + 8 = 20**\n🍀 vantagem (12 e 3)" and efs() == []                 # os dois acabaram
+with d20s(7): ri = inter(1230, "Sor"); run(bot.rolar.callback(ri, "1d20+5", None, None)); assert sent(ri)[1]["embed"].description == "**7 + 5 = 12**"
+run(bot.mestre_sorte.callback(gm, A, "ver", None, 1, False, None, None)); assert txt(gm) == "🍀 **Sorte de Sortudo Sor**\nNenhum efeito ativo."
+# discreto: aplica e não marca
+run(bot.mestre_sorte.callback(gm, A, "fixo", 20, 1, True, None, None))
+with d20s(3): ri = inter(1230, "Sor"); run(bot.rolar.callback(ri, "1d20", None, None))
+assert sent(ri)[1]["embed"].description == "**20 = 20**\n🌟 **20 natural!**" and "🍀" not in desc(ri) and efs() == []
+assert acoes_de_sorte()[-1] == ("sorte", "dado fixo 20 x1 (discreto)")
+# os erros e o que o comando NÃO afeta
+run(bot.mestre_sorte.callback(gm, A, "bonus", None, 1, False, None, None)); assert txt(gm) == "O efeito **bônus** precisa do campo `valor` (de 1 a 20)." and efs() == []
+run(bot.mestre_sorte.callback(gm, alvo(9998, "Fantasma"), "vantagem", None, 1, False, None, None)); assert txt(gm) == "Fantasma ainda não tem personagem criado." and sent(gm)[1]["ephemeral"]
+run(bot.mestre_sorte.callback(gm, A, "vantagem", None, 1, False, "Inexistente", None)); assert txt(gm) == "Sor não tem nenhum personagem chamado **Inexistente**." and efs() == []
+run(bot.mestre_sorte.callback(gm, A, "penalidade", 2, 1, False, None, None))
+with d20s(3): ri = inter(1230, "Sor"); run(bot.rolar.callback(ri, "1d6", None, None))                            # outro dado: passa direto e não gasta
+assert sent(ri)[1]["embed"].description == "**3 = 3**" and efs() == [("penalidade", 2, 1, 0, None)]
+db.create_character("1230", "Segundo Sor")                                                                       # o efeito é do personagem, não do jogador
+with d20s(8): ri = inter(1230, "Sor"); run(bot.rolar.callback(ri, "1d20", None, "Segundo Sor"))
+assert sent(ri)[1]["embed"].description == "**8 = 8**" and efs() == [("penalidade", 2, 1, 0, None)]
+db.set_active_character("1230", CID)
+with d20s(10): m = msg(1230, "Sor", "d20"); run(bot.on_message(m))                                               # o dado escrito no chat também usa a sorte
+assert resposta(m)[1]["embed"].description == "**10 - 2 = 8**\n🍀 -2" and efs() == []
+n1 = novo(1231, "Nov", "Novato Nov"); NID = row(1231, "Novato Nov")["id"]; db.add_dice_effect(NID, "fixo", 20, 1, False, None, "4")
+with dados(50): run(bot.raca_inicial.callback(n1, None))                                                         # sorteio de criação nunca é mexido
+assert row(1231, "Novato Nov")["race"] == "Humano" and [(r["kind"], r["uses_left"]) for r in db.get_dice_effects(NID)] == [("fixo", 1)]
+# vários d20 com a vantagem de 2 usos
+run(bot.mestre_sorte.callback(gm, A, "vantagem", None, 2, False, None, None))
+with d20s(5, 17, 9, 2, 14): ri = inter(1230, "Sor"); run(bot.rolar.callback(ri, "3#d20", None, None))
+assert sent(ri)[1]["embed"].description == "**1.** 17 = **17** · 🍀 vantagem (5 e 17)\n**2.** 9 = **9** · 🍀 vantagem (9 e 2)\n**3.** 14 = **14**\n\n⬆️ Maior **17** · ⬇️ Menor **9**" and efs() == []
+assert [h["total"] for h in reversed(historico_de(1230))][-3:] == [17, 9, 14]
+# limpar
+run(bot.mestre_sorte.callback(gm, A, "minimo", 10, 5, False, None, "teste")); run(bot.mestre_sorte.callback(gm, A, "maximo", 15, 1, False, None, None))
+run(bot.mestre_sorte.callback(gm, A, "limpar", None, 1, False, None, None)); assert txt(gm) == "🍀 Tirei 2 efeitos de sorte de **Sortudo Sor**." and efs() == [] and acoes_de_sorte()[-1] == ("sorte_limpar", "2 efeito(s) tirado(s)")
+run(bot.mestre_sorte.callback(gm, A, "limpar", None, 1, False, None, None)); assert txt(gm) == "🍀 Tirei 0 efeitos de sorte de **Sortudo Sor**."
+print("X3. /mestre sorte OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

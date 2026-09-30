@@ -136,11 +136,18 @@ for clero, r2 in (("Alto Clero", 63), ("Baixo Clero", 10)):
 c = vitrine.cartao_estado("Rara", dice.SOCIAL_CLASS_MASTER, "Ana", None, (3, 3)); todos.append(c); e = c.embed
 assert e.title == "🎲 Resultado especial" and "Quem decide o Estado desse personagem é o mestre" in e.description and nomes(c) == [] and "100" not in e.description and e.footer.text.endswith("última chance")
 
+CAMPOS_DA_HABILIDADE = {  # escritos à mão: os campos da habilidade que o cartão de cada classe tem (duas opções = tem o aviso de escolha)
+    "Caçador": ["✨ Sem Dúvidas"], "Clérigo": ["Habilidade de classe", "✨ Mãos que Curam", "✨ Bênção"], "Feiticeiros": ["✨ Dom Nato"],
+    "Ladrão": ["Habilidade de classe", "✨ Mão Leve", "✨ Língua de Prata"], "Mercenário": ["✨ Ombro a Ombro"],
+    "Mestre de Forja": ["✨ Forja de Almas"], "Mundano": ["✨ Aprimoração"], "Sábio": ["✨ Saber e Poder"],
+}
+assert list(CAMPOS_DA_HABILIDADE) == list(rules.CLASSES)
 for classe in rules.CLASSES:
     c = vitrine.cartao_classe("Ana Ficha", classe, "Próximo passo: `/atributos`, pra distribuir os pontos de atributo.", "Ana"); todos.append(c); e = c.embed
     b = rules.CLASSES[classe]
-    assert e.title == classe and e.description == f"{lore.DIVISOR}\n\n> *{lore.CLASSES[classe]}*" and nomes(c) == []
-    assert [f.name for f in e.fields] == ["Vantagem nas perícias", "Bônus", "Continue a criação"]
+    assert e.title == classe and e.description == f"**{lore.CLASSE_FRASE[classe]}**\n{lore.DIVISOR}\n\n> *{lore.CLASSES[classe]}*" and nomes(c) == []
+    assert [f.name for f in e.fields] == ["Vantagem nas perícias", "Bônus", "Combina com (exemplos)", *CAMPOS_DA_HABILIDADE[classe], "Continue a criação"]
+    assert e.fields[2].value == " · ".join(lore.CLASSE_COMBINA[classe])
     assert e.fields[0].value == rules.CLASS_SKILLS[classe]
     assert e.fields[1].value == f"Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}"
 for rank in dice.MAGIC_RANKS:
@@ -216,8 +223,8 @@ print("7. dados escritos no chat OK:", len(casos), "casos")
 # ---------- 8. prévia de classe e resumo da ficha (mensagens privadas: nunca levam anexo) ----------
 for classe in rules.CLASSES:
     e = vitrine.previa_classe("Ana Ficha", classe); confere_limites(e)
-    assert e.title == f"🎓 {classe}" and e.author.name == "Classe de Ana Ficha" and e.description.startswith(f"{lore.DIVISOR}\n\n> *{lore.CLASSES[classe][:40]}")
-    assert "Confirmar classe" in e.description and [f.name for f in e.fields] == ["Vantagem nas perícias", "Bônus"] and e.image.url is None
+    assert e.title == f"🎓 {classe}" and e.author.name == "Classe de Ana Ficha" and e.description.startswith(f"**{lore.CLASSE_FRASE[classe]}**\n{lore.DIVISOR}\n\n> *{lore.CLASSES[classe][:40]}")
+    assert "Confirmar classe" in e.description and [f.name for f in e.fields] == ["Vantagem nas perícias", "Bônus", "Combina com (exemplos)", *CAMPOS_DA_HABILIDADE[classe]] and e.image.url is None
 lore.IMAGENS_URL["classe-cacador"] = "https://exemplo.com/cacador.gif"
 try:
     assert vitrine.previa_classe("A", "Caçador").image.url == "https://exemplo.com/cacador.gif"
@@ -326,5 +333,61 @@ assert cab.startswith("<:cruz2:1>" + " " * 12 + lore.PREENCHE * 5 + lore.ORNAMEN
 # as classes, a magia e o 100 continuam no estilo de antes (o estilo novo vale só pra raça e Estado, por enquanto)
 assert vitrine.cartao_classe("X", "Sábio", "p", "J").embed.title == "Sábio" and vitrine.cartao_estado("X", dice.SOCIAL_CLASS_MASTER, "J").embed.title == "🎲 Resultado especial"
 print("12. estilo decorado OK")
+
+# ---------- 13. a habilidade de classe ----------
+cacador = vitrine.cartao_classe("Ana", "Caçador", "x", "Ana").embed
+assert cacador.fields[3].value == "\n".join([
+    "*Inicial · Passiva · Físico · Custo: 10 Estamina no Efeito²*",
+    "*Antes de iniciar uma caçada, o caçador precisa saber separar o que é mundano do que é profano: o que é obra do homem e da natureza e o que vem de bruxos e demônios. Uma vez confirmada a presença das trevas, a investigação começa.*",
+    "**Efeito¹** Ao iniciar uma cena de investigação, recebe vantagem para descobrir se algo é profano ou não natural. Não gasta nada.",
+    "**Efeito² (Presa Marcada)** Ao confirmar que um alvo é sobrenatural, o caçador o marca, gastando 10 de Estamina. Tem vantagem nos ataques e em Percepção contra ele até o fim da cena, e só mantém uma marca por vez.",
+])
+sem = vitrine.cartao_classe("Ana", "Clérigo", "x", "Ana").embed
+assert sem.fields[3].value == "Escolha uma das duas: **Mãos que Curam** ou **Bênção**. Use `/habilidade` pra escolher." and not any("✅" in f.name for f in sem.fields)
+com = vitrine.cartao_classe("Ana", "Clérigo", "x", "Ana", "Bênção").embed
+assert com.fields[3].value == "Você levou **Bênção**." and [f.name for f in com.fields[4:6]] == ["✨ Mãos que Curam", "✨ Bênção ✅"]
+assert com.fields[5].value.startswith("*Inicial · Ativa · Fé · Custo: 10 Mana*\n*Um gesto, uma palavra, e a arma passa a servir a algo maior do que quem a empunha.*\n**Efeito¹** Gasta 10 de Mana")
+h = vitrine.cartao_habilidade("Padre", "Mestre de Forja", None, "Ana"); e = h.embed
+assert e.title == "Mestre de Forja" and e.author.name == "✨ Habilidade de Padre" and e.footer.text == "jogador: Ana" and nomes(h) == []
+assert e.description == f"**Almas na bigorna**\n{lore.DIVISOR}" and [f.name for f in e.fields] == ["✨ Forja de Almas"] and "**Efeito³ (O preço)**" in e.fields[0].value
+assert [f.name for f in vitrine.cartao_habilidade("P", "Ladrão", "Mão Leve").embed.fields] == ["Habilidade de classe", "✨ Mão Leve ✅", "✨ Língua de Prata"]
+assert vitrine.cartao_habilidade("P", "Sábio", None).embed.footer.text is None
+# um campo nunca passa dos 1024 do Discord: um texto mais comprido continua no campo seguinte
+lore.HABILIDADES["Teste"] = {"escolha": False, "opcoes": [{"nome": "Longa", "marcas": ["Inicial"], "frase": "f" * 300, "efeitos": [("Efeito¹", "a" * 400), ("Efeito²", "b" * 400), ("Efeito³", "c" * 400), ("Efeito⁴", "d" * 400)]}]}
+try:
+    campos = vitrine._campos_da_habilidade("Teste")
+    assert [c[0] for c in campos] == ["✨ Longa", "✨ Longa (continua)", "✨ Longa (continua)"]
+    assert [len(c[1]) for c in campos] == [725, 825, 412]                                                    # marcas + frase + Efeito¹ / Efeito² + Efeito³ / Efeito⁴
+    assert all(c[1].startswith("*Inicial*\n*fff") for c in campos[:1]) and campos[1][1].startswith("**Efeito²**") and campos[2][1].startswith("**Efeito⁴**")
+    assert all(letra * 400 in "".join(c[1] for c in campos) for letra in "abcd")                             # nada se perdeu no corte
+finally:
+    del lore.HABILIDADES["Teste"]
+for classe in rules.CLASSES:                                                                                  # os dados do lore batem com as regras
+    hab = lore.HABILIDADES[classe]
+    assert [o["nome"] for o in hab["opcoes"]] == list(rules.CLASS_ABILITIES[classe]) and hab["escolha"] == rules.class_needs_ability_choice(classe), classe
+    assert lore.CLASSE_FRASE[classe].strip() and lore.CLASSE_COMBINA[classe] and all(o["marcas"] and o["frase"].strip() and o["efeitos"] for o in hab["opcoes"])
+    assert all(rot.startswith("Efeito") and txt.strip() for o in hab["opcoes"] for rot, txt in o["efeitos"]), classe
+    assert "—" not in str(hab) and "—" not in lore.CLASSES[classe]
+    for e in (vitrine.cartao_classe("X", classe, "p", "J").embed, vitrine.cartao_habilidade("X", classe, None, "J").embed, vitrine.previa_classe("X", classe)): confere_limites(e)
+assert "secreto" not in str(lore.HABILIDADES).casefold() and "sanguessugia" not in str(lore.HABILIDADES).casefold()     # o combo secreto dos Feiticeiros não aparece em texto de jogador
+assert [lore.CLASSE_FRASE[c] for c in rules.CLASSES] == ["Fé e violência", "Cura e fé", "Estudo proibido", "Sombra e lábia", "Corpo e espada", "Almas na bigorna", "Ainda sem lugar", "Saber e dúvida"]
+print("13. habilidades de classe OK")
+
+# ---------- 14. cartões de rolagem: a marca de sorte e o N#dado ----------
+e = vitrine.cartao_rolagem("Kairon", "1d20+5", R("1d20+5", [15], 5, 20), None, "Marcos", True, ["vantagem (4 e 15)"]).embed
+assert e.description == "**15 + 5 = 20**\n🍀 vantagem (4 e 15)"
+e = vitrine.cartao_rolagem("Kairon", "1d20", R("1d20", [20], 0, 20), None, "Marcos", True, ["dado fixo em 20", "+3"]).embed
+assert e.description == "**20 = 20**\n🌟 **20 natural!**\n🍀 dado fixo em 20 · +3"
+assert vitrine.cartao_rolagem("K", "1d20", R("1d20", [9], 0, 20), None, "M", True, []).embed.description == "**9 = 9**" and vitrine.cartao_rolagem("K", "1d20", R("1d20", [9], 0, 20), None, "M", True).embed.description == "**9 = 9**"
+tres = [R("d20+5", [14], 5, 20), R("d20+5", [1], 5, 20), R("d20+5", [20], 5, 20)]
+c = vitrine.cartao_rolagens("Kairon", "3#d20+5", tres, "ataque", "Marcos", True); e = c.embed; confere_limites(e)
+assert e.title == "🎲 Kairon rolou 3#d20+5" and e.footer.text == "ataque · jogador: Marcos" and nomes(c) == [] and e.color == discord.Color.gold()
+assert e.description == "**1.** 14 + 5 = **19**\n**2.** 1 + 5 = **6** 💀\n**3.** 20 + 5 = **25** 🌟\n\n⬆️ Maior **25** · ⬇️ Menor **6**"
+e = vitrine.cartao_rolagens("K", "2#d20", [R("d20", [10], 0, 20), R("d20", [2], 0, 20)], None, "M", False, [["vantagem (4 e 10)"], []]).embed
+assert e.description == "**1.** 10 = **10** · 🍀 vantagem (4 e 10)\n**2.** 2 = **2**\n\n⬆️ Maior **10** · ⬇️ Menor **2**" and e.footer.text is None and e.color == discord.Color.dark_red()
+e = vitrine.cartao_rolagens("K", "2#1d6", [R("1d6", [6], 0, 6), R("1d6", [1], 0, 6)], None, "M", True).embed
+assert "🌟" not in e.description and "💀" not in e.description and e.color == discord.Color.dark_red()        # o destaque é só de d20
+e = vitrine.cartao_rolagens("K", "10#d20", [R("d20", [10], 0, 20)] * 10, None, "M", True).embed; confere_limites(e); assert e.description.count("**") == 10 * 4 + 4
+print("14. cartões de rolagem OK")
 
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

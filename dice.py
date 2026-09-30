@@ -1,5 +1,6 @@
-"""Parsing e rolagem de dados no formato NdM+K (ex: 1d20, 2d6+3, 1d100-2), e a leitura de dados escritos
-direto no chat (ex: d20+5, ou +d20+5 ataque com a espada)."""
+"""Parsing e rolagem de dados no formato NdM+K (ex: 1d20, 2d6+3, 1d100-2), o N#dado (3#d20+5 rola o
+d20+5 três vezes, cada uma separada), os efeitos de sorte que o mestre põe num personagem, e a leitura de
+dados escritos direto no chat (ex: d20+5, ou +d20+5 ataque com a espada)."""
 
 import random
 import re
@@ -34,8 +35,8 @@ class RollResult:
         return parts
 
 
-def roll(notation: str) -> RollResult:
-    """Rola uma notação de dado tipo '2d6+3'. Levanta DiceError se inválida."""
+def _ler(notation: str) -> tuple[int, int, int]:
+    """Lê uma notação de dado (sem rolar): (quantidade, lados, modificador). Levanta DiceError se inválida."""
     match = DICE_PATTERN.match(notation)
     if not match:
         raise DiceError(f"Notação de dado inválida: '{notation}'. Use algo como 1d20 ou 2d6+3.")
@@ -49,9 +50,145 @@ def roll(notation: str) -> RollResult:
         raise DiceError("A quantidade de dados precisa ser entre 1 e 100.")
     if sides < 2 or sides > 1000:
         raise DiceError("O dado precisa ter entre 2 e 1000 lados.")
+    return qty, sides, modifier
 
+
+def roll(notation: str) -> RollResult:
+    """Rola uma notação de dado tipo '2d6+3'. Levanta DiceError se inválida."""
+    qty, sides, modifier = _ler(notation)
     rolls = [random.randint(1, sides) for _ in range(qty)]
     return RollResult(notation=notation, rolls=rolls, modifier=modifier, sides=sides)
+
+
+# ---------------------------------------------------------------------------
+# N#dado: várias rolagens separadas (3#d20+5 = três vezes d20+5, cada uma com o seu resultado)
+# ---------------------------------------------------------------------------
+MAX_REPETICOES = 10
+_REPETICAO = re.compile(r"^\s*(\d{1,3})\s*#\s*(\S.*?)\s*$")
+
+
+def split_repeticao(notation: str) -> tuple[int, str]:
+    """'3#d20+5' vira (3, 'd20+5'). Sem o '#', vira (1, a notação inteira)."""
+    m = _REPETICAO.match(notation)
+    if not m:
+        return 1, notation
+    vezes = int(m.group(1))
+    if vezes < 1 or vezes > MAX_REPETICOES:
+        raise DiceError(f"A repetição precisa ser de 1 a {MAX_REPETICOES} (por exemplo 3#d20+5).")
+    return vezes, m.group(2)
+
+
+# ---------------------------------------------------------------------------
+# Sorte do mestre: efeitos que mexem no d20 de um personagem
+# ---------------------------------------------------------------------------
+EFEITOS = ("vantagem", "desvantagem", "bonus", "penalidade", "minimo", "maximo", "fixo")
+EFEITOS_COM_VALOR = ("bonus", "penalidade", "minimo", "maximo", "fixo")
+EFEITO_NOME = {
+    "vantagem": "vantagem",
+    "desvantagem": "desvantagem",
+    "bonus": "bônus",
+    "penalidade": "penalidade",
+    "minimo": "dado mínimo",
+    "maximo": "dado máximo",
+    "fixo": "dado fixo",
+}
+
+
+class EfeitoDeSorte(NamedTuple):
+    id: int
+    tipo: str
+    valor: int | None
+    usos: int          # quantas rolagens ainda pode afetar
+    discreto: bool     # se sim, o cartão da rolagem não mostra a marca de sorte
+
+
+def descrever_efeito(tipo: str, valor: int | None) -> str:
+    """Como o efeito aparece escrito: 'vantagem', 'bônus +3', 'dado mínimo 10'."""
+    if tipo in ("bonus", "penalidade"):
+        return f"{EFEITO_NOME[tipo]} {'+' if tipo == 'bonus' else '-'}{valor}"
+    return f"{EFEITO_NOME[tipo]} {valor}" if valor is not None else EFEITO_NOME[tipo]
+
+
+def _d20_simples(r: "RollResult") -> bool:
+    return r.sides == 20 and len(r.rolls) == 1
+
+
+def aplicar_sorte(r: "RollResult", efeitos: list[EfeitoDeSorte],
+                  restantes: dict[int, int]) -> tuple["RollResult", list[str], list[int]]:
+    """Aplica os efeitos ao d20 já rolado. Só vale pra um d20 sozinho (1d20, com ou sem modificador); qualquer
+    outro dado passa direto. Cada efeito gasta um uso por rolagem que afeta ('restantes' é o que sobra de
+    cada um). Devolve (o resultado novo, as marcas que o cartão pode mostrar, os ids dos efeitos usados).
+
+    Ordem: vantagem e desvantagem (uma anula a outra); depois dado fixo, ou mínimo e máximo; por fim bônus e
+    penalidade, que somam ao total."""
+    if not efeitos or not _d20_simples(r):
+        return r, [], []
+    usados: list[int] = []
+    marcas: list[str] = []
+
+    def ativo(tipo):
+        return next((e for e in efeitos if e.tipo == tipo and restantes.get(e.id, 0) > 0), None)
+
+    def gastar(e, marca=None):
+        restantes[e.id] -= 1
+        usados.append(e.id)
+        if marca and not e.discreto:
+            marcas.append(marca)
+
+    natural, modificador = r.rolls[0], r.modifier
+    vant, desv = ativo("vantagem"), ativo("desvantagem")
+    if vant and desv:
+        gastar(vant)
+        gastar(desv)
+        if not (vant.discreto and desv.discreto):
+            marcas.append("vantagem e desvantagem se anularam")
+    elif vant or desv:
+        e = vant or desv
+        outro = roll("1d20").rolls[0]
+        novo = max(natural, outro) if vant else min(natural, outro)
+        gastar(e, f"{EFEITO_NOME[e.tipo]} ({natural} e {outro})")
+        natural = novo
+
+    fixo = ativo("fixo")
+    if fixo:
+        gastar(fixo, f"dado fixo em {fixo.valor}")
+        natural = fixo.valor
+    else:
+        minimo, maximo = ativo("minimo"), ativo("maximo")
+        if minimo:
+            gastar(minimo, f"dado mínimo {minimo.valor}")
+            natural = max(natural, minimo.valor)
+        if maximo:
+            gastar(maximo, f"dado máximo {maximo.valor}")
+            natural = min(natural, maximo.valor)
+
+    for tipo, sinal in (("bonus", 1), ("penalidade", -1)):
+        e = ativo(tipo)
+        if e:
+            gastar(e, f"{'+' if sinal > 0 else '-'}{e.valor}")
+            modificador += sinal * e.valor
+    return RollResult(r.notation, [natural], modificador, r.sides), marcas, usados
+
+
+def validate(notation: str) -> None:
+    """Confere se a notação vale (inclusive o N#dado), sem rolar nada. Levanta DiceError se não valer."""
+    _, expr = split_repeticao(notation)
+    _ler(expr)
+
+
+def roll_many(notation: str, efeitos: list[EfeitoDeSorte] | None = None
+              ) -> tuple[list["RollResult"], list[list[str]], list[int]]:
+    """Rola a notação, que pode ser um N#dado. Devolve, uma lista com cada rolagem, as marcas de sorte de
+    cada uma e os ids dos efeitos gastos (um id por uso). Levanta DiceError se a notação for inválida."""
+    vezes, expr = split_repeticao(notation)
+    restantes = {e.id: e.usos for e in (efeitos or [])}
+    resultados, marcas, usados = [], [], []
+    for _ in range(vezes):
+        novo, m, u = aplicar_sorte(roll(expr), efeitos or [], restantes)
+        resultados.append(novo)
+        marcas.append(m)
+        usados += u
+    return resultados, marcas, usados
 
 
 # Tabela de raridade de magia já estabelecida no sistema (rolagem em 1d100).
@@ -125,7 +262,7 @@ class PedidoDeDado(NamedTuple):
 
 
 _TEXTO = re.compile(
-    r"^\s*(?P<mais>\+)?\s*(?P<qtd>\d{0,3})\s*d\s*(?P<lados>\d{1,4})"
+    r"^\s*(?P<mais>\+)?\s*(?:(?P<rep>\d{1,3})\s*#\s*)?(?P<qtd>\d{0,3})\s*d\s*(?P<lados>\d{1,4})"
     r"(?P<mods>(?:\s*[+-]\s*\d{1,4})*)"
     r"(?:\s+(?P<resto>\S.*?))?\s*$",
     re.IGNORECASE | re.DOTALL,
@@ -146,7 +283,7 @@ def parse_texto(conteudo: str | None) -> PedidoDeDado | None:
     motivo = m["resto"].strip() if m["resto"] else None
     if motivo and not m["mais"]:
         return None
-    notacao = f"{int(m['qtd'] or 1)}d{int(m['lados'])}" + "".join(
+    notacao = (f"{int(m['rep'])}#" if m["rep"] else "") + f"{int(m['qtd'] or 1)}d{int(m['lados'])}" + "".join(
         f"{sinal}{int(numero)}" for sinal, numero in _MODIFICADOR.findall(m["mods"] or "")
     )
     return PedidoDeDado(notacao, motivo, bool(m["mais"]))

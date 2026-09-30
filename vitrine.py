@@ -257,21 +257,76 @@ def cartao_especial(valor: int) -> Cartao:
 # Classe
 # ---------------------------------------------------------------------------
 
-def cartao_classe(personagem: str, classe: str, proximo: str, jogador: str | None = None) -> Cartao:
+_LIMITE_DO_CAMPO = 1000   # o Discord aceita 1024 caracteres por campo; sobra uma folga
+
+
+def _texto_da_habilidade(opcao: dict) -> list[str]:
+    """As linhas de uma habilidade: as marcas (tipo e custo), a frase e cada efeito."""
+    linhas = [f"*{' · '.join(opcao['marcas'])}*", f"*{opcao['frase']}*"]
+    linhas += [f"**{rotulo}** {texto}" for rotulo, texto in opcao["efeitos"]]
+    return linhas
+
+
+def _campos_da_habilidade(classe: str, escolhida: str | None = None) -> list[tuple[str, str, bool]]:
+    """Os campos do embed com a habilidade inicial da classe (uma, ou as duas opções). Cada campo cabe nos
+    1024 caracteres do Discord: um texto mais comprido continua num campo seguinte."""
+    info = lore.HABILIDADES[classe]
+    campos: list[tuple[str, str, bool]] = []
+    if info["escolha"]:
+        nomes = " ou ".join(f"**{o['nome']}**" for o in info["opcoes"])
+        situacao = (
+            f"Você levou **{escolhida}**." if escolhida
+            else f"Escolha uma das duas: {nomes}. Use `/habilidade` pra escolher."
+        )
+        campos.append(("Habilidade de classe", situacao, False))
+    for opcao in info["opcoes"]:
+        nome = f"✨ {opcao['nome']}" + (" ✅" if info["escolha"] and escolhida == opcao["nome"] else "")   # o ✅ só faz sentido onde há escolha
+        atual, tamanho, parte = [], 0, 1
+        for linha in _texto_da_habilidade(opcao):
+            if atual and tamanho + len(linha) + 1 > _LIMITE_DO_CAMPO:
+                campos.append((nome if parte == 1 else f"{nome} (continua)", "\n".join(atual), False))
+                atual, tamanho, parte = [], 0, parte + 1
+            atual.append(linha)
+            tamanho += len(linha) + 1
+        campos.append((nome if parte == 1 else f"{nome} (continua)", "\n".join(atual), False))
+    return campos
+
+
+def _campos_da_classe(classe: str, escolhida: str | None = None) -> list[tuple[str, str, bool]]:
     b = rules.CLASSES[classe]
+    return [
+        ("Vantagem nas perícias", rules.CLASS_SKILLS[classe], False),
+        ("Bônus", f"Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}", False),
+        ("Combina com (exemplos)", " · ".join(lore.CLASSE_COMBINA[classe]), False),
+        *_campos_da_habilidade(classe, escolhida),
+    ]
+
+
+def _descricao_da_classe(classe: str) -> str:
+    return f"**{lore.CLASSE_FRASE[classe]}**\n{lore.DIVISOR}\n\n{_citar(lore.CLASSES[classe], True)}"
+
+
+def cartao_classe(personagem: str, classe: str, proximo: str, jogador: str | None = None,
+                  escolhida: str | None = None) -> Cartao:
     return _montar(
         autor=f"🎓 Classe de {personagem}",
         titulo=classe,
         cor=lore.COR_CLASSE,
-        topo=lore.DIVISOR,
-        texto=lore.CLASSES[classe],
-        italico=True,
-        campos=[
-            ("Vantagem nas perícias", rules.CLASS_SKILLS[classe], False),
-            ("Bônus", f"Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}", False),
-            ("Continue a criação", proximo, False),
-        ],
+        topo=_descricao_da_classe(classe),
+        campos=[*_campos_da_classe(classe, escolhida), ("Continue a criação", proximo, False)],
         imagem=achar_imagem("classe", classe),
+        rodape=f"jogador: {jogador}" if jogador else None,
+    )
+
+
+def cartao_habilidade(personagem: str, classe: str, escolhida: str | None, jogador: str | None = None) -> Cartao:
+    """A habilidade de classe do personagem (ou as duas opções, se ele ainda não escolheu)."""
+    return _montar(
+        autor=f"✨ Habilidade de {personagem}",
+        titulo=classe,
+        cor=lore.COR_CLASSE,
+        topo=f"**{lore.CLASSE_FRASE[classe]}**\n{lore.DIVISOR}",
+        campos=_campos_da_habilidade(classe, escolhida),
         rodape=f"jogador: {jogador}" if jogador else None,
     )
 
@@ -303,19 +358,14 @@ def miniatura_da_ficha(personagem) -> str | None:
 def previa_classe(personagem: str, classe: str) -> discord.Embed:
     """A classe como prévia, pro menu de escolha do painel. É mensagem privada, que não leva anexo: só usa
     imagem se for um link direto (IMAGENS_URL)."""
-    b = rules.CLASSES[classe]
     embed = discord.Embed(
         title=f"🎓 {classe}",
-        description=f"{lore.DIVISOR}\n\n{_citar(lore.CLASSES[classe], True)}\n\nSe for essa, aperta **Confirmar classe**. Vale uma vez só.",
+        description=f"{_descricao_da_classe(classe)}\n\nSe for essa, aperta **Confirmar classe**. Vale uma vez só.",
         color=lore.COR_CLASSE,
     )
     embed.set_author(name=f"Classe de {personagem}")
-    embed.add_field(name="Vantagem nas perícias", value=rules.CLASS_SKILLS[classe], inline=False)
-    embed.add_field(
-        name="Bônus",
-        value=f"Vida +{b['vida']} · Sanidade +{b['sanidade']} · Mana +{b['mana']} · Estamina +{b['estamina']}",
-        inline=False,
-    )
+    for nome, valor, em_linha in _campos_da_classe(classe):
+        embed.add_field(name=nome, value=valor, inline=em_linha)
     imagem = achar_imagem("classe", classe)
     if imagem and imagem[0] == "url":
         embed.set_image(url=imagem[1])
@@ -440,8 +490,42 @@ def cartao_magia(personagem: str, rank: str, rolagem: int, jogador: str) -> Cart
 # Rolagem de dados (vale pro /rolar e pros dados escritos no chat)
 # ---------------------------------------------------------------------------
 
+def _marca_da_sorte(marcas: list[str] | None) -> str:
+    """A marca que o cartão mostra quando o mestre mexeu na sorte da rolagem (vazia se não mexeu, ou se foi discreto)."""
+    return f"🍀 {' · '.join(marcas)}" if marcas else ""
+
+
+def cartao_rolagens(quem: str, notacao: str, resultados: list["dice.RollResult"], motivo: str | None,
+                    jogador: str, com_personagem: bool, marcas: list[list[str]] | None = None) -> Cartao:
+    """O cartão de um N#dado (3#d20+5): uma linha por rolagem, e o maior e o menor no fim."""
+    marcas = marcas or [[] for _ in resultados]
+    linhas = []
+    for i, (r, m) in enumerate(zip(resultados, marcas), 1):
+        linha = f"**{i}.** {r.describe()} = **{r.total}**"
+        if r.sides == 20 and len(r.rolls) == 1:
+            linha += " 🌟" if r.rolls[0] == 20 else " 💀" if r.rolls[0] == 1 else ""
+        if _marca_da_sorte(m):
+            linha += f" · {_marca_da_sorte(m)}"
+        linhas.append(linha)
+    totais = [r.total for r in resultados]
+    linhas.append(f"\n⬆️ Maior **{max(totais)}** · ⬇️ Menor **{min(totais)}**")
+    tem_20 = any(r.sides == 20 and len(r.rolls) == 1 and r.rolls[0] == 20 for r in resultados)
+    embed = discord.Embed(
+        title=f"🎲 {quem} rolou {notacao}", description="\n".join(linhas),
+        color=discord.Color.gold() if tem_20 else discord.Color.dark_red(),
+    )
+    rodape = []
+    if motivo:
+        rodape.append(motivo)
+    if com_personagem:
+        rodape.append(f"jogador: {jogador}")
+    if rodape:
+        embed.set_footer(text=" · ".join(rodape))
+    return Cartao(embed, [])
+
+
 def cartao_rolagem(quem: str, notacao: str, resultado: "dice.RollResult", motivo: str | None,
-                   jogador: str, com_personagem: bool) -> Cartao:
+                   jogador: str, com_personagem: bool, marcas: list[str] | None = None) -> Cartao:
     descricao = f"**{resultado.describe()} = {resultado.total}**"
     cor = discord.Color.dark_red()
     if resultado.sides == 20 and len(resultado.rolls) == 1:  # destaque só no visual, sem efeito de regra
@@ -451,6 +535,8 @@ def cartao_rolagem(quem: str, notacao: str, resultado: "dice.RollResult", motivo
         elif resultado.rolls[0] == 1:
             descricao += "\n💀 **1 natural!**"
             cor = discord.Color.dark_grey()
+    if _marca_da_sorte(marcas):
+        descricao += f"\n{_marca_da_sorte(marcas)}"
     embed = discord.Embed(title=f"🎲 {quem} rolou {notacao}", description=descricao, color=cor)
     rodape = []
     if motivo:

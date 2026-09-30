@@ -76,8 +76,8 @@ assert "disciplina" not in " ".join(rules.level_table_lines(None, "Humano")) and
 print("3. ganhos por nível e Disciplina OK")
 
 # ---------- classes e recursos (números do site) ----------
-site = {"Caçador": (35, 15, 5, 20), "Feiticeiros": (20, 20, 25, 5), "Ladrão": (25, 20, 10, 15),
-        "Mestre de Forja": (15, 35, 15, 20), "Mundano": (10, 15, 10, 10), "Sábio": (15, 35, 20, 5)}
+site = {"Caçador": (35, 15, 5, 20), "Clérigo": (20, 30, 15, 10), "Feiticeiros": (20, 20, 25, 5), "Ladrão": (25, 20, 10, 15),
+        "Mercenário": (30, 20, 5, 20), "Mestre de Forja": (15, 35, 15, 20), "Mundano": (10, 15, 10, 10), "Sábio": (15, 35, 20, 5)}
 for nome, (vida, san, mana, est) in site.items():
     r = rules.calculate_resources(vitalidade=1, forca=1, vontade=1, alma=1, classe=nome)
     assert (r["vida"]["total"], r["sanidade"]["total"], r["mana"]["total"], r["estamina"]["total"]) == (5 + vida, 5 + san, 6 + mana, 6 + est), nome
@@ -92,6 +92,10 @@ except ValueError:
     pass
 assert rules.CLASS_CHOICES == ["Nenhuma", *site] and set(rules.CLASS_SKILLS) == set(site)
 assert rules.CLASS_SKILLS["Caçador"] == "Religião e Luta ou Pontaria" and rules.CLASS_SKILLS["Mundano"] == "duas à sua escolha"
+assert rules.CLASS_SKILLS["Clérigo"] == "Religião e Medicina" and rules.CLASS_SKILLS["Mercenário"] == "Tática e Luta ou Pontaria"
+assert len(rules.CLASSES) == 8 and list(rules.CLASSES) == list(site)                                   # a ordem é a do site
+assert rules.magic_access("Humano", "Clérigo") == "nao" and rules.magic_access("Humano", "Mercenário") == "nao"      # as duas novas não têm magia
+assert rules.magic_access("Humano", "Feiticeiros") == "sim" and rules.magic_access("Vampiro", "Mercenário") == "sim"
 print("4. classes e recursos OK")
 
 # ---------- recursos por nível: a cada nível soma de novo; o bônus da classe entra uma vez só ----------
@@ -154,12 +158,12 @@ print("5. atributos OK")
 assert rules.MAGIC_RACES == ("Vampiro", "Dhampir") and rules.MAGIC_CLASSES == ("Feiticeiros", "Mestre de Forja")
 assert set(rules.MAGIC_CLASSES) <= set(rules.CLASSES)
 com_magia = 0
-for raca in ("Humano", "Vampiro", "Dhampir"):                          # a tabela inteira: 3 raças x 6 classes
+for raca in ("Humano", "Vampiro", "Dhampir"):                          # a tabela inteira: 3 raças x 8 classes
     for classe in rules.CLASSES:
         esperado = "sim" if raca in ("Vampiro", "Dhampir") or classe in ("Feiticeiros", "Mestre de Forja") else "nao"
         assert rules.magic_access(raca, classe) == esperado, (raca, classe)
         com_magia += esperado == "sim"
-assert com_magia == 14                                                    # 6 do Vampiro + 6 do Dhampir + 2 classes mágicas no Humano
+assert com_magia == 18                                                    # 8 do Vampiro + 8 do Dhampir + 2 classes mágicas no Humano
 assert rules.magic_access("Humano", "Mundano") == "nao"                   # o caso que não fazia sentido
 assert rules.magic_access("Dhampir", "Sábio") == "sim" and rules.magic_access("Dhampir", "Mundano") == "sim"          # Dhampir tem magia de qualquer classe, como o Vampiro
 assert rules.magic_access("Dhampir", None) == "sim" and rules.MAGIC_RACES == ("Vampiro", "Dhampir")
@@ -273,5 +277,26 @@ assert rules.reroll_block({**base8, "social_class_special": 77, "social_class_at
 assert rules.reroll_block({**base8, "race": "Humano", "race_attempts": 1, "race_special": None}, "race") is None      # sem especial, segue igual
 assert rules.reroll_block({**base8, "race": "Humano", "race_attempts": 1}, "race") is None
 print("8. resultado especial OK")
+
+# ---------- habilidades de classe e o Sábio (+4 pontos de perícia por nível) ----------
+assert list(rules.CLASS_ABILITIES) == list(rules.CLASSES)
+assert rules.CLASS_ABILITIES["Clérigo"] == ("Mãos que Curam", "Bênção") and rules.CLASS_ABILITIES["Ladrão"] == ("Mão Leve", "Língua de Prata")
+assert [c for c in rules.CLASSES if len(rules.CLASS_ABILITIES[c]) == 2] == ["Clérigo", "Ladrão"]           # só essas duas têm escolha
+assert [c for c in rules.CLASSES if rules.class_needs_ability_choice(c)] == ["Clérigo", "Ladrão"] and not rules.class_needs_ability_choice(None) and not rules.class_needs_ability_choice("Nenhuma")
+assert rules.class_ability_options(None) == () and rules.class_ability_options("Paladino") == ()
+base9 = dict(class_name="Caçador", class_ability=None)
+assert rules.class_ability_of(base9) == "Sem Dúvidas"                                                        # classe de uma habilidade só: é ela
+assert rules.class_ability_of(dict(class_name="Clérigo", class_ability=None)) is None                        # duas opções e ainda não escolheu
+assert rules.class_ability_of(dict(class_name="Clérigo", class_ability="Bênção")) == "Bênção"
+assert rules.class_ability_of(dict(class_name="Clérigo", class_ability="Mão Leve")) is None                  # escolha de outra classe não vale
+assert rules.class_ability_of(dict(class_name=None, class_ability=None)) is None and rules.class_ability_of(dict(class_name="Mundano")) == "Aprimoração"
+assert rules.SKILL_POINTS_BY_CLASS == {"Sábio": 4} and rules.skill_points_per_level("Sábio") == 4
+assert rules.skill_points_per_level("Caçador") == 2 and rules.skill_points_per_level(None) == 2 and rules.skill_points_per_level("Nenhuma") == 2
+assert rules.gains_for_level(2, None, "Sábio")["pericia"] == 4 and rules.gains_for_level(2)["pericia"] == 2 and rules.gains_for_level(1, None, "Sábio")["pericia"] == 0
+assert rules.gains_between(1, 4, "Humano", "Sábio")["pericia"] == 12 and rules.gains_between(1, 4, "Humano", "Mercenário")["pericia"] == 6
+assert rules.total_gains(rules.MAX_LEVEL, None, "Sábio")["pericia"] == 36 and rules.total_gains(rules.MAX_LEVEL)["pericia"] == 18          # 9 níveis x 4 e 9 níveis x 2
+assert "+4 pontos de Perícia" in rules.describe_gains(rules.gains_for_level(3, None, "Sábio")) and "+2 pontos de Perícia" in rules.describe_gains(rules.gains_for_level(3))
+assert "+4 perícia" in rules.level_line(3, None, "Sábio") and "+2 perícia" in rules.level_line(3) and "+4 perícia" in "\n".join(rules.level_table_lines(2, None, "Sábio"))
+print("9. habilidades de classe e Sábio OK")
 
 print("\nTODOS OS TESTES DAS REGRAS PASSARAM")
