@@ -1980,4 +1980,110 @@ assert len(registrados) == 1 and isinstance(registrados[0], escudo.QuadroDaCena)
 for chave in ("iniciativa", "intencao", "mestre escudo"): assert chave in ajuda.AJUDA and len(ajuda.AJUDA[chave]["detalhes"]) <= 600
 print("V. Escudo do Mestre OK")
 
+# ============================ W. Resultado especial: 66 e 77 nos sorteios de criação ============================
+VERMELHO, AMARELO = 0xC0392B, 0xF1C40F
+papel_mestre = NS(id=555, name="Mestre", mention="<@&555>")
+def cartao_de(i): return sent(i)[1]["embed"]
+def so_interrogacao(e):
+    tudo = " ".join([e.title or "", e.author.name or "", e.description or "", e.footer.text or ""] + [f.name + f.value for f in e.fields])
+    return "?" in tudo and not any(ch.isalnum() for ch in tudo)              # nenhuma letra nem número: só interrogação e enfeite
+def com_cargo(i): i.guild = NS(roles=[papel_mestre]); return i
+
+# --- raça 66: cartão vermelho, nada definido, uma chance gasta, o cargo Mestre é avisado ---
+z = com_cargo(novo(1100, "Zé", "Sombra"))
+with dados(66): run(bot.raca_inicial.callback(z, None))
+e, kw = cartao_de(z), sent(z)[1]
+assert e.color.value == VERMELHO and so_interrogacao(e) and kw["content"] == "<@&555>" and kw["allowed_mentions"].roles == [papel_mestre]
+assert not kw.get("ephemeral") and "files" not in kw and "view" not in kw                    # público, sem imagem (ainda não tem o desenho)
+c = row(1100, "Sombra"); assert (c["race"], c["race_roll"], c["race_set_at"], c["race_special"], c["race_attempts"]) == (None, None, None, 66, 1)
+assert [(h["purpose"], h["total"]) for h in historico_de(1100)] == [("raca_inicial", 66)]      # a rolagem fica no histórico
+# o histórico é público: o número do sorteio especial não aparece ali, mas uma rolagem comum de 66 aparece normal
+run(bot.historico.callback(z, None, 10, None)); assert [f.name for f in sent(z)[1]["embed"].fields] == ["1d100 = ??? (raca_inicial)"] and "66" not in txt(z)
+db.log_roll(user_id="1100", username="Zé", guild_id=None, notation="1d100", rolls=[66], total=66, purpose="ataque", character_id=c["id"], character_name="Sombra")
+run(bot.historico.callback(z, None, 10, None)); assert [f.name for f in sent(z)[1]["embed"].fields] == ["1d100 = 66 (ataque)", "1d100 = ??? (raca_inicial)"]
+# não rola de novo (nem pelo comando), e a resposta não diz o que saiu
+with dados(): run(bot.raca_inicial.callback(z, None))
+assert "Algo diferente aconteceu" in txt(z) and "66" not in txt(z) and sent(z)[1]["ephemeral"] and row(1100, "Sombra")["race_attempts"] == 1
+# a ficha do jogador só mostra interrogação; a do mestre mostra o número
+run(bot.minha_ficha.callback(z, None)); assert campos(z)["Raça"] == "❓ ???\n(aguardando o mestre)" and "66" not in txt(z)
+run(bot.mestre_ficha.callback(gm, alvo(1100, "Zé"), None)); assert campos(gm)["Raça"] == "❓ ???\n(aguardando o mestre, tirou 66)"
+run(bot.personagem_listar.callback(z)); assert "raça: ❓ ???" in txt(z)
+# o botão da raça fica travado com ❓, e os outros passos seguem o que já valia
+pf = criar(paineis.PainelFicha, 1100, c["id"], "Zé"); est = estado(pf)
+assert est["Raça"] == ("❓", True) and est["Classe social"] == ("⚜️", False) and est["Classe"] == ("🔒", True) and est["Magia"] == ("🔒", True); confere_componentes(pf)
+# a ajuda entende: o próximo passo é com o mestre e não manda rolar de novo
+run(bot.ajuda_comando.callback(z, None)); assert "algo diferente aconteceu no seu sorteio" in txt(z) and "66" not in txt(z)
+# o mestre decide: escolhe a raça na mão, o especial some e a raça vale como qualquer outra
+run(bot.mestre_corrigir_raca.callback(gm, alvo(1100, "Zé"), "Humano", None)); assert "**❓ ??? (tirou 66)** → **Humano**" in txt(gm)
+c = row(1100, "Sombra"); assert (c["race"], c["race_roll"], c["race_special"]) == ("Humano", None, None) and rules.reroll_block(c, "race") == "tentativas"
+# ...ou apaga o sorteio e devolve as chances
+y = com_cargo(novo(1101, "Ya", "Ya Sombra"))
+with dados(77): run(bot.raca_inicial.callback(y, None))
+assert cartao_de(y).color.value == AMARELO and row(1101, "Ya Sombra")["race_special"] == 77
+run(bot.mestre_apagar.callback(gm, alvo(1101, "Ya"), "race", None)); c = row(1101, "Ya Sombra")
+assert (c["race"], c["race_special"], c["race_attempts"]) == (None, None, 0)
+with dados(50): run(bot.raca_inicial.callback(y, None))
+assert titulo(y) == "Humano" and row(1101, "Ya Sombra")["race"] == "Humano"                   # depois, rola normal
+
+# --- classe social 77 (amarelo), inclusive um 66 ou 77 no sorteio do clero ---
+q = com_cargo(novo(1102, "Quim", "Quimera"))
+with dados(77): run(bot.classe_social.callback(q, None))
+e, kw = cartao_de(q), sent(q)[1]
+assert e.color.value == AMARELO and so_interrogacao(e) and kw["content"] == "<@&555>" and not kw.get("ephemeral")
+c = row(1102, "Quimera"); assert (c["social_class"], c["social_class_roll"], c["clergy"], c["social_class_special"], c["social_class_attempts"]) == (None, None, None, 77, 1)
+with dados(): run(bot.classe_social.callback(q, None))
+assert "Algo diferente aconteceu" in txt(q) and "77" not in txt(q)
+run(bot.mestre_ficha.callback(gm, alvo(1102, "Quim"), None)); assert campos(gm)["Classe Social"] == "❓ ???\n(aguardando o mestre, tirou 77)"
+cl = com_cargo(novo(1103, "Clero", "Padre Misterioso"))
+with dados(95, 66): run(bot.classe_social.callback(cl, None))                                # 1º Estado, e o dado do clero deu 66
+assert cartao_de(cl).color.value == VERMELHO and so_interrogacao(cartao_de(cl))
+c = row(1103, "Padre Misterioso"); assert (c["social_class"], c["clergy"], c["social_class_special"]) == (None, None, 66)
+assert [(h["purpose"], h["total"]) for h in reversed(historico_de(1103))] == [("classe_social", 95), ("clero", 66)]      # o banco guarda os dois
+run(bot.historico.callback(cl, None, 10, None)); assert [f.name for f in sent(cl)[1]["embed"].fields] == ["1d100 = ??? (clero)", "1d100 = 95 (classe_social)"]
+run(bot.mestre_apagar.callback(gm, alvo(1103, "Clero"), "social_class", None)); c = row(1103, "Padre Misterioso")
+assert (c["social_class_special"], c["social_class_attempts"]) == (None, 0)
+
+# --- magia 77: o Rank fica vazio, a ficha espera o mestre e os atributos ficam fechados ---
+def vampiro_sem_magia(uid, nome, personagem):
+    u = com_cargo(novo(uid, nome, personagem)); c = row(uid, personagem)["id"]
+    db.set_race(c, "Vampiro", 90); db.set_social_status(c, "3º Estado", 10); db.set_class(c, "Caçador"); return u
+mg = vampiro_sem_magia(1104, "Mago", "Mago Sombrio")
+with dados(77): run(bot.magia_inicial.callback(mg, None))
+e, kw = cartao_de(mg), sent(mg)[1]
+assert e.color.value == AMARELO and so_interrogacao(e) and kw["content"] == "<@&555>" and "🎲" not in txt(mg)
+c = row(1104, "Mago Sombrio"); assert (c["magic_rank"], c["magic_rank_roll"], c["magic_rank_special"]) == (None, None, 77)
+with dados(): run(bot.magia_inicial.callback(mg, None))
+assert "Algo diferente aconteceu" in txt(mg) and "77" not in txt(mg)                          # nem a magia (uma rolagem só) roda de novo
+run(bot.historico.callback(mg, None, 10, None)); assert [f.name for f in sent(mg)[1]["embed"].fields] == ["1d100 = ??? (magia_inicial)"]
+run(bot.minha_ficha.callback(mg, None)); assert campos(mg)["Rank de Magia"] == "❓ ???\n(aguardando o mestre)"
+run(bot.atributos.callback(mg, forca=1)); assert "algo diferente aconteceu num dos seus sorteios" in txt(mg)
+assert estado(criar(paineis.PainelFicha, 1104, c["id"], "Mago"))["Magia"] == ("❓", True)
+run(bot.mestre_corrigir_magia.callback(gm, alvo(1104, "Mago"), "Raro", None)); assert "**❓ ??? (tirou 77)** → **Raro**" in txt(gm)
+c = row(1104, "Mago Sombrio"); assert (c["magic_rank"], c["magic_rank_special"]) == ("Raro", None)
+
+# --- um 66 ao ROLAR DE NOVO também vale: troca o resultado que já existia ---
+rr = com_cargo(novo(1105, "Rui", "Rui Rolos"))
+with dados(50): run(bot.raca_inicial.callback(rr, None))
+run(bot.raca_inicial.callback(rr, None)); conf = confirmar_de(rr)
+with dados(66): c = com_cargo(inter(1105, "Rui")); runp(conf.children[0].callback(c))
+(conteudo, fk), = followups(c); assert fk["embed"].color.value == VERMELHO and so_interrogacao(fk["embed"]) and conteudo == "<@&555>" and fk["allowed_mentions"].roles == [papel_mestre]
+c2 = row(1105, "Rui Rolos"); assert (c2["race"], c2["race_special"], c2["race_attempts"]) == (None, 66, 2)      # o Humano de antes saiu, a última rolagem vale
+
+# --- os vizinhos (65, 67, 76, 78) são sorteios normais, e o 100 continua como era ---
+for k, (n, raca) in enumerate(((65, "Humano"), (67, "Humano"), (76, "Humano"), (78, "Humano"))):
+    v = com_cargo(novo(1110 + k, f"Viz{n}", f"Vizinho {n}"))
+    with dados(n): run(bot.raca_inicial.callback(v, None))
+    assert titulo(v) == raca and not so_interrogacao(cartao_de(v)) and row(1110 + k, f"Vizinho {n}")["race_special"] is None
+    with dados(n): run(bot.classe_social.callback(v, None))
+    assert cartao_de(v).title == "3º Estado · Camponeses"
+    assert row(1110 + k, f"Vizinho {n}")["social_class_special"] is None
+vm = vampiro_sem_magia(1115, "Vm", "Vizinho Magia")
+with dados(78): run(bot.magia_inicial.callback(vm, None))
+assert row(1115, "Vizinho Magia")["magic_rank"] == "Super Raro" and row(1115, "Vizinho Magia")["magic_rank_special"] is None and not so_interrogacao(cartao_de(vm))
+cem = com_cargo(novo(1116, "Cem", "Cem Por Cento"))
+with dados(100): run(bot.classe_social.callback(cem, None))
+assert row(1116, "Cem Por Cento")["social_class"] == dice.SOCIAL_CLASS_MASTER and row(1116, "Cem Por Cento")["social_class_special"] is None and cartao_de(cem).title == "🎲 Resultado especial"
+# (o texto do 100 continua o mesmo de antes: ele é o "mestre decide" conhecido, o 66 e o 77 é que são o mistério)
+print("W. Resultado especial 66/77 OK")
+
 print("\nTODOS OS TESTES DO BOT PASSARAM")

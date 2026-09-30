@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import rules
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -85,6 +85,11 @@ _CHARACTER_COLUMNS = {
     "class_set_at": "TEXT",
     "race_attempts": "INTEGER NOT NULL DEFAULT 0",
     "social_class_attempts": "INTEGER NOT NULL DEFAULT 0",
+    # Resultado especial (66 ou 77) num sorteio de criação: guarda qual foi, e o valor do campo fica vazio
+    # até um mestre decidir. Vazio quando não aconteceu.
+    "race_special": "INTEGER",
+    "social_class_special": "INTEGER",
+    "magic_rank_special": "INTEGER",
     **{f"attr_{atributo}": "INTEGER NOT NULL DEFAULT 0" for atributo in rules.ATTRIBUTES},
 }
 
@@ -611,6 +616,7 @@ def delete_rolls(user_id: str, path: str | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 _ATTEMPT_COLUMN = {"race": "race_attempts", "social_class": "social_class_attempts"}
+_SPECIAL_FIELDS = ("race", "social_class", "magic_rank")
 
 
 def _attempts_sql(campo: str, d100_result: int | None) -> tuple[str, list]:
@@ -630,7 +636,8 @@ def _set_definition(character_id: int, campo: str, valor: str, d100_result: int 
     extra_sql, extra = _attempts_sql(campo, d100_result)
     with _connect(path) as conn:
         conn.execute(
-            f"UPDATE characters SET {col_valor} = ?, {col_roll} = ?, {col_data} = ?{extra_sql} WHERE id = ?",
+            f"UPDATE characters SET {col_valor} = ?, {col_roll} = ?, {col_data} = ?, {campo}_special = NULL"
+            f"{extra_sql} WHERE id = ?",
             (valor, d100_result, _now(), *extra, character_id),
         )
 
@@ -645,6 +652,29 @@ def set_race(character_id: int, race: str, d100_result: int | None, path: str | 
     _set_definition(character_id, "race", race, d100_result, path)
 
 
+def limpa_especial(campo: str) -> str:
+    """O pedaço do UPDATE que zera o resultado especial (66/77) do campo. O clero não tem coluna própria."""
+    return f", {campo}_special = NULL" if campo in _SPECIAL_FIELDS else ""
+
+
+def set_special(character_id: int, campo: str, valor: int, path: str | None = None) -> None:
+    """Grava um resultado especial (66 ou 77): o campo fica vazio (nem a raça, nem o Estado, nem o Rank
+    valem) e só um mestre decide. Gasta uma chance, mas o jogador não rola de novo enquanto isso."""
+    if campo not in _SPECIAL_FIELDS:
+        raise ValueError(f"Campo sem resultado especial: {campo}")
+    if valor not in rules.SPECIAL_ROLLS:
+        raise ValueError(f"Resultado que não é especial: {valor}")
+    col_valor, col_roll, col_data = _DEFINITION_FIELDS[campo]
+    extra_sql, extra = _attempts_sql(campo, valor)
+    limpa_clero = ", clergy = NULL, clergy_roll = NULL, clergy_set_at = NULL" if campo == "social_class" else ""
+    with _connect(path) as conn:
+        conn.execute(
+            f"UPDATE characters SET {col_valor} = NULL, {col_roll} = NULL, {col_data} = NULL,"
+            f" {campo}_special = ?{limpa_clero}{extra_sql} WHERE id = ?",
+            (valor, *extra, character_id),
+        )
+
+
 def clear_definition(character_id: int, quais: str, path: str | None = None) -> None:
     """quais: 'magic_rank', 'race', 'social_class' ou 'todas'. Deixa vazio pra o jogador poder rolar de novo."""
     if quais not in _CLEAR_GROUPS:
@@ -654,7 +684,8 @@ def clear_definition(character_id: int, quais: str, path: str | None = None) -> 
             col_valor, col_roll, col_data = _DEFINITION_FIELDS[campo]
             devolver = f", {_ATTEMPT_COLUMN[campo]} = 0" if campo in _ATTEMPT_COLUMN else ""
             conn.execute(
-                f"UPDATE characters SET {col_valor} = NULL, {col_roll} = NULL, {col_data} = NULL{devolver} WHERE id = ?",
+                f"UPDATE characters SET {col_valor} = NULL, {col_roll} = NULL, {col_data} = NULL{devolver}"
+                f"{limpa_especial(campo)} WHERE id = ?",
                 (character_id,),
             )
 
@@ -669,7 +700,7 @@ def set_social_status(character_id: int, estado: str, estado_roll: int | None,
     with _connect(path) as conn:
         conn.execute(
             "UPDATE characters SET social_class = ?, social_class_roll = ?, social_class_set_at = ?,"
-            f" clergy = ?, clergy_roll = ?, clergy_set_at = ?{extra_sql} WHERE id = ?",
+            f" social_class_special = NULL, clergy = ?, clergy_roll = ?, clergy_set_at = ?{extra_sql} WHERE id = ?",
             (estado, estado_roll, agora,
              clergy, clergy_roll if clergy else None, agora if clergy else None,
              *extra, character_id),

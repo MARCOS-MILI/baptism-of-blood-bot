@@ -155,7 +155,7 @@ _CAMPO_DO_PASSO = {"raca": "race", "estado": "social_class"}
 
 def estado_do_passo(status: dict, passo: str, ordem_ligada: bool, personagem=None) -> str:
     """'feito', 'repetir' (feito, mas ainda dá pra rolar de novo), 'nao_se_aplica', 'aguardando' (o mestre
-    decide), 'travado' ou 'livre'."""
+    decide o 100 da classe social), 'especial' (caiu 66 ou 77 e o mestre decide), 'travado' ou 'livre'."""
     if passo == "magia" and status["sem_magia"] and not status["magia_sorteada"]:
         return "nao_se_aplica"
     if status[passo]:
@@ -163,6 +163,8 @@ def estado_do_passo(status: dict, passo: str, ordem_ligada: bool, personagem=Non
         if campo and personagem is not None and rules.reroll_block(personagem, campo) is None:
             return "repetir"
         return "feito"
+    if status["especial"].get(passo):
+        return "especial"
     if passo == "estado" and status["aguardando_mestre"]:
         return "aguardando"
     if ordem_ligada and rules.creation_missing_before(passo, status):
@@ -201,6 +203,8 @@ class PainelFicha(_Painel):
                 botao = discord.ui.Button(label=rotulo, emoji="✅", style=discord.ButtonStyle.success, disabled=True, row=0)
             elif situacao == "nao_se_aplica":
                 botao = discord.ui.Button(label="Sem magia", emoji="➖", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+            elif situacao == "especial":
+                botao = discord.ui.Button(label=rotulo, emoji="❓", style=discord.ButtonStyle.secondary, disabled=True, row=0)
             elif situacao == "aguardando":
                 botao = discord.ui.Button(label=rotulo, emoji="⏳", style=discord.ButtonStyle.secondary, disabled=True, row=0)
             elif situacao == "travado":
@@ -237,7 +241,7 @@ class PainelFicha(_Painel):
             opcoes = [
                 discord.SelectOption(
                     label=p["name"][:100], value=str(p["id"]), default=p["id"] == self.personagem_id,
-                    description=f"nível {p['level']} · {p['race'] or 'sem raça'}",
+                    description=f"nível {p['level']} · {p['race'] or ('❓ ???' if rules.special_result(p, 'raca') else 'sem raça')}",
                 )
                 for p in personagens[:25]
             ]

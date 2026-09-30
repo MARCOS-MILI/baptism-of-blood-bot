@@ -500,4 +500,50 @@ with sqlite3.connect(pd) as cn: assert cn.execute("SELECT COUNT(*) FROM characte
 with sqlite3.connect(pd) as cn: assert cn.execute("SELECT COUNT(*) FROM deleted_characters WHERE character_id = ?", (vid,)).fetchone()[0] == 1   # uma cópia só
 print("17. Disciplinas OK")
 
+# ---------- 18. resultado especial (66 e 77) ----------
+p8 = novo_banco("especial.db")
+cid = db.create_character("1", "Sombra", path=p8)["id"]; G = lambda: db.get_character_by_id(cid, p8)
+assert db.SCHEMA_VERSION == 8 and (G()["race_special"], G()["social_class_special"], G()["magic_rank_special"]) == (None, None, None)
+db.set_race(cid, "Humano", 50, p8); assert G()["race_attempts"] == 1
+db.set_special(cid, "race", 66, p8); c = G()                                                        # rolar de novo e cair 66 troca o Humano
+assert (c["race"], c["race_roll"], c["race_set_at"], c["race_special"], c["race_attempts"]) == (None, None, None, 66, 2)
+db.set_special(cid, "social_class", 77, p8); c = G()
+assert (c["social_class"], c["social_class_roll"], c["social_class_special"], c["social_class_attempts"]) == (None, None, 77, 1)
+db.set_social_status(cid, "1º Estado", 95, "Alto Clero", 80, p8); assert G()["clergy"] == "Alto Clero" and G()["social_class_special"] is None      # o sorteio normal limpa o especial
+db.set_special(cid, "social_class", 66, p8); c = G()                                                # o clero sai junto
+assert (c["social_class"], c["clergy"], c["clergy_roll"], c["clergy_set_at"], c["social_class_special"]) == (None, None, None, None, 66)
+db.set_special(cid, "magic_rank", 77, p8); assert (G()["magic_rank"], G()["magic_rank_roll"], G()["magic_rank_special"]) == (None, None, 77)
+# o mestre define: limpa o especial daquele campo, e só dele
+db.set_race(cid, "Vampiro", None, p8); c = G(); assert (c["race"], c["race_special"], c["social_class_special"], c["magic_rank_special"]) == ("Vampiro", None, 66, 77)
+db.set_magic_rank(cid, "Raro", None, p8); assert (G()["magic_rank"], G()["magic_rank_special"], G()["social_class_special"]) == ("Raro", None, 66)
+db.set_social_status(cid, "3º Estado", None, None, None, p8); assert (G()["social_class"], G()["social_class_special"]) == ("3º Estado", None)
+# apagar limpa o especial e devolve as chances
+db.set_special(cid, "race", 77, p8); db.clear_definition(cid, "race", p8); c = G(); assert (c["race"], c["race_special"], c["race_attempts"]) == (None, None, 0)
+db.set_special(cid, "social_class", 66, p8); db.set_special(cid, "magic_rank", 66, p8); db.clear_definition(cid, "todas", p8); c = G()
+assert (c["social_class_special"], c["magic_rank_special"], c["social_class_attempts"]) == (None, None, 0)
+# só aceita 66 ou 77 e campos que têm sorteio
+for args in (("race", 65), ("race", 100), ("clergy", 66), ("class_name", 66)):
+    try: db.set_special(cid, *args, path=p8); raise SystemExit(f"deveria recusar {args}")
+    except ValueError: pass
+assert (G()["race_special"], G()["social_class_special"], G()["magic_rank_special"]) == (None, None, None)     # as recusas não gravaram nada
+print("18. resultado especial OK")
+
+# ---------- 19. migração v7 -> v8: o banco que está no Railway ganha as três colunas sem perder nada ----------
+p7 = novo_banco("v7_real.db")
+with sqlite3.connect(p7) as cn:
+    for coluna in ("race_special", "social_class_special", "magic_rank_special"): cn.execute(f"ALTER TABLE characters DROP COLUMN {coluna}")
+    cn.execute("INSERT INTO characters (user_id, name, name_key, created_at, level, xp, race, race_roll, social_class, social_class_roll, class_name, race_attempts, social_class_attempts)"
+               " VALUES ('7', 'Kairon Flagon', 'kairon flagon', '2026-09-18T00:00:00+00:00', 4, 6000, 'Vampiro', 90, '3º Estado', 50, 'Caçador', 1, 1)")
+    cn.execute("PRAGMA user_version = 7")
+with sqlite3.connect(p7) as cn: assert "race_special" not in {r[1] for r in cn.execute("PRAGMA table_info(characters)")}      # de fato é o formato antigo
+db.init_db(p7); db.init_db(p7)                                                                      # duas vezes: idempotente
+with sqlite3.connect(p7) as cn:
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == 8
+    colunas = {r[1] for r in cn.execute("PRAGMA table_info(characters)")}
+    assert {"race_special", "social_class_special", "magic_rank_special"} <= colunas
+    linha = cn.execute("SELECT name, level, xp, race, race_roll, social_class, class_name, race_attempts, social_class_attempts, race_special, social_class_special, magic_rank_special FROM characters").fetchone()
+assert tuple(linha) == ("Kairon Flagon", 4, 6000, "Vampiro", 90, "3º Estado", "Caçador", 1, 1, None, None, None)      # nada mudou, as colunas novas nascem vazias
+k7 = db.find_character("7", "Kairon Flagon", p7); db.set_special(k7["id"], "magic_rank", 77, p7); assert db.get_character_by_id(k7["id"], p7)["magic_rank_special"] == 77
+print("19. migração v7 -> v8 OK")
+
 print("\nTODOS OS TESTES DO BANCO PASSARAM")

@@ -265,4 +265,22 @@ finally:
     _r.SANGUESSUGIA_LIBERADA = False; lore.DISCIPLINAS["Sanguessugia"]["graus"] = None
 print("10. Disciplinas (cartões) OK")
 
+# ---------- 11. cartão do resultado especial (66 e 77): tudo interrogação ----------
+def texto_do_cartao(e): return " ".join([e.title or "", e.author.name or "", e.description or "", e.footer.text or ""] + [f.name + f.value for f in e.fields])
+for valor, cor in ((66, 0xC0392B), (77, 0xF1C40F)):
+    ct = vitrine.cartao_especial(valor); e = ct.embed; tudo = texto_do_cartao(e)
+    assert e.color.value == cor and lore.ESPECIAL[valor]["cor"] == cor and nomes(ct) == []              # 66 vermelho, 77 amarelo, sem imagem enquanto não existir
+    assert "?" in tudo and not any(ch.isalnum() for ch in tudo)                                       # nenhuma letra nem número: só interrogação e enfeite
+    assert "—" not in tudo and "–" not in tudo
+    confere_limites(e)
+a, b = vitrine.cartao_especial(66).embed, vitrine.cartao_especial(77).embed
+assert texto_do_cartao(a) == texto_do_cartao(b) and a.color.value != b.color.value                    # o texto é o mesmo, só a cor muda
+assert vitrine.chave_de_imagem("especial", "66") == "especial-66"
+lore.IMAGENS_URL["especial-77"] = "https://exemplo.com/especial.png"                                  # com o desenho, ele entra no cartão
+try: assert vitrine.cartao_especial(77).embed.image.url == "https://exemplo.com/especial.png" and vitrine.cartao_especial(66).embed.image.url is None
+finally: del lore.IMAGENS_URL["especial-77"]
+try: vitrine.cartao_especial(65); raise SystemExit("65 não é especial")
+except KeyError: pass
+print("11. cartão especial OK")
+
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

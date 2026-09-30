@@ -258,4 +258,20 @@ finally:
     rules.SANGUESSUGIA_LIBERADA = False
 print("7. Disciplinas OK")
 
+# ---------- 8. resultado especial (66 e 77) ----------
+assert rules.SPECIAL_ROLLS == (66, 77) and rules.is_special_roll(66) and rules.is_special_roll(77)
+assert not any(rules.is_special_roll(n) for n in (1, 65, 67, 76, 78, 100))
+base8 = dict(race=None, magic_rank=None, social_class=None, class_name=None, **{f"attr_{a}": 0 for a in rules.ATTRIBUTES})
+assert rules.special_result(base8, "raca") is None and rules.creation_status(base8)["especial"] == {"raca": None, "estado": None, "magia": None}     # dicionário sem a coluna
+assert rules.special_result({**base8, "race_special": 66}, "raca") == 66 and rules.special_result({**base8, "social_class_special": 77}, "estado") == 77
+assert rules.special_result({**base8, "magic_rank_special": 66}, "magia") == 66 and rules.special_result({**base8, "race_special": 66}, "estado") is None
+s8 = rules.creation_status({**base8, "race_special": 66, "social_class": "3º Estado"})
+assert s8["raca"] is False and s8["estado"] is True and s8["pronta"] is False and s8["especial"] == {"raca": 66, "estado": None, "magia": None}   # a raça não conta como feita
+assert rules.creation_next_step(s8) == "raca"
+assert rules.reroll_block({**base8, "race": None, "race_special": 66, "race_attempts": 1}, "race") == "especial"
+assert rules.reroll_block({**base8, "social_class_special": 77, "social_class_attempts": 1}, "social_class") == "especial"
+assert rules.reroll_block({**base8, "race": "Humano", "race_attempts": 1, "race_special": None}, "race") is None      # sem especial, segue igual
+assert rules.reroll_block({**base8, "race": "Humano", "race_attempts": 1}, "race") is None
+print("8. resultado especial OK")
+
 print("\nTODOS OS TESTES DAS REGRAS PASSARAM")

@@ -47,6 +47,8 @@ Personagens que já existiam e ainda não têm classe e atributos também precis
 
 **Três chances (raça e classe social).** Cada personagem tem até **3 rolagens** de raça e até **3** de classe social. Rolar de novo **troca** o resultado pelo novo (a última vale), e o bot **sempre pergunta antes** (botões Rolar de novo e Manter), porque não dá pra voltar atrás. Nos botões da ficha, o botão fica como "Raça (2)" 🔄, com o número de chances que sobram. As chances fecham quando: as 3 acabam; o personagem **escolhe a classe** (o resto da ficha depende da raça); a classe social cai no **100** (o mestre decide); ou um mestre define o valor na mão (`/mestre corrigir_raca` e `/mestre corrigir_estado`). `/mestre apagar` devolve as 3 chances. Todas as rolagens ficam no histórico. Quem já tinha raça ou classe social sorteada antes dessa versão conta como 1 chance gasta. O número de chances é a constante `CREATION_ROLL_ATTEMPTS`, em `rules.py`.
 
+**Resultados especiais.** Alguns resultados raríssimos nos sorteios de criação não definem nada: o cartão sai só com interrogações, o bot marca o cargo Mestre e um mestre decide o destino do personagem (`/mestre corrigir_raca`, `corrigir_estado`, `corrigir_magia`, ou `/mestre apagar` pra devolver as chances). Enquanto isso, o jogador não rola de novo e a ficha não fica pronta. Os detalhes ficam só no código, de propósito.
+
 **Os cartões não mostram o dado** da raça nem da classe social (só o resultado, com "tentativa 1 de 3" no rodapé); a rolagem continua valendo e aparece no `/historico`. O Rank de magia continua mostrando o 1d100.
 
 | 1d100 | Rank de magia |
@@ -296,7 +298,7 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 
 ## Bancos antigos
 
-Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 7, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
+Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 8, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
 
 ## O que ainda falta
 

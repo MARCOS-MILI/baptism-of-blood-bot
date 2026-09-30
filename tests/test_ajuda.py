@@ -153,4 +153,21 @@ vm = ajuda.visao_geral(pronta, True, True); assert vm["campos"][-1][0] == "Coman
 assert "Comandos de mestre" not in [c[0] for c in ajuda.visao_geral(pronta, True, False)["campos"]]
 print("7. visão geral OK (maior resposta:", max(cabe(ajuda.visao_geral(s, t, m)) for s, t in situacoes for m in (False, True)), "de 6000 caracteres)")
 
+# ---------- 8. resultado especial (66 e 77): o passo espera o mestre, sem dizer o que saiu ----------
+AGUARDA = "algo diferente aconteceu no seu sorteio, então um mestre vai decidir"
+PROXIMO_MESTRE = "Agora é com um mestre: algo diferente aconteceu no seu sorteio, fala com ele pra decidir, e aí você segue."
+e1 = st(**{**SORTEIOS, "race": None, "race_special": 66}); l = ajuda.linhas_passo_a_passo(e1)
+assert l[1] == f"❓ Sortear a raça: {AGUARDA}" and l[2] == "✅ Sortear a classe social" and l[3] == "🔒 Escolher a classe: depois de sortear a raça"
+assert ajuda.proximo_passo(e1) == PROXIMO_MESTRE
+assert ajuda.texto_falta_para("classe", e1) == "Ainda não dá pra usar `/classe`: algo diferente aconteceu num dos seus sorteios, então um mestre precisa decidir antes. Fala com ele."
+e2 = st(race="Humano", social_class_special=77); l = ajuda.linhas_passo_a_passo(e2)
+assert l[1] == "✅ Sortear a raça" and l[2] == f"❓ Sortear a classe social: {AGUARDA}" and ajuda.proximo_passo(e2) == PROXIMO_MESTRE
+e3 = st(**SORTEIOS, class_name="Feiticeiros", magic_rank_special=77); l = ajuda.linhas_passo_a_passo(e3)
+assert l[4] == f"❓ Sortear o Rank de magia: {AGUARDA}" and l[5] == "🔒 Distribuir os pontos de atributo: depois de sortear o Rank de magia" and ajuda.proximo_passo(e3) == PROXIMO_MESTRE
+assert ajuda.texto_falta_para("atributos", e3).startswith("Ainda não dá pra usar `/atributos`: algo diferente aconteceu num dos seus sorteios")
+assert ajuda.texto_bloqueio("Sombra", e1).startswith("🔒 A ficha de **Sombra** ainda não está pronta") and PROXIMO_MESTRE in ajuda.texto_bloqueio("Sombra", e1)
+for texto in (*l, *ajuda.linhas_passo_a_passo(e1), *ajuda.linhas_passo_a_passo(e2), ajuda.proximo_passo(e3), ajuda.texto_bloqueio("Sombra", e2)):
+    assert "66" not in texto and "77" not in texto, texto                                            # nada diz o número que saiu
+print("8. resultado especial OK")
+
 print("\nTODOS OS TESTES DA AJUDA PASSARAM")

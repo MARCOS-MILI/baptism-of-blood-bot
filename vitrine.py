@@ -191,6 +191,23 @@ def cartao_estado(personagem: str, estado: str, jogador: str, clero: str | None 
 
 
 # ---------------------------------------------------------------------------
+# Resultado especial (66 ou 77): tudo interrogação
+# ---------------------------------------------------------------------------
+
+def cartao_especial(valor: int) -> Cartao:
+    """O cartão de um 66 ou 77 em qualquer sorteio de criação. Não diz o que saiu, nem de quem é, nem qual
+    sorteio foi: é tudo interrogação. O 77 é amarelo e o 66 é vermelho. A imagem é opcional
+    (assets/especial-66 e especial-77). Quem decide o destino é um mestre."""
+    info = lore.ESPECIAL[valor]
+    nome_campo, texto_campo = lore.ESPECIAL_CAMPO
+    return _montar(
+        autor=lore.ESPECIAL_AUTOR, titulo=lore.ESPECIAL_TITULO, cor=info["cor"], topo=lore.ESPECIAL_DIVISOR,
+        texto=lore.ESPECIAL_TEXTO, italico=True, campos=[(nome_campo, texto_campo, False)],
+        imagem=achar_imagem("especial", str(valor)), rodape=lore.ESPECIAL_RODAPE,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Classe
 # ---------------------------------------------------------------------------
 

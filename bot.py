@@ -282,7 +282,40 @@ def _vagas(user_id: str) -> tuple[int, int, int]:
     return len(db.list_characters(user_id)), permitidas, extras
 
 
-def _texto_definicao(personagem, campo: str, comando: str) -> str:
+_PASSO_ESPECIAL = {"race": "raca", "social_class": "estado", "magic_rank": "magia"}
+_QUESTAO = "❓ ???"
+
+
+def _especial_de(personagem, campo: str) -> int | None:
+    """66 ou 77 se o sorteio desse campo ('race', 'social_class' ou 'magic_rank') caiu num resultado especial
+    e ainda espera o mestre."""
+    return rules.special_result(personagem, _PASSO_ESPECIAL[campo])
+
+
+def _texto_especial(personagem, campo: str, para_mestre: bool = False) -> str | None:
+    """O que a ficha mostra num resultado especial: só interrogação. Os mestres veem também o número."""
+    valor = _especial_de(personagem, campo)
+    if not valor:
+        return None
+    return f"{_QUESTAO}\n(aguardando o mestre" + (f", tirou {valor}" if para_mestre else "") + ")"
+
+
+def _ping_mestre(guild: discord.Guild | None) -> dict:
+    """A marcação do cargo de mestre (vazia se o servidor não tem o cargo), pra avisar quem decide."""
+    cargo = _cargo_mestre(guild)
+    if not cargo:
+        return {}
+    return {"content": cargo.mention, "allowed_mentions": discord.AllowedMentions(roles=[cargo])}
+
+
+def _raca_curta(personagem) -> str:
+    return personagem["race"] or (_QUESTAO if _especial_de(personagem, "race") else "sem raça")
+
+
+def _texto_definicao(personagem, campo: str, comando: str, para_mestre: bool = False) -> str:
+    especial = _texto_especial(personagem, campo, para_mestre)
+    if especial:
+        return especial
     valor = personagem[campo]
     if not valor:
         return f"ainda não definido\n(use `{comando}`)"
@@ -294,8 +327,11 @@ def _texto_definicao(personagem, campo: str, comando: str) -> str:
 _SEM_MAGIA = "só Vampiros, Dhampirs, Feiticeiros e Mestres de Forja têm magia"
 
 
-def _texto_magia(personagem) -> str:
+def _texto_magia(personagem, para_mestre: bool = False) -> str:
     """O campo 'Rank de Magia' da ficha: depende de a raça e a classe terem magia."""
+    especial = _texto_especial(personagem, "magic_rank", para_mestre)
+    if especial:
+        return especial
     acesso = rules.magic_access(personagem["race"], personagem["class_name"])
     if personagem["magic_rank"]:
         texto = _texto_definicao(personagem, "magic_rank", "/magia_inicial")
@@ -310,6 +346,8 @@ def _texto_magia(personagem) -> str:
 
 
 def _magia_curta(personagem) -> str:
+    if _especial_de(personagem, "magic_rank"):
+        return _QUESTAO
     if personagem["magic_rank"]:
         return personagem["magic_rank"]
     return "sem magia" if rules.magic_access(personagem["race"], personagem["class_name"]) == "nao" else "sem rank"
@@ -337,6 +375,8 @@ def _nota_magia(antes, depois) -> str | None:
 def _resumo_estado(personagem) -> str | None:
     """'2º Estado (Nobreza)', '1º Estado (Clero), Alto Clero' ou 'aguardando o mestre'."""
     estado = personagem["social_class"]
+    if _especial_de(personagem, "social_class"):
+        return _QUESTAO
     if not estado:
         return None
     if estado == dice.SOCIAL_CLASS_MASTER:
@@ -347,7 +387,10 @@ def _resumo_estado(personagem) -> str | None:
     return texto
 
 
-def _texto_estado(personagem) -> str:
+def _texto_estado(personagem, para_mestre: bool = False) -> str:
+    especial = _texto_especial(personagem, "social_class", para_mestre)
+    if especial:
+        return especial
     resumo = _resumo_estado(personagem)
     if not resumo:
         return "ainda não definido\n(use `/classe_social`)"
@@ -413,7 +456,7 @@ def _embed_atributos(personagem, titulo: str) -> discord.Embed:
     return embed
 
 
-def _embed_ficha(personagem, jogador: str) -> discord.Embed:
+def _embed_ficha(personagem, jogador: str, para_mestre: bool = False) -> discord.Embed:
     nivel, xp = personagem["level"], personagem["xp"]
     _, dentro, precisa = rules.xp_progress(xp)
     embed = discord.Embed(title=f"📖 Ficha de {personagem['name']}", color=vitrine.cor_da_ficha(personagem))
@@ -428,9 +471,9 @@ def _embed_ficha(personagem, jogador: str) -> discord.Embed:
     if precisa is not None:
         nivel_txt += f"\nFaltam {rules.fmt_xp(precisa - dentro)} pro nível {nivel + 1}"
     embed.add_field(name="Nível", value=nivel_txt, inline=True)
-    embed.add_field(name="Raça", value=_texto_definicao(personagem, "race", "/raca_inicial"), inline=True)
-    embed.add_field(name="Classe Social", value=_texto_estado(personagem), inline=True)
-    embed.add_field(name="Rank de Magia", value=_texto_magia(personagem), inline=True)
+    embed.add_field(name="Raça", value=_texto_definicao(personagem, "race", "/raca_inicial", para_mestre), inline=True)
+    embed.add_field(name="Classe Social", value=_texto_estado(personagem, para_mestre), inline=True)
+    embed.add_field(name="Rank de Magia", value=_texto_magia(personagem, para_mestre), inline=True)
     classe = personagem["class_name"]
     embed.add_field(
         name="Classe",
@@ -568,6 +611,17 @@ async def on_message(message: discord.Message):
         await _rolar_por_texto(message, pedido)
 
 
+_SORTEIOS_DE_CRIACAO = {"raca_inicial", "classe_social", "clero", "magia_inicial"}
+
+
+def _total_no_historico(linha) -> str:
+    """O histórico é público. Um 66 ou 77 num sorteio de criação é segredo (o cartão é só interrogação),
+    então o número não aparece aqui também. Rolagem comum de 66 ou 77 (um ataque, por exemplo) aparece normal."""
+    if linha["purpose"] in _SORTEIOS_DE_CRIACAO and rules.is_special_roll(linha["total"]):
+        return "???"
+    return str(linha["total"])
+
+
 @bot.tree.command(name="historico", description="Mostra as últimas rolagens de um usuário (ou de um personagem dele).")
 @app_commands.describe(
     usuario="De quem ver o histórico (padrão: você mesmo)",
@@ -608,7 +662,7 @@ async def historico(
         if not char and linha["character_name"]:
             quando += f" · {linha['character_name']}"
         embed.add_field(
-            name=f"{linha['notation']} = {linha['total']}{motivo}",
+            name=f"{linha['notation']} = {_total_no_historico(linha)}{motivo}",
             value=quando,
             inline=False,
         )
@@ -789,7 +843,7 @@ async def personagem_listar(interaction: discord.Interaction):
         marca = "▶️" if ativo and c["id"] == ativo["id"] else "▫️"
         linhas.append(
             f"{marca} **{c['name']}** · nível {c['level']} · {rules.fmt_xp(c['xp'])} XP\n"
-            f"　magia: {_magia_curta(c)} · raça: {c['race'] or 'sem raça'}"
+            f"　magia: {_magia_curta(c)} · raça: {_raca_curta(c)}"
             f" · estado: {_resumo_estado(c) or 'sem estado'}"
         )
     _, permitidas, _ = _vagas(uid)
@@ -875,6 +929,14 @@ def _texto_sem_chances(char, campo: str, bloqueio: str) -> str:
     )
 
 
+def _texto_especial_pendente(char) -> str:
+    """Resposta a quem tenta rolar de novo depois de um 66 ou 77. Não diz o que saiu."""
+    return (
+        f"❓ Algo diferente aconteceu no sorteio de **{char['name']}**, e só um mestre pode decidir o destino. "
+        "Fala com um mestre."
+    )
+
+
 async def _pedir_confirmacao(interaction, char, campo: str):
     """Rolar de novo troca o resultado e não dá pra voltar: sempre pergunta antes."""
     view = paineis.ConfirmarRepeticao(
@@ -893,6 +955,10 @@ async def _sortear_definicao(interaction: discord.Interaction, campo: str, perso
     char, erro = _resolver(uid, personagem_nome)
     if erro:
         await interaction.response.send_message(erro, ephemeral=True)
+        return
+
+    if _especial_de(char, campo):  # caiu um 66 ou 77 antes: não rola de novo, um mestre decide
+        await interaction.response.send_message(_texto_especial_pendente(char), ephemeral=True)
         return
 
     if char[campo]:
@@ -941,6 +1007,13 @@ async def _sortear_definicao(interaction: discord.Interaction, campo: str, perso
         character_id=char["id"],
         character_name=char["name"],
     )
+    if rules.is_special_roll(valor):
+        # 66 ou 77: nada é definido. O cartão é só interrogação e um mestre decide o destino.
+        db.set_special(char["id"], campo, valor)
+        await interaction.response.send_message(
+            **_ping_mestre(interaction.guild), **vitrine.cartao_especial(valor).kwargs()
+        )
+        return
     cfg["salvar"](char["id"], definido, valor)
 
     jogador = interaction.user.display_name
@@ -981,6 +1054,10 @@ async def _sortear_estado(interaction, personagem_nome: str | None, repetir: boo
         await interaction.response.send_message(erro, ephemeral=True)
         return
 
+    if _especial_de(char, "social_class"):
+        await interaction.response.send_message(_texto_especial_pendente(char), ephemeral=True)
+        return
+
     if char["social_class"]:
         bloqueio = rules.reroll_block(char, "social_class")
         if bloqueio:
@@ -1010,13 +1087,15 @@ async def _sortear_estado(interaction, personagem_nome: str | None, repetir: boo
             user_id=uid, username=nome_jogador, guild_id=guild_id, notation="1d100", rolls=r2.rolls,
             total=r2.total, purpose="clero", character_id=char["id"], character_name=char["name"],
         )
+    especial = next((r.total for r in (r1, r2) if r is not None and rules.is_special_roll(r.total)), None)
+    if especial:
+        # 66 ou 77 no Estado (ou no clero): nada é definido, o cartão é só interrogação e um mestre decide.
+        db.set_special(char["id"], "social_class", especial)
+        await interaction.response.send_message(**_ping_mestre(interaction.guild), **vitrine.cartao_especial(especial).kwargs())
+        return
     db.set_social_status(char["id"], estado, r1.total, clero, r2.total if r2 else None)
 
-    ping = {}
-    if estado == dice.SOCIAL_CLASS_MASTER:
-        cargo = _cargo_mestre(interaction.guild)
-        if cargo:
-            ping = {"content": cargo.mention, "allowed_mentions": discord.AllowedMentions(roles=[cargo])}
+    ping = _ping_mestre(interaction.guild) if estado == dice.SOCIAL_CLASS_MASTER else {}
     novo = db.get_character_by_id(char["id"])
     tentativa = (rules.attempts_used(novo, "social_class"), rules.CREATION_ROLL_ATTEMPTS)
     cartao = vitrine.cartao_estado(char["name"], estado, nome_jogador, clero, tentativa)
@@ -1438,6 +1517,9 @@ _ESTADO_ESCOLHAS = {
 
 
 def _valor_atual(personagem, campo: str) -> str | None:
+    especial = _especial_de(personagem, campo)
+    if especial:
+        return f"{_QUESTAO} (tirou {especial})"
     return _resumo_estado(personagem) if campo == "social_class" else personagem[campo]
 
 
@@ -1513,7 +1595,7 @@ async def _corrigir(interaction: discord.Interaction, usuario: discord.Member, p
         await interaction.response.send_message(erro, ephemeral=True)
         return
 
-    antes = char[campo] or "nada"
+    antes = _valor_atual(char, campo) or "nada"
     cfg["salvar"](char["id"], novo_valor, None)  # None = definido na mão, sem rolagem
     _auditar(interaction, usuario, char, f"corrigir_{campo}", f"{antes} -> {novo_valor}")
     nota = _nota_magia(char, db.get_character_by_id(char["id"]))
@@ -1586,7 +1668,7 @@ async def mestre_corrigir_estado(
         return
 
     novo_estado, novo_clero = _ESTADO_ESCOLHAS[estado]
-    antes = _resumo_estado(char) or "nada"
+    antes = _valor_atual(char, "social_class") or "nada"
     db.set_social_status(char["id"], novo_estado, None, novo_clero, None)  # None = definido na mão
     depois = rules.ESTADO_LABELS[novo_estado] + (f", {novo_clero}" if novo_clero else "")
     _auditar(interaction, usuario, char, "corrigir_social_class", f"{antes} -> {depois}")
@@ -1878,7 +1960,7 @@ async def mestre_ficha(interaction: discord.Interaction, usuario: discord.Member
     if erro:
         await interaction.response.send_message(erro, ephemeral=True)
         return
-    await interaction.response.send_message(embed=_embed_ficha(char, usuario.display_name), ephemeral=True)
+    await interaction.response.send_message(embed=_embed_ficha(char, usuario.display_name, para_mestre=True), ephemeral=True)
 
 
 @mestre_grupo.command(name="jogador", description="Mostra quantos personagens um jogador tem, as vagas e o XP de cada um.")

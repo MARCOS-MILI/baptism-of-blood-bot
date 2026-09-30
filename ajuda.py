@@ -434,6 +434,8 @@ def linhas_passo_a_passo(status: dict) -> list[str]:
             linhas.append("➖ Rank de magia: a sua raça e a sua classe não têm magia, então esse passo não vale pra você")
         elif status[pid]:
             linhas.append(f"✅ {passo['rotulo']}")
+        elif status["especial"].get(pid):
+            linhas.append(f"❓ {passo['rotulo']}: algo diferente aconteceu no seu sorteio, então um mestre vai decidir")
         elif pid == "estado" and status["aguardando_mestre"]:
             linhas.append("⏳ Classe social: você tirou 100, então um mestre vai definir o seu Estado")
         elif rules.creation_missing_before(pid, status):
@@ -451,6 +453,8 @@ def proximo_passo(status: dict) -> str:
     proximo = rules.creation_next_step(status)
     if proximo is None:
         return "A ficha está pronta e tudo está liberado."
+    if status["especial"].get(proximo):
+        return "Agora é com um mestre: algo diferente aconteceu no seu sorteio, fala com ele pra decidir, e aí você segue."
     if proximo == "estado" and status["aguardando_mestre"]:
         return "Agora é com um mestre: fala com ele pra definir o seu Estado, e aí você segue."
     passo = next(p for p in rules.CREATION_STEPS if p["id"] == proximo)
@@ -480,6 +484,11 @@ def texto_falta_para(passo_id: str, status: dict) -> str:
     """Resposta de quando um passo da criação é tentado antes dos que ele exige."""
     passo = next(p for p in rules.CREATION_STEPS if p["id"] == passo_id)
     faltam = rules.creation_missing_before(passo_id, status)
+    if any(status["especial"].get(p) for p in faltam):
+        return (
+            f"Ainda não dá pra usar `{passo['comando']}`: algo diferente aconteceu num dos seus sorteios, então um "
+            "mestre precisa decidir antes. Fala com ele."
+        )
     if status["aguardando_mestre"] and set(faltam) <= {"estado"}:
         return (
             f"Ainda não dá pra usar `{passo['comando']}`: você tirou 100 no sorteio da classe social, então um mestre "

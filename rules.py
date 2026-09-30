@@ -329,6 +329,28 @@ CREATION_STEPS = [
 _STEP_BY_ID = {p["id"]: p for p in CREATION_STEPS}
 
 
+# Um 66 ou um 77 em qualquer sorteio de criação (raça, classe social ou Rank de magia) é um resultado
+# especial: o bot não define nada, mostra um cartão só de interrogações e um mestre decide o destino.
+SPECIAL_ROLLS = (66, 77)
+
+
+def is_special_roll(d100_result: int) -> bool:
+    return d100_result in SPECIAL_ROLLS
+
+
+# passo da criação -> coluna do resultado especial
+_COLUNA_ESPECIAL = {"raca": "race_special", "estado": "social_class_special", "magia": "magic_rank_special"}
+
+
+def special_result(personagem, passo: str) -> int | None:
+    """66 ou 77 se o sorteio desse passo ('raca', 'estado' ou 'magia') caiu num resultado especial e ainda
+    espera o mestre. None nos outros casos (também pra dicionários e bancos sem a coluna)."""
+    try:
+        return personagem[_COLUNA_ESPECIAL[passo]]
+    except (KeyError, IndexError):
+        return None
+
+
 def creation_status(personagem) -> dict:
     """Situação de cada passo da criação. 'personagem' é a linha do banco (ou um dicionário) com
     race, magic_rank, social_class, class_name e os attr_*. Um 100 no sorteio da classe social
@@ -347,6 +369,7 @@ def creation_status(personagem) -> dict:
     return {
         **feitos,
         "aguardando_mestre": estado == dice.SOCIAL_CLASS_MASTER,
+        "especial": {passo: special_result(personagem, passo) for passo in _COLUNA_ESPECIAL},
         "pontos_usados": usados,
         "magia_acesso": acesso,
         "sem_magia": acesso == "nao",
@@ -386,6 +409,7 @@ def creation_next_step(status: dict) -> str | None:
 # Rolar de novo: raça e classe social (até 3 chances)
 # ---------------------------------------------------------------------------
 _COLUNA_DE_TENTATIVAS = {"race": "race_attempts", "social_class": "social_class_attempts"}
+_PASSO_DO_CAMPO = {"race": "raca", "social_class": "estado"}
 CAMPOS_COM_CHANCES = tuple(_COLUNA_DE_TENTATIVAS)
 
 
@@ -400,8 +424,10 @@ def attempts_left(personagem, campo: str) -> int:
 
 def reroll_block(personagem, campo: str) -> str | None:
     """None se dá pra rolar de novo. Senão o motivo: 'classe' (o personagem já escolheu a classe, e o resto
-    da ficha depende da raça), 'mestre' (a classe social caiu no 100 e o mestre decide) ou 'tentativas'
-    (as chances acabaram)."""
+    da ficha depende da raça), 'mestre' (a classe social caiu no 100 e o mestre decide), 'especial' (caiu um
+    66 ou 77 e o mestre decide) ou 'tentativas' (as chances acabaram)."""
+    if special_result(personagem, _PASSO_DO_CAMPO[campo]):
+        return "especial"
     if personagem["class_name"]:
         return "classe"
     if campo == "social_class" and personagem["social_class"] == dice.SOCIAL_CLASS_MASTER:
