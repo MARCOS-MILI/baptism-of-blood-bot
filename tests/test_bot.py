@@ -87,12 +87,12 @@ def novo(uid, nome, personagem, quantos=1):
 
 # ============================ A. o que o Discord vai receber ============================
 raiz = {c.name: c for c in bot.bot.tree.get_commands()}
-assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","dados","disciplinas","personagem","mestre"}, sorted(raiz)
+assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","dados","disciplinas","iniciativa","intencao","personagem","mestre"}, sorted(raiz)
 pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
 assert sorted(o["name"] for o in pay["personagem"]["options"]) == ["criar","excluir","listar","usar"]
-assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
+assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
 req = lambda opts: {o["name"] for o in opts if o.get("required")}
 assert req(pay["rolar"]["options"]) == {"dado"} and req(pay["raca_inicial"].get("options", [])) == set()
 assert req(sub_("mestre", "dar_xp")["options"]) == {"usuario", "quantidade"}
@@ -172,7 +172,7 @@ print("B. fluxo básico OK")
 # ============================ C. mestre: permissão e correções ============================
 assert bot._eh_mestre(inter(2,"Zé", admin=True)) and bot._eh_mestre(inter(2,"Zé", manage=True))
 assert bot._eh_mestre(inter(2,"Zé", roles=["mestre"])) and not bot._eh_mestre(inter(2,"Zé", roles=["Jogador"])) and not bot._eh_mestre(inter(2,"Zé"))
-todos = list(bot.mestre_grupo.commands); assert len(todos) == 17
+todos = list(bot.mestre_grupo.commands); assert len(todos) == 18
 for c in todos:                                                     # TODOS os comandos de mestre barram quem não é mestre
     p = inter(3, "Intruso")
     assert run(c._check_can_run(p)) is False, c.name
@@ -877,7 +877,7 @@ for arg in (None, "atributos", "rolar", "xyz"):
 # autocomplete: mestre só aparece pra mestre
 ch = run(bot._autocomplete_comando(inter(212, "J"), "atrib")); assert [(c.name, c.value) for c in ch] == [("/atributos", "atributos")]
 ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "atrib")); assert [c.value for c in ch] == ["atributos", "mestre atributos"]
-ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 19 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
+ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 21 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
 ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "")); assert len(ch) == 25 and all(len(c.name) <= 100 for c in ch)
 print("M. /ajuda OK")
 
@@ -1764,5 +1764,220 @@ async def exclui_vlad():
 run(exclui_vlad()); assert row(950, "Vlad Vampiro") is None
 with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT COUNT(*) FROM character_disciplines").fetchone()[0] == 1       # só as do Dani sobraram
 print("U. Disciplinas OK")
+
+# ============================ V. Escudo do Mestre, /iniciativa e /intencao ============================
+import cena, escudo
+db.DB_PATH = os.path.join(tmp, "escudo.db"); db.init_db()
+SEGREDO = "Esfaquear o duque sem ninguém ver"
+def canal_fake():
+    pm = MagicMock(); pm.edit = AsyncMock()
+    ch = MagicMock(); ch.get_partial_message = MagicMock(return_value=pm); ch.send = AsyncMock(return_value=NS(id=777)); ch.pm = pm
+    return ch
+def no_canal(i, ch, canal_id="5000"):
+    i.channel = ch; i.channel_id = canal_id; return i
+def ic(uid, nome, ch, canal_id="5000", **extras): return no_canal(inter(uid, nome, **extras), ch, canal_id)
+def clicar(view, rotulo, uid, nome, ch, canal_id="5000", emoji=None, **extras):
+    i = ic(uid, nome, ch, canal_id, **extras); runp(botao(view, rotulo, emoji).callback(i)); return i
+def submeter(modal, valores, uid, nome, ch, canal_id="5000", **extras):
+    for campo, v in valores.items(): campo._value = v
+    i = ic(uid, nome, ch, canal_id, **extras); runp(modal.on_submit(i)); return i
+def menu(view, comeco):
+    achados = [x for x in view.children if isinstance(x, discord.ui.Select) and x.placeholder.startswith(comeco)]
+    assert len(achados) == 1, (comeco, [x.placeholder for x in view.children if isinstance(x, discord.ui.Select)]); return achados[0]
+def ultimo_quadro(ch): return ch.pm.edit.call_args.kwargs
+def texto_do_quadro(ch):
+    e = ultimo_quadro(ch)["embed"]; return " ".join([e.title or "", e.description or "", e.footer.text or ""] + [f.name + f.value for f in e.fields])
+MESTRE = dict(roles=["Mestre"])
+CH = canal_fake()
+
+# --- os comandos: as opções e as descrições ---
+pay = {c.name: c.to_dict(bot.bot.tree) for c in bot.bot.tree.get_commands()}
+assert pay["iniciativa"].get("options", []) == []
+ci, cn = pay["intencao"], sub_("mestre", "escudo")
+assert [o["name"] for o in ci["options"]] == ["texto"] and req(ci["options"]) == set() and (opt(ci, "texto")["min_length"], opt(ci, "texto")["max_length"]) == (1, 200)
+assert len(pay["iniciativa"]["description"]) <= 100 and len(ci["description"]) <= 100 and len(cn["description"]) <= 100 and cn.get("options", []) == []
+assert bot.bot.setup_hook is bot._preparar_bot and bot.escudo.CONFIG.eh_mestre is bot._membro_eh_mestre and bot.escudo.CONFIG.bloqueio_de_rolagem is bot._bloqueio_curto
+
+# --- sem cena aberta, ninguém entra nem manda intenção ---
+pronto(701, "Ana", "Ana Cena"); pronto(702, "Beto", "Beto Cena"); novo(703, "Caio", "Caio Incompleto")
+for cmd, args in ((bot.iniciativa_comando, ()), (bot.intencao_comando, ("Atacar",)), (bot.intencao_comando, (None,))):
+    i = ic(701, "Ana", CH); run(cmd.callback(i, *args)); assert txt(i) == escudo.SEM_CENA and sent(i)[1]["ephemeral"]
+assert db.get_active_scene("5000") is None
+
+# --- o mestre abre o Escudo: sem cena, só o botão de iniciar ---
+m = ic(700, "Mestre Belmont", CH, **MESTRE); run(bot.mestre_escudo.callback(m)); esc = enviada(m)
+assert isinstance(esc, escudo.EscudoDoMestre) and sent(m)[1]["ephemeral"] and esc.origem is m and esc.channel_id == "5000" and titulo(m) == "🛡️ Escudo do Mestre" and "Não tem cena aberta neste canal" in desc(m)
+assert [b.label for b in esc.children] == ["Iniciar cena"]; confere_componentes(esc)
+assert runp(esc.interaction_check(ic(999, "Intruso", CH, **MESTRE))) is False                       # outro mestre não mexe na tela alheia
+assert runp(esc.interaction_check(ic(700, "Mestre Belmont", CH, **MESTRE))) is True
+perdeu = ic(700, "Mestre Belmont", CH); assert runp(esc.interaction_check(perdeu)) is False and perdeu.response.send_message.call_args.args[0] == escudo.SO_MESTRE     # perdeu o cargo: a tela não obedece mais
+# iniciar a cena: formulário -> nome -> tela do escudo completa
+c = clicar(esc, "Iniciar cena", 700, "Mestre Belmont", CH, **MESTRE); mc = c.response.send_modal.call_args.args[0]
+assert isinstance(mc, escudo.ModalCena) and mc.title == "Nova cena" and mc.campo.max_length == 60 and mc.campo.required
+c = submeter(mc, {mc.campo: "  Motim   na praça  "}, 700, "Mestre Belmont", CH, **MESTRE)
+cena0 = db.get_active_scene("5000"); assert cena0["name"] == "Motim na praça" and cena0["created_by"] == "700" and cena0["guild_id"] == "999" and cena0["round"] == 1
+(aviso, fk), = followups(c); assert "Cena **Motim na praça** aberta" in aviso and fk["ephemeral"] is True
+esc = editada(c)["view"]; assert esc is not None and titulo(m) == "🛡️ Escudo do Mestre" and editada(c)["embed"].title == "🛡️ Escudo do Mestre · Motim na praça"
+assert [b.label for b in esc.children if isinstance(b, discord.ui.Button)] == ["Próximo turno", "Mostrar iniciativa", "NPC", "Atualizar", "Encerrar"] and seletor(esc) is None; confere_componentes(esc)
+mc2 = criar(escudo.ModalCena, esc); mc2.campo._value = "Outra"; c2 = ic(700, "Mestre Belmont", CH, **MESTRE); runp(mc2.on_submit(c2))
+assert "Já tem uma cena aberta neste canal" in followups(c2)[0][0] and db.get_active_scene("5000")["id"] == cena0["id"]      # uma cena por canal
+mc3 = criar(escudo.ModalCena, esc); mc3.campo._value = "   "; db.end_scene(cena0["id"]); c3 = ic(700, "Mestre Belmont", CH, **MESTRE); runp(mc3.on_submit(c3))
+assert db.get_active_scene("5000")["name"] == "Cena" and db.get_active_scene("5000")["id"] != cena0["id"]                    # nome vazio vira "Cena"
+db.end_scene(db.get_active_scene("5000")["id"]); cena0 = db.create_scene("999", "5000", "Motim na praça", "700"); SID = cena0["id"]
+esc = criar(escudo.EscudoDoMestre, 700, "5000"); esc.origem = m
+
+# --- o jogador entra na iniciativa: 1d20 + Destreza, só ele vê, e a regra de ficha pronta vale ---
+i = ic(703, "Caio", CH); run(bot.iniciativa_comando.callback(i)); assert "A ficha de **Caio Incompleto** ainda não está pronta" in txt(i) and sent(i)[1]["ephemeral"] and db.get_participants(SID) == []
+i = ic(710, "Sem Personagem", CH); run(bot.iniciativa_comando.callback(i)); assert "Você ainda não tem personagem" in txt(i) and db.get_participants(SID) == []
+with dados(14): i = ic(701, "Ana", CH); run(bot.iniciativa_comando.callback(i))
+assert txt(i) == "🎲 **Ana Cena**: 1d20 = 14 + Destreza 0 = **14** de iniciativa." and sent(i)[1]["ephemeral"] and [p["name"] for p in db.get_participants(SID)] == ["Ana Cena"]
+assert CH.pm.edit.call_count == 0                                                                    # ainda não tem quadro no canal: nada a editar
+with dados(): i = ic(701, "Ana", CH); run(bot.iniciativa_comando.callback(i))
+assert "já está na cena, com iniciativa **14**" in txt(i) and len(db.get_participants(SID)) == 1
+assert [h["purpose"] for h in historico_de(701)][-1] == "iniciativa"
+
+# --- o mestre põe um NPC, e o menu de baixo aparece ---
+c = clicar(esc, "NPC", 700, "Mestre Belmont", CH, **MESTRE); mn = c.response.send_modal.call_args.args[0]
+assert isinstance(mn, escudo.ModalNpc) and mn.title == "NPC na cena" and mn.nome.max_length == 40 and mn.iniciativa.max_length == 12
+c = submeter(mn, {mn.nome: "Guarda", mn.iniciativa: "abc"}, 700, "Mestre Belmont", CH, **MESTRE); assert "Iniciativa inválida" in followups(c)[0][0] and len(db.get_participants(SID)) == 1
+c = submeter(mn, {mn.nome: "Guarda", mn.iniciativa: "12"}, 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
+assert followups(c)[0][0] == "➕ **Guarda** entrou na cena com iniciativa **12** (definida pelo mestre)." and [(p["name"], p["initiative"]) for p in db.get_participants(SID)] == [("Ana Cena", 14), ("Guarda", 12)]
+sel = seletor(esc); confere_componentes(esc)
+assert [o.label for o in sel.options] == ["1. Ana Cena", "2. Guarda"] and sel.options[1].description == "iniciativa 12 · NPC" and sel.options[0].description == "iniciativa 14" and sel.placeholder == "Editar ou remover alguém"
+
+# --- o quadro público: postado uma vez, editado nas próximas, e refeito se apagarem ---
+c = clicar(esc, "Mostrar iniciativa", 700, "Mestre Belmont", CH, **MESTRE)
+kw = CH.send.call_args.kwargs; assert isinstance(kw["view"], escudo.QuadroDaCena) and kw["embed"].title == "⚔️ Motim na praça" and db.get_scene(SID)["board_message_id"] == "777"
+assert "Quadro da iniciativa postado no canal" in followups(c)[0][0] and followups(c)[0][1]["ephemeral"] and CH.pm.edit.call_count == 0
+esc = editada(c)["view"]
+c = clicar(esc, "Mostrar iniciativa", 700, "Mestre Belmont", CH, **MESTRE); assert CH.send.call_count == 1 and CH.pm.edit.call_count == 1 and "Quadro atualizado" in followups(c)[0][0]      # segunda vez: edita, não posta outro
+CH.get_partial_message.assert_called_with(777); esc = editada(c)["view"]
+assert isinstance(ultimo_quadro(CH)["view"], escudo.QuadroDaCena)
+CH.pm.edit.side_effect = discord.NotFound(MagicMock(status=404, reason="x"), "sumiu")                # apagaram o quadro: o bot posta outro
+c = clicar(esc, "Mostrar iniciativa", 700, "Mestre Belmont", CH, **MESTRE); assert CH.send.call_count == 2 and "postado" in followups(c)[0][0]; esc = editada(c)["view"]
+CH.pm.edit.side_effect = None
+CH2 = canal_fake(); CH2.send.side_effect = discord.Forbidden(MagicMock(status=403, reason="x"), "sem permissão")   # sem permissão pra escrever
+db.set_scene_board(SID, None); c = clicar(esc, "Mostrar iniciativa", 700, "Mestre Belmont", CH2, **MESTRE)
+assert "Não consegui postar o quadro aqui" in followups(c)[0][0] and db.get_scene(SID)["board_message_id"] is None; esc = editada(c)["view"]
+CH.send.reset_mock(); c = clicar(esc, "Mostrar iniciativa", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]; assert db.get_scene(SID)["board_message_id"] == "777"; CH.pm.edit.reset_mock()
+
+# --- os botões do quadro público: persistentes, qualquer jogador aperta ---
+quadro = criar(escudo.QuadroDaCena)
+assert quadro.is_persistent() and quadro.timeout is None and {b.custom_id: b.label for b in quadro.children} == {"cena:iniciativa": "Entrar na iniciativa", "cena:intencao": "Enviar intenção", "cena:minha": "Minha intenção"}
+assert all(len(b.custom_id) <= 100 for b in quadro.children)
+with dados(9): c = clicar(quadro, "Entrar na iniciativa", 702, "Beto", CH)                          # o mesmo que /iniciativa, pelo botão
+assert txt(c) == "🎲 **Beto Cena**: 1d20 = 9 + Destreza 0 = **9** de iniciativa." and sent(c)[1]["ephemeral"] and CH.pm.edit.call_count == 1
+assert "▶️" not in ultimo_quadro(CH)["embed"].description and "1. Ana Cena · 14 ⏳" in ultimo_quadro(CH)["embed"].description and "3. Beto Cena · 9 ⏳" in ultimo_quadro(CH)["embed"].description      # o quadro se atualizou sozinho
+c = clicar(quadro, "Enviar intenção", 701, "Ana", CH); mi = c.response.send_modal.call_args.args[0]
+assert isinstance(mi, escudo.ModalIntencao) and mi.title == "Sua intenção" and mi.campo.max_length == 200 and mi.campo.required and mi.campo.style == discord.TextStyle.paragraph
+c = submeter(mi, {mi.campo: SEGREDO}, 701, "Ana", CH); assert "Intenção de **Ana Cena** enviada pro mestre" in txt(c) and sent(c)[1]["ephemeral"]
+assert "3. Beto Cena · 9 ⏳" in ultimo_quadro(CH)["embed"].description and "1. Ana Cena · 14 📝" in ultimo_quadro(CH)["embed"].description and SEGREDO not in texto_do_quadro(CH)      # o quadro mostra 📝, e NUNCA o texto
+c = clicar(quadro, "Minha intenção", 701, "Ana", CH); assert "**Ana Cena**, rodada 1: 📝 intenção aguardando o mestre" in txt(c) and SEGREDO in txt(c) and sent(c)[1]["ephemeral"]      # só ela vê o próprio texto
+c = clicar(quadro, "Minha intenção", 702, "Beto", CH); assert "ainda não mandou intenção na rodada 1" in txt(c)
+c = clicar(quadro, "Minha intenção", 703, "Caio", CH); assert txt(c) == cena._SEM_LUGAR                 # quem não entrou na cena
+c = clicar(quadro, "Enviar intenção", 701, "Ana", CH, canal_id="6000"); assert txt(c) == escudo.SEM_CENA and c.response.send_modal.call_count == 0    # o botão em outro canal, sem cena
+i = ic(702, "Beto", CH); run(bot.intencao_comando.callback(i, "Proteger a Ana")); assert "enviada pro mestre" in txt(i) and CH.pm.edit.call_count >= 3
+i = ic(701, "Ana", CH); run(bot.intencao_comando.callback(i, None)); assert "📝 intenção aguardando o mestre" in txt(i) and SEGREDO in txt(i)
+i = ic(701, "Ana", CH); run(bot.intencao_comando.callback(i, "x" * 201)); assert "201 letras" in txt(i) and db.get_intention(db.find_participant_by_character(SID, row(701, "Ana Cena")["id"])["id"], 1)["text"] == SEGREDO
+i = ic(703, "Caio", CH); run(bot.intencao_comando.callback(i, "Entrar de penetra")); assert txt(i) == cena._SEM_LUGAR
+
+# --- o mestre lê as intenções (só ele) e decide ---
+c = clicar(esc, "Atualizar", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]; e = editada(c)["embed"]
+assert c.followup.send.call_count == 0 and SEGREDO in e.description and "Proteger a Ana" in e.description and e.footer.text.startswith("2 aguardando você")           # o escudo mostra o texto; o quadro não
+confere_componentes(esc)
+selecao = [x for x in esc.children if isinstance(x, discord.ui.Select)]; pend = selecao[0]
+assert pend.placeholder == "Intenções aguardando (2)" and [o.label for o in pend.options] == ["Ana Cena (14)", "Beto Cena (9)"] and pend.options[0].description == SEGREDO
+assert [b.label for b in esc.children if isinstance(b, discord.ui.Button)] == ["Próximo turno", "Mostrar iniciativa", "NPC", "Atualizar", "Encerrar"]     # sem escolher, sem Permitir/Negar
+c = inter(700, "Mestre Belmont", **MESTRE); no_canal(c, CH); pend._values = [pend.options[0].value]; runp(pend.callback(c)); esc = editada(c)["view"]
+assert [f.name for f in editada(c)["embed"].fields] == ["📝 Ana Cena"] and SEGREDO in editada(c)["embed"].fields[0].value
+assert [b.label for b in esc.children if isinstance(b, discord.ui.Button)][-2:] == ["Permitir", "Negar"] and botao(esc, "Permitir").row == 3; confere_componentes(esc)
+CH.pm.edit.reset_mock(); c = clicar(esc, "Permitir", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
+assert followups(c)[0][0] == "✅ Intenção de **Ana Cena** permitida." and followups(c)[0][1]["ephemeral"] and db.get_intention(db.find_participant_by_character(SID, row(701, "Ana Cena")["id"])["id"], 1)["status"] == "permitida"
+assert "1. Ana Cena · 14 ✅" in ultimo_quadro(CH)["embed"].description and SEGREDO not in texto_do_quadro(CH)              # o quadro público avisa ✅ e continua sem o texto
+assert "Permitir" not in [b.label for b in esc.children if isinstance(b, discord.ui.Button)] and seletor(esc).placeholder == "Intenções aguardando (1)"
+# negar, com motivo, num formulário; o jogador vê o motivo
+pend = [x for x in esc.children if isinstance(x, discord.ui.Select)][0]; c = inter(700, "Mestre Belmont", **MESTRE); no_canal(c, CH); pend._values = [pend.options[0].value]; runp(pend.callback(c)); esc = editada(c)["view"]
+c = clicar(esc, "Negar", 700, "Mestre Belmont", CH, **MESTRE); mg = c.response.send_modal.call_args.args[0]
+assert isinstance(mg, escudo.ModalNegar) and mg.title == "Negar a intenção" and not mg.campo.required and mg.campo.max_length == 150
+c = submeter(mg, {mg.campo: "  Ela está   longe  demais "}, 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
+assert followups(c)[0][0] == "❌ Intenção de **Beto Cena** negada: Ela está longe demais. O jogador vê o motivo em 👁 Minha intenção." and "3. Beto Cena · 9 ❌" in ultimo_quadro(CH)["embed"].description
+c = clicar(quadro, "Minha intenção", 702, "Beto", CH); assert "❌ intenção negada" in txt(c) and "Motivo do mestre: Ela está longe demais" in txt(c) and "Manda outra com `/intencao`" in txt(c)
+# painel velho: decidir a mesma intenção de novo não estraga nada
+mg_velho = criar(escudo.ModalNegar, esc, db.get_intention(db.find_participant_by_character(SID, row(702, "Beto Cena")["id"])["id"], 1)["id"]); mg_velho.campo._value = "de novo"
+c = ic(700, "Mestre Belmont", CH, **MESTRE); runp(mg_velho.on_submit(c)); assert "já foi decidida" in followups(c)[0][0] and db.get_intention(db.find_participant_by_character(SID, row(702, "Beto Cena")["id"])["id"], 1)["master_note"] == "Ela está longe demais"
+esc.intencao_sel = None
+c = clicar(esc, "Atualizar", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
+i = ic(701, "Ana", CH); run(bot.intencao_comando.callback(i, "Mudei de ideia")); assert "já foi permitida" in txt(i)              # permitida: não troca
+i = ic(702, "Beto", CH); run(bot.intencao_comando.callback(i, "Ficar parado")); assert "trocada" in txt(i) and "3. Beto Cena · 9 📝" in ultimo_quadro(CH)["embed"].description   # negada: pode mandar outra
+
+# --- a vez: próximo turno marca só o jogador, e a rodada vira ---
+CH.pm.edit.reset_mock()
+c = clicar(esc, "Próximo turno", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
+(texto, fk), = followups(c); assert texto == "▶️ Vez de <@701> · **Ana Cena** (14) · ✅ intenção permitida" and "ephemeral" not in fk and [u.id for u in fk["allowed_mentions"].users] == [701]
+assert fk["allowed_mentions"].everyone is False and fk["allowed_mentions"].roles is False                   # só ela pode ser marcada
+assert "▶️ **1. Ana Cena** · 14 ✅" in ultimo_quadro(CH)["embed"].description and "vez de **Ana Cena**" in editada(c)["embed"].description
+c = clicar(esc, "Próximo turno", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
+assert followups(c)[0][0] == "▶️ Vez de **Guarda** (NPC, 12)" and "allowed_mentions" not in followups(c)[0][1]              # NPC não marca ninguém
+c = clicar(esc, "Próximo turno", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]; assert followups(c)[0][0].startswith("▶️ Vez de <@702> · **Beto Cena** (9) · 📝 intenção aguardando o mestre")
+c = clicar(esc, "Próximo turno", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]                    # passou do último: rodada nova
+assert followups(c)[0][0] == "🔔 **Rodada 2** começou.\n▶️ Vez de <@701> · **Ana Cena** (14) · ⏳ sem intenção" and db.get_scene(SID)["round"] == 2
+assert "**Rodada 2**" in ultimo_quadro(CH)["embed"].description and "1" not in "".join(ch for ch in ultimo_quadro(CH)["embed"].description if ch in "✅📝❌")   # a rodada nova começa sem intenções
+assert seletor(esc).placeholder == "Editar ou remover alguém" and len([x for x in esc.children if isinstance(x, discord.ui.Select)]) == 1                   # sem intenção pendente: só o menu de participantes
+i = ic(701, "Ana", CH); run(bot.intencao_comando.callback(i, "Correr")); assert "enviada pro mestre" in txt(i)      # cada rodada tem a sua
+
+# --- editar a iniciativa e remover ---
+pt = [x for x in esc.children if isinstance(x, discord.ui.Select)][0]; c = inter(700, "Mestre Belmont", **MESTRE); no_canal(c, CH); pt._values = [pt.options[2].value]; runp(pt.callback(c)); esc = editada(c)["view"]
+assert [b.label for b in esc.children if isinstance(b, discord.ui.Button)][-2:] == ["Iniciativa", "Remover"] and [o.default for o in menu(esc, "Editar ou remover").options] == [False, False, True]
+c = clicar(esc, "Iniciativa", 700, "Mestre Belmont", CH, **MESTRE); mi2 = c.response.send_modal.call_args.args[0]
+assert isinstance(mi2, escudo.ModalIniciativa) and mi2.campo.default == "9" and mi2.title == "Iniciativa de Beto Cena"
+c = submeter(mi2, {mi2.campo: "20"}, 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
+assert "agora é **20**" in followups(c)[0][0] and [(p["name"], p["initiative"]) for p in db.get_participants(SID)] == [("Beto Cena", 20), ("Ana Cena", 14), ("Guarda", 12)] and "1. Beto Cena · 20" in ultimo_quadro(CH)["embed"].description
+c = submeter(mi2, {mi2.campo: "zzz"}, 700, "Mestre Belmont", CH, **MESTRE); assert "Iniciativa inválida" in followups(c)[0][0] and db.get_participant(mi2.participante_id)["initiative"] == 20
+guarda = next(p for p in db.get_participants(SID) if p["name"] == "Guarda")
+esc.participante_sel = guarda["id"]; esc._montar(); c = clicar(esc, "Remover", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
+assert followups(c)[0][0] == "🗑 **Guarda** saiu da cena." and [p["name"] for p in db.get_participants(SID)] == ["Beto Cena", "Ana Cena"] and "Guarda" not in ultimo_quadro(CH)["embed"].description
+assert [b.label for b in esc.children if isinstance(b, discord.ui.Button)] == ["Próximo turno", "Mostrar iniciativa", "NPC", "Atualizar", "Encerrar"]      # sem seleção: sem Iniciativa/Remover
+esc.participante_sel = guarda["id"]; esc._montar(); assert esc.participante_sel is None                    # seleção velha (já saiu) é esquecida
+c = inter(700, "Mestre Belmont", **MESTRE); no_canal(c, CH); esc.participante_sel = 99999; runp(esc._editar(c)); assert "já saiu da cena" in followups(c)[0][0]
+c = inter(700, "Mestre Belmont", **MESTRE); no_canal(c, CH); runp(esc._remover(c)); assert "já saiu da cena" in followups(c)[0][0]
+
+# --- próximo turno numa cena vazia ---
+vazia = db.create_scene("999", "5100", "Vazia", "700")["id"]; ev = criar(escudo.EscudoDoMestre, 700, "5100")
+c = clicar(ev, "Próximo turno", 700, "Mestre Belmont", CH, "5100", **MESTRE); assert "Ninguém entrou na iniciativa ainda" in followups(c)[0][0] and followups(c)[0][1]["ephemeral"] and db.get_scene(vazia)["turn_participant_id"] is None
+c = clicar(ev, "Mostrar iniciativa", 700, "Mestre Belmont", canal_fake(), "5100", **MESTRE)
+
+# --- encerrar: pede confirmação, dá pra voltar, e fecha o quadro ---
+c = clicar(esc, "Encerrar", 700, "Mestre Belmont", CH, **MESTRE); conf = editada(c)["view"]
+assert isinstance(conf, escudo.ConfirmarEncerrar) and editada(c)["embed"].title == "⛔ Encerrar Motim na praça?" and [b.label for b in conf.children] == ["Encerrar a cena", "Voltar"] and esc.is_finished() and c.followup.send.call_count == 0
+assert runp(conf.interaction_check(ic(999, "Intruso", CH, **MESTRE))) is False and runp(conf.interaction_check(ic(700, "X", CH))) is False
+c = clicar(conf, "Voltar", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]; assert isinstance(esc, escudo.EscudoDoMestre) and db.get_active_scene("5000") is not None
+c = clicar(esc, "Encerrar", 700, "Mestre Belmont", CH, **MESTRE); conf = editada(c)["view"]
+CH.pm.edit.reset_mock(); c = clicar(conf, "Encerrar a cena", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
+assert db.get_active_scene("5000") is None and db.get_scene(SID)["active"] == 0 and "Cena **Motim na praça** encerrada" in followups(c)[0][0]
+assert ultimo_quadro(CH)["view"] is None and "(encerrada)" in ultimo_quadro(CH)["embed"].title and cena.LEGENDA not in ultimo_quadro(CH)["embed"].description       # o quadro vira registro, sem botões
+assert [b.label for b in esc.children] == ["Iniciar cena"] and editada(c)["embed"].title == "🛡️ Escudo do Mestre"
+for cmd, args in ((bot.iniciativa_comando, ()), (bot.intencao_comando, ("Atacar",))):
+    i = ic(701, "Ana", CH); run(cmd.callback(i, *args)); assert txt(i) == escudo.SEM_CENA                      # depois de encerrada, ninguém entra
+c = clicar(quadro, "Entrar na iniciativa", 702, "Beto", CH); assert txt(c) == escudo.SEM_CENA                  # nem pelo botão do quadro antigo
+c = clicar(conf, "Encerrar a cena", 700, "Mestre Belmont", CH, **MESTRE); assert "já tinha sido encerrada" in followups(c)[0][0]                      # clique repetido
+mc4 = criar(escudo.ModalCena, esc); mc4.campo._value = "Segunda cena"; c = ic(700, "Mestre Belmont", CH, **MESTRE); runp(mc4.on_submit(c))
+assert db.get_active_scene("5000")["name"] == "Segunda cena" and db.get_active_scene("5000")["id"] != SID and db.get_participants(db.get_active_scene("5000")["id"]) == []      # cena nova começa do zero
+
+# --- a cena cheia, tela velha e erro ---
+lot = db.create_scene("999", "5200", "Lotada", "700")["id"]
+for k in range(25): db.add_participant(lot, "npc", f"N{k}", k)
+el = criar(escudo.EscudoDoMestre, 700, "5200"); confere_componentes(el)
+assert [len(x.options) for x in el.children if isinstance(x, discord.ui.Select)] == [25]
+errv = ic(700, "Mestre Belmont", CH, **MESTRE); runp(el.on_error(errv, RuntimeError("falhou"), None)); assert errv.response.send_message.call_args.args[0] == paineis.MSG_ERRO
+errq = ic(701, "Ana", CH); runp(quadro.on_error(errq, RuntimeError("falhou"), None)); assert errq.response.send_message.call_args.args[0] == paineis.MSG_ERRO
+errm = ic(701, "Ana", CH); runp(mi.on_error(errm, RuntimeError("falhou"))); assert errm.response.send_message.call_args.args[0] == paineis.MSG_ERRO
+# o registro do quadro persistente na partida
+registrados = []; original_add = bot.bot.add_view; bot.bot.add_view = lambda v, **k: registrados.append(v)
+try: runp(bot._preparar_bot())
+finally: bot.bot.add_view = original_add
+assert len(registrados) == 1 and isinstance(registrados[0], escudo.QuadroDaCena) and registrados[0].is_persistent()
+# a ajuda conhece os três comandos
+for chave in ("iniciativa", "intencao", "mestre escudo"): assert chave in ajuda.AJUDA and len(ajuda.AJUDA[chave]["detalhes"]) <= 600
+print("V. Escudo do Mestre OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

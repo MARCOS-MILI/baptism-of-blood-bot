@@ -144,6 +144,30 @@ AJUDA = {
         ),
         "requisito": "Abrir a bandeja é sempre liberado. Rolar só com a ficha do personagem pronta.",
     },
+    "iniciativa": {
+        "grupo": "jogo",
+        "resumo": "entra na iniciativa da cena do canal",
+        "uso": "/iniciativa",
+        "detalhes": (
+            "Rola 1d20 + Destreza pro personagem que você está usando e te coloca na ordem da cena que um mestre abriu "
+            "neste canal. Quem tem Celeridade rola com vantagem (dois d20, fica o maior). É uma vez por cena; se "
+            "precisar mudar, pede pra um mestre. Só você vê o resultado, e o quadro da cena mostra a ordem. Tem o "
+            "mesmo botão 🎲 no quadro."
+        ),
+        "requisito": "Precisa de uma cena aberta no canal e da ficha pronta.",
+    },
+    "intencao": {
+        "grupo": "jogo",
+        "resumo": "manda pro mestre o que o personagem quer fazer",
+        "uso": "/intencao texto:atacar o guarda pela retaguarda",
+        "detalhes": (
+            "Numa cena com muita gente, em vez de várias mensagens no canal, você escreve numa frase (até 200 letras) o que o "
+            "seu personagem quer fazer. Só o mestre lê. Ele permite ou nega, e o quadro mostra 📝 aguardando, ✅ permitida ou "
+            "❌ negada. Você age na sua vez, seguindo a iniciativa. É uma por rodada: mandar outra troca a anterior (menos se "
+            "já foi permitida). Sem texto, mostra a sua atual e o motivo, se negada. Tem os botões 📝 e 👁 no quadro."
+        ),
+        "requisito": "Precisa estar na iniciativa da cena do canal (`/iniciativa`).",
+    },
     "historico": {
         "grupo": "jogo",
         "resumo": "mostra as últimas rolagens de alguém",
@@ -235,6 +259,19 @@ AJUDA = {
         "resumo": "põe o personagem no começo de um nível",
         "uso": "/mestre corrigir_nivel usuario:@alguém nivel:3",
         "detalhes": "Ajusta o XP pro mínimo daquele nível e registra no extrato. Serve pra consertar um erro.",
+    },
+    "mestre escudo": {
+        "grupo": "mestre",
+        "resumo": "abre o Escudo do Mestre da cena deste canal",
+        "uso": "/mestre escudo",
+        "detalhes": (
+            "A tela privada do mestre pra conduzir uma cena com muita gente. Inicia a cena, mostra a ordem com o texto das "
+            "intenções que os jogadores mandaram com `/intencao` e deixa Permitir ou Negar (com motivo). Próximo turno passa "
+            "a vez e marca o jogador; ➕ põe NPC; o menu de baixo edita a iniciativa de alguém ou o tira. Mostrar iniciativa "
+            "posta o quadro público, que nunca mostra o texto das intenções. A tela é privada e só atualiza quando você "
+            "aperta algo: 🔄 mostra o que chegou. Uma cena por canal."
+        ),
+        "requisito": "Só mestres.",
     },
     "mestre disciplina": {
         "grupo": "mestre",
@@ -349,13 +386,14 @@ MESTRE_SUBGRUPOS = [
     ("XP e nível", ["dar_xp", "upar", "corrigir_nivel"]),
     ("Ficha", ["ficha", "atributos", "corrigir_classe", "rank_pericia", "disciplina"]),
     ("Sorteios", ["apagar", "corrigir_magia", "corrigir_raca", "corrigir_estado"]),
+    ("Cena", ["escudo"]),
     ("Jogadores", ["jogador", "vagas", "excluir_personagem", "apagar_historico", "exportar"]),
 ]
 
 # Só comandos, em ordem, pra sugerir no autocomplete quando a pessoa ainda não digitou nada.
 ORDEM_SUGESTAO = [
     "personagem criar", "raca_inicial", "classe_social", "classe", "magia_inicial", "atributos", "minha_ficha",
-    "rolar", "dados", "niveis", "rank", "calcular_recursos", "historico", "extrato_xp", "personagem usar",
+    "rolar", "dados", "iniciativa", "intencao", "niveis", "rank", "calcular_recursos", "historico", "extrato_xp", "personagem usar",
     "personagem listar", "personagem excluir", "disciplinas", "ajuda",
 ]
 

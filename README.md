@@ -39,11 +39,15 @@ Personagens que já existiam e ainda não têm classe e atributos também precis
 
 - `/ajuda` (ou `/help`) mostra o seu passo a passo e a lista de comandos, com um resumo de cada um. Com `comando:` (por exemplo `/ajuda comando:atributos`), explica um comando com exemplo e diz quando dá pra usar. Os comandos de mestre só aparecem na lista pra quem é mestre.
 
-**Sorteios de criação** (uma rolagem só por personagem)
+**Sorteios de criação**
 
 - `/raca_inicial` rola 1d100 e sorteia a Raça.
 - `/classe_social` rola 1d100 e sorteia o Estado. Quem cai no 1º Estado rola outro 1d100 na hora, pra saber se é Alto ou Baixo Clero.
-- `/magia_inicial` rola 1d100 e define o Rank de magia, **só pra quem tem magia** e só depois da raça e da classe (a tabela do Rank está logo abaixo).
+- `/magia_inicial` rola 1d100 e define o Rank de magia, **só pra quem tem magia** e só depois da raça e da classe (a tabela do Rank está logo abaixo). É **uma rolagem só** por personagem; quem tem uma habilidade que dá vantagem combina com um mestre, na mão.
+
+**Três chances (raça e classe social).** Cada personagem tem até **3 rolagens** de raça e até **3** de classe social. Rolar de novo **troca** o resultado pelo novo (a última vale), e o bot **sempre pergunta antes** (botões Rolar de novo e Manter), porque não dá pra voltar atrás. Nos botões da ficha, o botão fica como "Raça (2)" 🔄, com o número de chances que sobram. As chances fecham quando: as 3 acabam; o personagem **escolhe a classe** (o resto da ficha depende da raça); a classe social cai no **100** (o mestre decide); ou um mestre define o valor na mão (`/mestre corrigir_raca` e `/mestre corrigir_estado`). `/mestre apagar` devolve as 3 chances. Todas as rolagens ficam no histórico. Quem já tinha raça ou classe social sorteada antes dessa versão conta como 1 chance gasta. O número de chances é a constante `CREATION_ROLL_ATTEMPTS`, em `rules.py`.
+
+**Os cartões não mostram o dado** da raça nem da classe social (só o resultado, com "tentativa 1 de 3" no rodapé); a rolagem continua valendo e aparece no `/historico`. O Rank de magia continua mostrando o 1d100.
 
 | 1d100 | Rank de magia |
 |---|---|
@@ -130,6 +134,37 @@ Com a Vitalidade em 3 nos níveis 1 a 3 e em 4 a partir do nível 4, a Vida do C
 
 **Ranks das perícias especiais**: Ritualismo, Alquimia, Forja, Culinária e Fé têm Rank de 0 a 10. Quem dá um Rank novo são os mestres.
 
+## Disciplinas
+
+Só **Vampiro e Dhampir** têm. São dez: Potência, Celeridade, Ofuscação, Presença, Domínio, Vidência, Proteísmo, Hemomancia, Sanguessugia e Regeneração, com grau de 0 a 5.
+
+- **Pontos:** o Vampiro começa com 4 e o Dhampir com 3, e os dois ganham +1 a cada 2 níveis (2, 4, 6, 8 e 10). 1 ponto = 1 grau.
+- **Como o jogador gasta:** botão **Disciplinas** na ficha (só aparece pra Vampiro e Dhampir), ou o comando `/disciplinas`. Abre um menu das dez; escolher uma mostra o texto de cada grau, e o botão **Subir** gasta 1 ponto e sobe 1 grau. O jogador **só aumenta** e só até o **grau 3**; os graus 4 e 5 só o mestre concede (`/mestre disciplina`) e não gastam ponto. Qualquer um pode usar o `/disciplinas` só pra ler os textos.
+- **Sanguessugia:** ainda sem texto nos graus 1 a 3, então fica **bloqueada pra todo mundo** (jogador e mestre), marcada "em desenvolvimento". Quando o texto estiver pronto, é só trocar `SANGUESSUGIA_LIBERADA` pra `True` em `rules.py` e preencher os graus dela em `lore.py`. Não precisa mexer no banco.
+- **Não trava a ficha pronta:** um Vampiro pode terminar a criação sem gastar nenhum ponto de Disciplina e gastar depois.
+- A ficha ganha o campo **Disciplinas** (pontos usados e o grau de cada uma). O texto de cada grau fica em `lore.py` (`DISCIPLINAS`). Os graus 4 e 5 são sempre "em aberto".
+
+## Cenas, intenções e o Escudo do Mestre
+
+Pra cena com muita gente (7, 8 jogadores ou mais), pra ninguém mandar dez mensagens no canal. Uma cena vive num **canal** (uma cena aberta por canal).
+
+**O mestre** usa `/mestre escudo` (tela privada, só ele vê):
+
+- **Iniciar cena** abre a cena com um nome. **Encerrar** fecha (pede confirmação).
+- A tela mostra a **ordem da iniciativa** com o **texto** de todas as intenções que os jogadores mandaram. Um menu lista as que estão aguardando: escolhe uma e aperta **Permitir** ou **Negar** (o Negar abre um formulário pro motivo, que é opcional e o jogador vê).
+- **Próximo turno** passa a vez e **marca só o jogador da vez** no canal (NPC não marca ninguém). Passando do último, começa a **rodada** seguinte, e cada rodada tem as suas intenções.
+- **NPC** (➕) põe um NPC com nome e iniciativa (um número, ou uma rolagem como `1d20+3`). O menu de baixo edita a iniciativa de qualquer um ou o tira da cena.
+- **Mostrar iniciativa** posta o **quadro público** no canal (uma mensagem só, que o bot edita a cada mudança). Se apagarem o quadro, o próximo Mostrar posta outro.
+- Como a tela é privada, ela só se atualiza quando o mestre aperta algo: o botão 🔄 **Atualizar** mostra o que chegou.
+
+**Os jogadores:**
+
+- `/iniciativa` (ou o botão 🎲 do quadro) entra na ordem: **1d20 + Destreza**, a regra do site. Quem tem **Celeridade** (grau 1 ou mais) rola com **vantagem** (dois d20, fica o maior). É uma vez por cena, só o jogador vê o resultado e vale a mesma regra de ficha pronta do `/rolar`.
+- `/intencao texto:...` (ou o botão 📝) manda **numa frase, até 200 letras**, o que o personagem quer fazer. **Só o mestre lê.** É uma por rodada: mandar outra troca a anterior, menos se já foi permitida. Sem texto, o `/intencao` (ou o botão 👁) mostra a intenção atual e o motivo, se foi negada.
+- O jogador age **na sua vez**, seguindo a ordem.
+
+**O quadro público** mostra a ordem, quem tem a vez (▶️) e o status de cada jogador: ⏳ sem intenção, 📝 aguardando o mestre, ✅ permitida, ❌ negada. **Nunca mostra o texto das intenções** (pode ter ação em segredo). Os botões do quadro têm identificador fixo, então **continuam funcionando depois que o bot reinicia**. Os NPCs aparecem sem status. O limite é de 25 participantes por cena. O bot precisa poder ver, escrever e editar mensagens no canal.
+
 ## Botões (sem digitar comando)
 
 Quase tudo da criação e do jogo dá pra fazer clicando:
@@ -173,6 +208,8 @@ Só quem tem o cargo `Mestre` ou a permissão de Gerenciar Servidor. Sem `person
 - `/mestre upar usuario:@alguém niveis:1 motivo:...` é um atalho: dá exatamente o XP que falta pro personagem subir (máximo 10).
 - `/mestre corrigir_nivel usuario:@alguém nivel:...` põe o personagem no começo de um nível, com o XP mínimo dele, pra consertar um erro.
 - `/mestre rank_pericia usuario:@alguém pericia:... rank:...` define o Rank (0 a 10) de uma perícia especial.
+- `/mestre disciplina usuario:@alguém disciplina:... grau:...` define o grau (0 a 5) de uma Disciplina, sem conferir pontos, com registro. Os graus 1 a 3 contam como pontos gastos do jogador; os graus 4 e 5 (que só o mestre concede) não gastam ponto. Só pra Vampiro e Dhampir, e a Sanguessugia fica bloqueada (ver "Disciplinas").
+- `/mestre escudo` abre o Escudo do Mestre (ver "Cenas, intenções e o Escudo do Mestre").
 - `/mestre apagar usuario:@alguém definicao:...` apaga Rank de magia, Raça, Classe social ou tudo isso, pro jogador poder rolar de novo. A rolagem antiga continua no histórico. Enquanto ele não rolar de novo, a ficha dele fica incompleta e os comandos de jogo dele fecham.
 - `/mestre corrigir_magia`, `/mestre corrigir_raca` e `/mestre corrigir_estado` definem o valor na mão, sem rolar. O `corrigir_estado` é o jeito de resolver o 100 do sorteio de Classe social.
 - `/mestre ficha usuario:@alguém personagem:...` mostra a ficha completa de um personagem de outro jogador (só o mestre vê).
@@ -246,21 +283,23 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 
 - `bot.py`: os comandos, a leitura dos dados escritos no chat e a partida.
 - `lore.py`: os textos e as cores de cada cartão (raças, Estados, clero, classes, Rank de magia). É o arquivo pra editar texto.
-- `vitrine.py`: monta os cartões (título, texto em citação, campos e imagem) e o cartão de rolagem.
+- `vitrine.py`: monta os cartões (título, texto em citação, campos e imagem), o cartão de rolagem e os cartões das Disciplinas.
+- `cena.py`: a lógica das cenas (iniciativa, a vez de cada um, intenções) e os quadros público e do mestre.
+- `escudo.py`: as telas com botões do Escudo do Mestre e o quadro público da cena (persistente).
 - `paineis.py`: os painéis com botões (ficha interativa, escolha de classe, formulários de atributos e bandeja de dados). Não importa o `bot.py`: ele recebe do `bot.py` as funções que usa (`registrar`).
 - `assets/`: as imagens e gifs dos cartões (veja "Cartões com imagem e texto").
 - `ajuda.py`: os textos do `/ajuda` (um por comando, com exemplo e requisito) e as mensagens de bloqueio da criação. Quando um comando novo entrar, ele precisa de uma entrada aqui: o `tests/test_bot.py` confere isso.
 - `dice.py`: notação de dados e as tabelas de sorteio (magia, raça, classe social, clero).
 - `rules.py`: regras do sistema (XP e níveis, ganhos por nível, classes, perícias especiais, cálculo de recursos). Se uma regra mudar no site, muda aqui.
 - `db.py`: banco SQLite (histórico, personagens, XP e extrato, vagas, ranks, personagens excluídos, registro das ações de mestre).
-- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_rules.py`, `python tests/test_ajuda.py`, `python tests/test_vitrine.py`, `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
+- `tests/`: testes automáticos (não conectam no Discord). Pra rodar, da pasta do bot: `python tests/test_rules.py`, `python tests/test_ajuda.py`, `python tests/test_vitrine.py`, `python tests/test_cena.py`, `python tests/test_db.py` e `python tests/test_bot.py`. O `tests/legacy_schemas.py` guarda o formato exato dos bancos antigos, pra testar a migração.
 
 ## Bancos antigos
 
-Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 6, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
+Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 7, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
 
 ## O que ainda falta
 
 - Integrar esse histórico com o site (hoje são dois sistemas separados, sem comunicação entre eles).
-- Disciplinas vampíricas (grau 0 a 5) ainda não aparecem na ficha do bot.
+- Os graus 4 e 5 das Disciplinas e os graus 1 a 3 da Sanguessugia ainda estão em aberto no sistema (o bot mostra "em aberto" e "em desenvolvimento").
 - Pontos de perícia (25 na criação, +2 por nível) ainda não são controlados pelo bot.

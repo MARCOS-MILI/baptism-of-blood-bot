@@ -10,6 +10,8 @@ Jogadores:
   /atributos [forca..alma] [personagem]      -> distribui os pontos de atributo (só aumenta)
   /minha_ficha [personagem]                  -> a ficha com botões (sorteios, classe, atributos, dados)
   /dados                                     -> bandeja de dados com botões (d4 a d100)
+  /iniciativa | /intencao                    -> entrar na cena do canal e mandar a intenção pro mestre
+  /mestre escudo                             -> o Escudo do Mestre (iniciativa e intenções)
   /niveis [personagem]                       -> XP e vantagens de cada nível
   /extrato_xp [personagem]                   -> de onde veio o XP do personagem
   /rank [tipo] [limite]                      -> rank público de XP total (personagens ou jogadores)
@@ -46,6 +48,7 @@ from dotenv import load_dotenv
 import ajuda
 import db
 import dice
+import escudo
 import paineis
 import rules
 import vitrine
@@ -1138,6 +1141,17 @@ async def minha_ficha(interaction: discord.Interaction, personagem: str | None =
     painel.origem = interaction
 
 
+@bot.tree.command(name="iniciativa", description="Entra na iniciativa da cena deste canal (1d20 + Destreza).")
+async def iniciativa_comando(interaction: discord.Interaction):
+    await escudo.entrar_na_iniciativa(interaction)
+
+
+@bot.tree.command(name="intencao", description="Manda pro mestre, numa frase, o que o seu personagem quer fazer na cena.")
+@app_commands.describe(texto="Uma frase, até 200 letras. Só o mestre lê. Sem texto, mostra a sua intenção desta rodada.")
+async def intencao_comando(interaction: discord.Interaction, texto: app_commands.Range[str, 1, 200] | None = None):
+    await escudo.mandar_intencao(interaction, texto)
+
+
 @bot.tree.command(name="disciplinas", description="Lê o texto das dez Disciplinas vampíricas e, se for Vampiro ou Dhampir, gasta os pontos.")
 @app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
@@ -1842,6 +1856,14 @@ async def mestre_disciplina(
     await interaction.response.send_message(embed=embed)
 
 
+@mestre_grupo.command(name="escudo", description="Abre o Escudo do Mestre: iniciativa e intenções da cena deste canal.")
+@app_commands.check(_eh_mestre)
+async def mestre_escudo(interaction: discord.Interaction):
+    painel = escudo.EscudoDoMestre(interaction.user.id, str(interaction.channel_id))
+    await interaction.response.send_message(embed=painel.embed(), view=painel, ephemeral=True)
+    painel.origem = interaction
+
+
 # --- Ver, vagas e excluir ----------------------------------------------------
 
 @mestre_grupo.command(name="ficha", description="Mostra a ficha completa de um personagem de outro jogador.")
@@ -2193,6 +2215,18 @@ paineis.registrar(paineis.Ganchos(
     ajuda=lambda coletor: _responder_ajuda(coletor, None),
     ordem_ligada=lambda: ORDEM_DA_CRIACAO,
 ))
+
+
+escudo.registrar(eh_mestre=_membro_eh_mestre, bloqueio_de_rolagem=_bloqueio_curto)
+
+
+async def _preparar_bot():
+    """Roda uma vez, antes de conectar: registra os botões do quadro da cena, que têm identificador fixo e
+    por isso continuam funcionando nas mensagens antigas depois que o bot reinicia."""
+    bot.add_view(escudo.QuadroDaCena())
+
+
+bot.setup_hook = _preparar_bot
 
 
 def main():

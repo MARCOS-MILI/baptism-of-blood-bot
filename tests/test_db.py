@@ -40,7 +40,7 @@ db.init_db(p); db.init_db(p)                                              # roda
 with sqlite3.connect(p) as c:
     assert c.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     tabelas = {r[0] for r in c.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%'")}
-assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes","character_disciplines"}, tabelas
+assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes","character_disciplines","scenes","scene_participants","scene_intentions"}, tabelas
 print("2. init_db OK")
 
 # ---------- 3. personagens ----------
@@ -233,6 +233,10 @@ assert db.get_character_by_id(2, p6)["race_attempts"] == 2 and db.get_character_
 with sqlite3.connect(p6) as cn:                                                                                                   # a tabela nova nasce vazia no banco migrado
     assert cn.execute("SELECT COUNT(*) FROM character_disciplines").fetchone()[0] == 0
 db.set_discipline_grade(1, "Potência", 2, p6); assert db.get_disciplines(1, p6) == {"Potência": 2}
+with sqlite3.connect(p6) as cn:                                                                                                   # as tabelas das cenas nascem vazias no banco migrado
+    for tabela in ("scenes", "scene_participants", "scene_intentions"): assert cn.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()[0] == 0, tabela
+    assert {r[1] for r in cn.execute("PRAGMA index_list(scenes)")} == {"idx_scenes_channel"}
+cena6 = db.create_scene("g", "1", "Migrada", "9", p6); assert cena6 is not None and db.add_participant(cena6["id"], "npc", "Guarda", 12, None, None, None, p6)
 print("6f. v6 -> v7 (com dados) OK")
 
 # ---------- 7. XP: níveis, saltos, remoção, extrato ----------

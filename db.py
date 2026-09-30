@@ -241,6 +241,52 @@ def init_db(path: str | None = None) -> None:
         # O 'atributo da época': os atributos que o personagem tinha em cada nível que ficou pra trás.
         # O nível atual não tem linha e usa sempre os atributos atuais.
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS scenes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id TEXT,
+                channel_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                round INTEGER NOT NULL DEFAULT 1,
+                turn_participant_id INTEGER,
+                active INTEGER NOT NULL DEFAULT 1,
+                board_message_id TEXT,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                ended_at TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scenes_channel ON scenes (channel_id, active)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scene_participants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scene_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                character_id INTEGER,
+                user_id TEXT,
+                name TEXT NOT NULL,
+                initiative INTEGER NOT NULL,
+                detail TEXT,
+                added_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_participants_scene ON scene_participants (scene_id)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scene_intentions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scene_id INTEGER NOT NULL,
+                participant_id INTEGER NOT NULL,
+                round INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pendente',
+                master_note TEXT,
+                decided_by TEXT,
+                decided_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (participant_id, round)
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS character_disciplines (
                 character_id INTEGER NOT NULL,
                 discipline TEXT NOT NULL,
@@ -662,6 +708,163 @@ def set_discipline_grade(character_id: int, discipline: str, grade: int, path: s
             """,
             (character_id, discipline, grade, _now()),
         )
+
+
+# ---------------------------------------------------------------------------
+# Cenas: iniciativa e intenções (o Escudo do Mestre)
+# ---------------------------------------------------------------------------
+MAX_SCENE_PARTICIPANTS = 25          # o menu do Discord mostra no máximo 25 opções
+INTENTION_STATUSES = ("pendente", "permitida", "negada")
+
+
+def create_scene(guild_id: str | None, channel_id: str, name: str, created_by: str,
+                 path: str | None = None) -> sqlite3.Row | None:
+    """Abre uma cena no canal. Devolve None se já existe uma cena aberta nesse canal."""
+    with _connect(path) as conn:
+        if conn.execute("SELECT 1 FROM scenes WHERE channel_id = ? AND active = 1", (channel_id,)).fetchone():
+            return None
+        cur = conn.execute(
+            "INSERT INTO scenes (guild_id, channel_id, name, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
+            (guild_id, channel_id, name, created_by, _now()),
+        )
+        return conn.execute("SELECT * FROM scenes WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+
+def get_scene(scene_id: int, path: str | None = None) -> sqlite3.Row | None:
+    with _connect(path) as conn:
+        return conn.execute("SELECT * FROM scenes WHERE id = ?", (scene_id,)).fetchone()
+
+
+def get_active_scene(channel_id: str, path: str | None = None) -> sqlite3.Row | None:
+    with _connect(path) as conn:
+        return conn.execute("SELECT * FROM scenes WHERE channel_id = ? AND active = 1", (channel_id,)).fetchone()
+
+
+def end_scene(scene_id: int, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE scenes SET active = 0, ended_at = ?, turn_participant_id = NULL WHERE id = ?", (_now(), scene_id))
+
+
+def set_scene_board(scene_id: int, message_id: str | None, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE scenes SET board_message_id = ? WHERE id = ?", (message_id, scene_id))
+
+
+def set_scene_turn(scene_id: int, participant_id: int | None, round_: int, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE scenes SET turn_participant_id = ?, round = ? WHERE id = ?", (participant_id, round_, scene_id))
+
+
+def add_participant(scene_id: int, kind: str, name: str, initiative: int, detail: str | None = None,
+                    character_id: int | None = None, user_id: str | None = None,
+                    path: str | None = None) -> int | None:
+    """Põe alguém na cena. Devolve o id, ou None se a cena já está cheia. kind: 'pc' ou 'npc'."""
+    if kind not in ("pc", "npc"):
+        raise ValueError(f"Tipo de participante desconhecido: {kind}")
+    with _connect(path) as conn:
+        total = conn.execute("SELECT COUNT(*) FROM scene_participants WHERE scene_id = ?", (scene_id,)).fetchone()[0]
+        if total >= MAX_SCENE_PARTICIPANTS:
+            return None
+        cur = conn.execute(
+            "INSERT INTO scene_participants (scene_id, kind, character_id, user_id, name, initiative, detail, added_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (scene_id, kind, character_id, user_id, name, initiative, detail, _now()),
+        )
+        return cur.lastrowid
+
+
+def get_participants(scene_id: int, path: str | None = None) -> list[sqlite3.Row]:
+    """Na ordem da iniciativa: do maior pro menor; empate, quem entrou primeiro."""
+    with _connect(path) as conn:
+        return conn.execute(
+            "SELECT * FROM scene_participants WHERE scene_id = ? ORDER BY initiative DESC, id ASC", (scene_id,)
+        ).fetchall()
+
+
+def get_participant(participant_id: int, path: str | None = None) -> sqlite3.Row | None:
+    with _connect(path) as conn:
+        return conn.execute("SELECT * FROM scene_participants WHERE id = ?", (participant_id,)).fetchone()
+
+
+def find_participant_by_character(scene_id: int, character_id: int, path: str | None = None) -> sqlite3.Row | None:
+    with _connect(path) as conn:
+        return conn.execute(
+            "SELECT * FROM scene_participants WHERE scene_id = ? AND character_id = ?", (scene_id, character_id)
+        ).fetchone()
+
+
+def set_participant_initiative(participant_id: int, initiative: int, detail: str | None,
+                               path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE scene_participants SET initiative = ?, detail = ? WHERE id = ?", (initiative, detail, participant_id))
+
+
+def remove_participant(participant_id: int, path: str | None = None) -> None:
+    """Tira da cena, junto com as intenções dele. Quem chama cuida de mexer no turno, se era a vez dele."""
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM scene_intentions WHERE participant_id = ?", (participant_id,))
+        conn.execute("DELETE FROM scene_participants WHERE id = ?", (participant_id,))
+
+
+def save_intention(scene_id: int, participant_id: int, round_: int, text: str,
+                   path: str | None = None) -> str:
+    """Grava a intenção da rodada. Devolve 'nova', 'trocada' (havia uma pendente ou negada, que foi
+    substituída) ou 'permitida' (já estava permitida: nada muda)."""
+    with _connect(path) as conn:
+        atual = conn.execute(
+            "SELECT status FROM scene_intentions WHERE participant_id = ? AND round = ?", (participant_id, round_)
+        ).fetchone()
+        if atual and atual["status"] == "permitida":
+            return "permitida"
+        agora = _now()
+        if atual is None:
+            conn.execute(
+                "INSERT INTO scene_intentions (scene_id, participant_id, round, text, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (scene_id, participant_id, round_, text, agora, agora),
+            )
+            return "nova"
+        conn.execute(
+            "UPDATE scene_intentions SET text = ?, status = 'pendente', master_note = NULL, decided_by = NULL,"
+            " decided_at = NULL, updated_at = ? WHERE participant_id = ? AND round = ?",
+            (text, agora, participant_id, round_),
+        )
+        return "trocada"
+
+
+def get_intention(participant_id: int, round_: int, path: str | None = None) -> sqlite3.Row | None:
+    with _connect(path) as conn:
+        return conn.execute(
+            "SELECT * FROM scene_intentions WHERE participant_id = ? AND round = ?", (participant_id, round_)
+        ).fetchone()
+
+
+def get_intention_by_id(intention_id: int, path: str | None = None) -> sqlite3.Row | None:
+    with _connect(path) as conn:
+        return conn.execute("SELECT * FROM scene_intentions WHERE id = ?", (intention_id,)).fetchone()
+
+
+def list_intentions(scene_id: int, round_: int, path: str | None = None) -> dict[int, sqlite3.Row]:
+    """As intenções da rodada, por id de participante."""
+    with _connect(path) as conn:
+        linhas = conn.execute(
+            "SELECT * FROM scene_intentions WHERE scene_id = ? AND round = ?", (scene_id, round_)
+        ).fetchall()
+    return {l["participant_id"]: l for l in linhas}
+
+
+def decide_intention(intention_id: int, status: str, note: str | None, decided_by: str,
+                     path: str | None = None) -> bool:
+    """Permite ou nega. Só decide intenção pendente; devolve False se ela já foi decidida (ou sumiu)."""
+    if status not in ("permitida", "negada"):
+        raise ValueError(f"Decisão desconhecida: {status}")
+    with _connect(path) as conn:
+        cur = conn.execute(
+            "UPDATE scene_intentions SET status = ?, master_note = ?, decided_by = ?, decided_at = ?, updated_at = ?"
+            " WHERE id = ? AND status = 'pendente'",
+            (status, note, decided_by, _now(), _now(), intention_id),
+        )
+        return cur.rowcount == 1
 
 
 # ---------------------------------------------------------------------------
