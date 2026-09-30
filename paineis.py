@@ -18,6 +18,7 @@ import discord
 
 import db
 import dice
+import lore
 import rules
 import vitrine
 
@@ -209,6 +210,15 @@ class PainelFicha(_Painel):
                 botao.callback = functools.partial(self._clicou_passo, passo)
             self.add_item(botao)
 
+        if rules.has_disciplines(char["race"]):
+            livres = rules.discipline_points_free(char["level"], char["race"], db.get_disciplines(char["id"]))
+            botao = discord.ui.Button(
+                label="Disciplinas", emoji="🩸", row=0,
+                style=discord.ButtonStyle.primary if livres > 0 else discord.ButtonStyle.secondary,
+            )
+            botao.callback = self._abrir_disciplinas
+            self.add_item(botao)
+
         # atributos: liberados depois da classe (e da magia, pra quem tem); só enquanto sobrar ponto
         liberado = not (ordem and rules.creation_missing_before("atributos", status)) and bool(char["race"])
         sobra = pontos_livres(char) > 0
@@ -276,6 +286,12 @@ class PainelFicha(_Painel):
         else:
             await GANCHOS.atributos(coletor, mudou, char["name"])
         await self._atualizar(interaction, coletor)
+
+    # ---- Disciplinas ----
+    async def _abrir_disciplinas(self, interaction: discord.Interaction) -> None:
+        painel = PainelDisciplinas(self.dono_id, self.personagem_id, self.jogador)
+        self.passar_pra(painel)
+        await interaction.response.edit_message(embed=painel.embed(), view=painel)
 
     # ---- atalhos ----
     async def _abrir_dados(self, interaction: discord.Interaction) -> None:
@@ -457,6 +473,136 @@ class EscolhaDeClasse(_Painel):
         painel = PainelFicha(self.dono_id, self.personagem_id, self.jogador)
         self.passar_pra(painel)
         await entregar(interaction, coletor, GANCHOS.embed_ficha(painel.personagem(), self.jogador), painel)
+
+
+# ---------------------------------------------------------------------------
+# Disciplinas (só Vampiro e Dhampir sobem; qualquer um pode ler)
+# ---------------------------------------------------------------------------
+TEXTO_DO_PROBLEMA = {
+    "raca": "Só Vampiros e Dhampirs têm Disciplinas.",
+    "desconhecida": "Não conheço essa Disciplina. Escolhe uma do menu.",
+    "bloqueada": (
+        "A Sanguessugia ainda está em desenvolvimento (os graus 1 a 3 não foram definidos), então ninguém pode "
+        "gastar ponto nela por enquanto."
+    ),
+    "grau_maximo": "Essa Disciplina já está no grau {grau}. Os graus 4 e 5 só um mestre concede.",
+    "sem_pontos": "Você não tem pontos de Disciplina sobrando. Vem +1 a cada 2 níveis (2, 4, 6, 8 e 10).",
+}
+
+
+class PainelDisciplinas(_Painel):
+    """Menu das dez Disciplinas: mostra o texto de cada grau e, pra Vampiro e Dhampir, deixa gastar os pontos
+    (um grau por clique). O jogador só aumenta, e só até o grau 3; os graus 4 e 5 são do mestre."""
+
+    def __init__(self, dono_id: int, personagem_id: int | None, jogador: str, selecionada: str | None = None):
+        super().__init__(dono_id)
+        self.personagem_id = personagem_id
+        self.jogador = jogador
+        self.selecionada = selecionada
+        self._montar()
+
+    def personagem(self):
+        return db.get_character_by_id(self.personagem_id) if self.personagem_id else None
+
+    def _graus(self) -> dict[str, int]:
+        return db.get_disciplines(self.personagem_id) if self.personagem_id else {}
+
+    def _pode_gastar(self) -> bool:
+        char = self.personagem()
+        return char is not None and rules.has_disciplines(char["race"])
+
+    def _problema(self) -> str | None:
+        char = self.personagem()
+        return rules.discipline_raise_problem(char["race"], char["level"], self._graus(), self.selecionada)
+
+    def embed(self) -> discord.Embed:
+        char, graus = self.personagem(), self._graus()
+        pode = self._pode_gastar()
+        if self.selecionada is None:
+            return vitrine.embed_disciplinas(char["name"] if char else None, char["race"] if char else None,
+                                             char["level"] if char else 1, graus)
+        if not pode:
+            return vitrine.embed_disciplina(self.selecionada)
+        problema = self._problema()
+        grau = graus.get(self.selecionada, 0)
+        aviso = (
+            TEXTO_DO_PROBLEMA[problema].format(grau=grau)
+            if problema else f"Aperta o botão pra gastar 1 ponto e subir pro grau {grau + 1}. Não dá pra desfazer."
+        )
+        return vitrine.embed_disciplina(
+            self.selecionada, grau, vitrine.linha_de_pontos(char["level"], char["race"], graus), aviso
+        )
+
+    def _montar(self) -> None:
+        self.clear_items()
+        graus = self._graus()
+        pode = self._pode_gastar()
+        opcoes = []
+        for disciplina in rules.DISCIPLINES:
+            tema = lore.DISCIPLINAS[disciplina]["tema"]
+            if rules.discipline_blocked(disciplina):
+                descricao = "em desenvolvimento"
+            elif pode:
+                descricao = f"grau {graus.get(disciplina, 0)}/{rules.MAX_DISCIPLINE_GRADE} · {tema}"
+            else:
+                descricao = tema
+            opcoes.append(discord.SelectOption(label=disciplina, value=disciplina, description=descricao[:100],
+                                               default=disciplina == self.selecionada))
+        seletor = discord.ui.Select(placeholder="Escolhe uma Disciplina", options=opcoes, row=0)
+        seletor.callback = functools.partial(self._escolheu, seletor)
+        self.add_item(seletor)
+
+        if pode and self.selecionada:
+            problema = self._problema()
+            grau = graus.get(self.selecionada, 0)
+            rotulo = f"Subir pro grau {grau + 1}" if problema is None else "Subir"
+            subir = discord.ui.Button(label=rotulo, emoji="⬆️", style=discord.ButtonStyle.success, disabled=problema is not None, row=1)
+            subir.callback = self._subir
+            self.add_item(subir)
+        if self.selecionada:
+            todas = discord.ui.Button(label="Ver todas", emoji="📜", style=discord.ButtonStyle.secondary, row=1)
+            todas.callback = self._ver_todas
+            self.add_item(todas)
+        if self.personagem_id:
+            voltar = discord.ui.Button(label="Voltar", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
+            voltar.callback = self._voltar
+            self.add_item(voltar)
+
+    async def _redesenhar(self, interaction: discord.Interaction, coletor: Coletor | None = None) -> None:
+        self._montar()
+        await entregar(interaction, coletor or Coletor(interaction), self.embed(), self)
+
+    async def _escolheu(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        escolha = seletor.values[0]
+        if escolha not in rules.DISCIPLINES:
+            await interaction.response.send_message(TEXTO_DO_PROBLEMA["desconhecida"], ephemeral=True)
+            return
+        self.selecionada = escolha
+        await self._redesenhar(interaction)
+
+    async def _ver_todas(self, interaction: discord.Interaction) -> None:
+        self.selecionada = None
+        await self._redesenhar(interaction)
+
+    async def _subir(self, interaction: discord.Interaction) -> None:
+        coletor = Coletor(interaction)
+        char = self.personagem()
+        problema = self._problema() if (char and self.selecionada) else "raca"
+        if problema:  # o painel pode estar velho: confere de novo na hora
+            grau = self._graus().get(self.selecionada, 0) if self.selecionada else 0
+            coletor.avisar(TEXTO_DO_PROBLEMA[problema].format(grau=grau))
+        else:
+            novo = self._graus().get(self.selecionada, 0) + 1
+            db.set_discipline_grade(char["id"], self.selecionada, novo)
+            livres = rules.discipline_points_free(char["level"], char["race"], self._graus())
+            sobra = "Não sobrou ponto." if livres <= 0 else ("Sobra 1 ponto." if livres == 1 else f"Sobram {livres} pontos.")
+            coletor.avisar(f"🩸 **{self.selecionada}** subiu pro grau {novo}. {sobra}")
+        await self._redesenhar(interaction, coletor)
+
+    async def _voltar(self, interaction: discord.Interaction) -> None:
+        painel = PainelFicha(self.dono_id, self.personagem_id, self.jogador)
+        self.passar_pra(painel)
+        await interaction.response.edit_message(embed=GANCHOS.embed_ficha(painel.personagem(), self.jogador), view=painel)
 
 
 # ---------------------------------------------------------------------------

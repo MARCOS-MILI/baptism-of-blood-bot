@@ -159,3 +159,91 @@ RANKS_MAGIA = {
     "Lendário":   {"estrelas": 4, "cor": 0xF59E0B},
     "Mítico":     {"estrelas": 5, "cor": 0xDC2626},
 }
+
+# ---------------------------------------------------------------------------
+# Disciplinas vampíricas (só Vampiro e Dhampir). O texto de cada grau é o do sistema; os graus 4 e 5 de
+# todas as Disciplinas estão sempre em aberto e só entram em jogo quando um mestre concede.
+# 'graus' None = ainda em desenvolvimento (Sanguessugia). 'limite' é uma nota que vale pra Disciplina toda.
+# ---------------------------------------------------------------------------
+GRAUS_4_E_5 = "Em aberto. Só entram em jogo quando um mestre concede."
+DISCIPLINA_EM_DESENVOLVIMENTO = "Em desenvolvimento: os graus 1 a 3 ainda não foram definidos."
+
+DISCIPLINAS = {
+    "Potência": {
+        "tema": "força sobrenatural bruta",
+        "graus": {
+            1: "Dobra o modificador de Força no dano das armas.",
+            2: "Aumenta em um dado o dano de armas corpo a corpo.",
+            3: "O dano desarmado vira 1d12.",
+        },
+    },
+    "Celeridade": {
+        "tema": "velocidade sobrenatural",
+        "graus": {
+            1: "Reage antes de qualquer humano numa cena, com vantagem em iniciativa.",
+            2: "Ganha uma reação extra.",
+            3: "Ganha uma ação de movimento extra.",
+        },
+    },
+    "Ofuscação": {
+        "tema": "passar despercebido",
+        "graus": {
+            1: "Vantagem em testes de Furtividade.",
+            2: "Consegue se esconder mesmo em lugares iluminados.",
+            3: "Oculta a presença por completo, com DT fixa 22 pra quem tentar percebê-lo (ou rola Furtividade normal, o que for melhor).",
+        },
+    },
+    "Presença": {
+        "tema": "a sua presença perante outros seres, a sua intenção x a intenção do outro",
+        "graus": {
+            1: "Vantagem em Enganação e Intimidação.",
+            2: "Consegue intimidar com DT fixa 20 (ou Intimidação normal, o que for melhor).",
+            3: "Ao vencer um teste de Intimidação, paralisa por 1d3 turnos quem falhou (Intimidação x Vontade do oponente), 1 vez por combate.",
+        },
+    },
+    "Domínio": {
+        "tema": "controle mental direto, exige contato visual e que a vítima entenda o comando",
+        "graus": {
+            1: "Impõe a sua vontade sobre outros seres gastando 5 de Mana (Vontade x Vontade do alvo).",
+            2: "Manipula e controla mentes de seres pequenos, tipo animais e ratos, à vontade.",
+            3: "Controla seres gastando 15 de Mana (Vontade x Vontade do alvo).",
+        },
+    },
+    "Vidência": {
+        "tema": "sentidos aguçados além do humano",
+        "graus": {
+            1: "Enxerga no escuro, com vantagem em testes de Percepção.",
+            2: "Escuta batimentos e respiração de quem está por perto, mesmo atrás de paredes. Sabe quantos seres vivos há.",
+            3: "Sente a presença dos seres ao seu redor, com DT fixa 22 no teste de perceber seres alheios, e distingue o estado deles (a vida).",
+        },
+    },
+    "Proteísmo": {
+        "tema": "transformação corporal",
+        "graus": {
+            1: "Consegue se comunicar com animais e dar sugestões a eles.",
+            2: "Se transforma em animais pequenos, como ratos e morcegos, gastando 10 de Mana.",
+            3: "Se transforma em animais de porte médio, como cachorros e lobos, gastando 15 de Mana.",
+        },
+    },
+    "Hemomancia": {
+        "tema": "magia do próprio sangue, libera o acesso à magia Vampírica",
+        "graus": {
+            1: "Ganha acesso à magia de sangue, podendo fazer magias ligadas a controlar sangue e coisas relacionadas.",
+            2: "As suas magias de sangue recebem +1 dado de efeito (dano etc.).",
+            3: "Manipula o próprio sangue por dentro pra mudar os órgãos de lugar e outras capacidades parecidas.",
+        },
+    },
+    "Sanguessugia": {
+        "tema": "talento voltado ao ato de se alimentar",
+        "graus": None,
+    },
+    "Regeneração": {
+        "tema": "cura acelerada do corpo vampírico",
+        "graus": {
+            1: "Recupera Vida gastando Estamina (3 ST = 1 PV).",
+            2: "Recupera Vida gastando Estamina (2 ST = 1 PV), e a capacidade regenerativa dá vantagem pra resistir a efeitos adversos.",
+            3: "Também usa Mana pra recuperar Vida (2 PM = 1 PV) e recupera membros depois de um tempo.",
+        },
+        "limite": "Dano de Sol, Prata, Água Sagrada e Armas Sagradas não se regenera.",
+    },
+}

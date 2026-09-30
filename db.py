@@ -241,6 +241,15 @@ def init_db(path: str | None = None) -> None:
         # O 'atributo da época': os atributos que o personagem tinha em cada nível que ficou pra trás.
         # O nível atual não tem linha e usa sempre os atributos atuais.
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS character_disciplines (
+                character_id INTEGER NOT NULL,
+                discipline TEXT NOT NULL,
+                grade INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (character_id, discipline)
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS level_attributes (
                 character_id INTEGER NOT NULL,
                 level INTEGER NOT NULL,
@@ -478,12 +487,17 @@ def delete_character(character_id: int, deleted_by_id: str, deleted_by_name: str
             r["skill"]: r["skill_rank"]
             for r in conn.execute("SELECT skill, skill_rank FROM character_ranks WHERE character_id = ?", (character_id,))
         }
+        snapshot["disciplines"] = {
+            r["discipline"]: r["grade"]
+            for r in conn.execute("SELECT discipline, grade FROM character_disciplines WHERE character_id = ?", (character_id,))
+        }
         conn.execute(
             "INSERT INTO deleted_characters (character_id, user_id, name, snapshot_json, deleted_by_id,"
             " deleted_by_name, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (character_id, row["user_id"], row["name"], json.dumps(snapshot, ensure_ascii=False),
              deleted_by_id, deleted_by_name, _now()),
         )
+        conn.execute("DELETE FROM character_disciplines WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM character_ranks WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM level_attributes WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM xp_log WHERE character_id = ?", (character_id,))
@@ -613,6 +627,40 @@ def set_social_status(character_id: int, estado: str, estado_roll: int | None,
             (estado, estado_roll, agora,
              clergy, clergy_roll if clergy else None, agora if clergy else None,
              *extra, character_id),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Disciplinas (só Vampiro e Dhampir)
+# ---------------------------------------------------------------------------
+
+def get_disciplines(character_id: int, path: str | None = None) -> dict[str, int]:
+    """As Disciplinas que o personagem tem (grau maior que 0), na ordem do sistema."""
+    with _connect(path) as conn:
+        linhas = conn.execute(
+            "SELECT discipline, grade FROM character_disciplines WHERE character_id = ? AND grade > 0", (character_id,)
+        ).fetchall()
+    graus = {l["discipline"]: l["grade"] for l in linhas}
+    return {d: graus[d] for d in rules.DISCIPLINES if d in graus}
+
+
+def set_discipline_grade(character_id: int, discipline: str, grade: int, path: str | None = None) -> None:
+    """Grava o grau (0 a 5) de uma Disciplina. Grau 0 tira a Disciplina. Não confere pontos nem regras: quem
+    chama é que confere (o jogador pelo painel, o mestre pelo /mestre disciplina)."""
+    if discipline not in rules.DISCIPLINES:
+        raise ValueError(f"Disciplina desconhecida: {discipline}")
+    if not 0 <= grade <= rules.MAX_DISCIPLINE_GRADE:
+        raise ValueError(f"Grau fora de 0 a {rules.MAX_DISCIPLINE_GRADE}: {grade}")
+    with _connect(path) as conn:
+        if grade == 0:
+            conn.execute("DELETE FROM character_disciplines WHERE character_id = ? AND discipline = ?", (character_id, discipline))
+            return
+        conn.execute(
+            """
+            INSERT INTO character_disciplines (character_id, discipline, grade, updated_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT(character_id, discipline) DO UPDATE SET grade = excluded.grade, updated_at = excluded.updated_at
+            """,
+            (character_id, discipline, grade, _now()),
         )
 
 

@@ -224,4 +224,45 @@ assert vitrine.resultado_atual(dict(social_class="1º Estado", clergy="Alto Cler
 assert vitrine.resultado_atual(dict(social_class=dice.SOCIAL_CLASS_MASTER, clergy=None), "social_class") == "a decidir pelo mestre"
 print("9. enfeites, rodapé e resultado atual OK")
 
+# ---------- 10. Disciplinas: lista, detalhe e resumo da ficha ----------
+graus = {"Potência": 2, "Celeridade": 1, "Regeneração": 2}
+assert vitrine.barra_de_grau(0) == "▱" * 5 and vitrine.barra_de_grau(2) == "▰▰▱▱▱" and vitrine.barra_de_grau(5) == "▰" * 5
+assert vitrine.linha_de_pontos(1, "Vampiro", {}) == "Pontos: 0 de 4 usados (4 livres)" and vitrine.linha_de_pontos(1, "Dhampir", {"Potência": 2, "Celeridade": 1}) == "Pontos: 3 de 3 usados"
+assert vitrine.linha_de_pontos(1, "Vampiro", {"Potência": 3, "Celeridade": 1}) == "Pontos: 4 de 4 usados" and vitrine.linha_de_pontos(1, "Vampiro", {"Potência": 3, "Celeridade": 1, "Domínio": 1}) == "Pontos: 5 de 4 usados (passou 1)"
+assert vitrine.linha_de_pontos(1, "Vampiro", {"Potência": 3}) == "Pontos: 3 de 4 usados (1 livre)"
+f = dict(level=3, race="Vampiro")
+assert vitrine.texto_disciplinas_da_ficha(f, {}) == "Pontos: 0 de 5 usados (5 livres)\nnenhuma ainda (o botão **Disciplinas** do `/minha_ficha` abre o painel)"
+assert vitrine.texto_disciplinas_da_ficha(f, graus) == "Pontos: 5 de 5 usados\n**Potência** 2/5 ▰▰▱▱▱\n**Celeridade** 1/5 ▰▱▱▱▱\n**Regeneração** 2/5 ▰▰▱▱▱"
+# a lista: quem tem Disciplinas vê os graus; quem não tem só lê o tema
+e = vitrine.embed_disciplinas("Vlad", "Vampiro", 3, graus); confere_limites(e)
+assert e.title == "🩸 Disciplinas de Vlad" and "Pontos: 5 de 5 usados" in e.description and [x.name for x in e.fields] == list(rules.DISCIPLINES) and all(x.inline for x in e.fields)
+por_nome = {x.name: x.value for x in e.fields}
+assert por_nome["Potência"] == "▰▰▱▱▱ 2/5\nForça sobrenatural bruta" and por_nome["Ofuscação"].startswith("▱▱▱▱▱ 0/5") and por_nome["Sanguessugia"] == "⏳ em desenvolvimento"
+e = vitrine.embed_disciplinas("Ana", "Humano", 1, {}); confere_limites(e)
+assert e.title == "🩸 Disciplinas" and "Só **Vampiros e Dhampirs** têm Disciplinas" in e.description and "0/5" not in " ".join(x.value for x in e.fields)
+assert {x.name: x.value for x in e.fields}["Potência"] == "Força sobrenatural bruta"
+assert vitrine.embed_disciplinas(None, None, 1, {}).title == "🩸 Disciplinas"
+# o detalhe de cada Disciplina: os três graus, o 4 e 5 em aberto, e a marcação do que o personagem já tem
+for disciplina in rules.DISCIPLINES:
+    e = vitrine.embed_disciplina(disciplina, 1, "Pontos: 1 de 4 usados (3 livres)", "🔒 exemplo"); confere_limites(e)
+    assert e.title == f"🩸 {disciplina}" and e.footer.text == "Pontos: 1 de 4 usados (3 livres)" and e.fields[-1].name == "Pra subir"
+    assert e.description.startswith(f"{lore.DIVISOR_CURTO}\n\n> *") and any(x.name == "Graus 4 e 5" and x.value == lore.GRAUS_4_E_5 for x in e.fields)
+e = vitrine.embed_disciplina("Potência", 2)
+assert [x.name for x in e.fields] == ["✅ Grau 1", "✅ Grau 2", "▫️ Grau 3", "Graus 4 e 5"] and e.fields[0].value == "Dobra o modificador de Força no dano das armas." and e.footer.text is None
+assert [x.name for x in vitrine.embed_disciplina("Potência", 0).fields][:3] == ["▫️ Grau 1", "▫️ Grau 2", "▫️ Grau 3"]
+assert [x.name for x in vitrine.embed_disciplina("Potência", None).fields][:3] == ["Grau 1", "Grau 2", "Grau 3"]           # quem só lê: sem marcação
+assert [x.name for x in vitrine.embed_disciplina("Regeneração", 3).fields] == ["✅ Grau 1", "✅ Grau 2", "✅ Grau 3", "Graus 4 e 5", "Limite"]
+assert vitrine.embed_disciplina("Regeneração", 0).fields[-1].value == "Dano de Sol, Prata, Água Sagrada e Armas Sagradas não se regenera."
+e = vitrine.embed_disciplina("Sanguessugia", 0)                                                                              # bloqueada: nada inventado
+assert [x.name for x in e.fields] == ["⏳ Em desenvolvimento", "Graus 4 e 5"] and "Grau 1" not in " ".join(x.name for x in e.fields) and "ainda não foram definidos" in e.fields[0].value
+import rules as _r
+_r.SANGUESSUGIA_LIBERADA = True
+try:
+    lore.DISCIPLINAS["Sanguessugia"]["graus"] = {1: "x", 2: "y", 3: "z"}
+    assert [x.name for x in vitrine.embed_disciplina("Sanguessugia", 1).fields][:3] == ["✅ Grau 1", "▫️ Grau 2", "▫️ Grau 3"]
+    assert "em desenvolvimento" not in {x.name: x.value for x in vitrine.embed_disciplinas("A", "Vampiro", 1, {}).fields}["Sanguessugia"]
+finally:
+    _r.SANGUESSUGIA_LIBERADA = False; lore.DISCIPLINAS["Sanguessugia"]["graus"] = None
+print("10. Disciplinas (cartões) OK")
+
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

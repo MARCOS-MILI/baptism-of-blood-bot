@@ -87,12 +87,12 @@ def novo(uid, nome, personagem, quantos=1):
 
 # ============================ A. o que o Discord vai receber ============================
 raiz = {c.name: c for c in bot.bot.tree.get_commands()}
-assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","dados","personagem","mestre"}, sorted(raiz)
+assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","dados","disciplinas","personagem","mestre"}, sorted(raiz)
 pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
 assert sorted(o["name"] for o in pay["personagem"]["options"]) == ["criar","excluir","listar","usar"]
-assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
+assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
 req = lambda opts: {o["name"] for o in opts if o.get("required")}
 assert req(pay["rolar"]["options"]) == {"dado"} and req(pay["raca_inicial"].get("options", [])) == set()
 assert req(sub_("mestre", "dar_xp")["options"]) == {"usuario", "quantidade"}
@@ -172,7 +172,7 @@ print("B. fluxo básico OK")
 # ============================ C. mestre: permissão e correções ============================
 assert bot._eh_mestre(inter(2,"Zé", admin=True)) and bot._eh_mestre(inter(2,"Zé", manage=True))
 assert bot._eh_mestre(inter(2,"Zé", roles=["mestre"])) and not bot._eh_mestre(inter(2,"Zé", roles=["Jogador"])) and not bot._eh_mestre(inter(2,"Zé"))
-todos = list(bot.mestre_grupo.commands); assert len(todos) == 16
+todos = list(bot.mestre_grupo.commands); assert len(todos) == 17
 for c in todos:                                                     # TODOS os comandos de mestre barram quem não é mestre
     p = inter(3, "Intruso")
     assert run(c._check_can_run(p)) is False, c.name
@@ -642,7 +642,11 @@ dx, up = sub_("mestre", "dar_xp"), sub_("mestre", "upar")
 assert "missão de mestre ou desenvolvimento" in dx["description"] and "por roleplay, não por ação avulsa" in opt(dx, "motivo")["description"]
 assert "missão de mestre" in opt(up, "motivo")["description"] and "RP marcante" not in opt(up, "motivo")["description"]
 assert "nenhum Rank" in opt(sub_("mestre", "rank_pericia"), "rank")["description"]
-assert not [t for d in pay.values() for t in todas(d) if "grau" in t.lower()]              # 'grau' ficou só pras Disciplinas, que o bot não tem
+# "grau" é palavra das Disciplinas: só o /disciplinas e o /mestre disciplina podem usar
+fora = [n for n, d in pay.items() if n not in ("disciplinas", "mestre") and any("grau" in t.lower() for t in todas(d))]
+fora += [f"mestre {o['name']}" for o in pay["mestre"]["options"] if o["name"] != "disciplina" and any("grau" in t.lower() for t in todas(o))]
+assert fora == [], fora
+assert any("grau" in t.lower() for t in todas(next(o for o in pay["mestre"]["options"] if o["name"] == "disciplina")))
 
 # /calcular_recursos: soma por nível, com o mesmo atributo em todos os níveis
 calc = inter(70, "Calculista")
@@ -873,7 +877,7 @@ for arg in (None, "atributos", "rolar", "xyz"):
 # autocomplete: mestre só aparece pra mestre
 ch = run(bot._autocomplete_comando(inter(212, "J"), "atrib")); assert [(c.name, c.value) for c in ch] == [("/atributos", "atributos")]
 ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "atrib")); assert [c.value for c in ch] == ["atributos", "mestre atributos"]
-ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 18 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
+ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 19 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
 ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "")); assert len(ch) == 25 and all(len(c.name) <= 100 for c in ch)
 print("M. /ajuda OK")
 
@@ -1253,6 +1257,10 @@ print("Q. cartões, dados por texto e partida segura OK")
 # ============================ R. painéis com botões ============================
 import paineis
 LOOP = asyncio.new_event_loop(); runp = LOOP.run_until_complete      # um laço só: as telas (View) vivem entre um clique e outro
+def criar(classe, *args, **kwargs):
+    """Cria uma tela (View ou formulário) DENTRO do laço, como o bot faz. Fora dele, o stop() não vale."""
+    async def fabrica(): return classe(*args, **kwargs)
+    return runp(fabrica())
 db.DB_PATH = os.path.join(tmp, "paineis.db"); db.init_db()
 
 def botao(view, rotulo, emoji=None):
@@ -1319,7 +1327,7 @@ c4b = inter(800, "Ana"); seletor(esc)._values = ["Paladino"]; runp(seletor(esc).
 assert "Não conheço essa classe" in c4b.response.send_message.call_args.args[0] and row(800, "Ana Painel")["class_name"] is None
 c4c = clique(esc, "Voltar", 800, "Ana"); assert isinstance(editada(c4c)["view"], paineis.PainelFicha) and esc.is_finished()   # voltar não escolhe nada
 assert row(800, "Ana Painel")["class_name"] is None
-esc = paineis.EscolhaDeClasse(800, row(800, "Ana Painel")["id"], "Ana"); esc.origem = u; seletor(esc)._values = ["Caçador"]
+esc = criar(paineis.EscolhaDeClasse, 800, row(800, "Ana Painel")["id"], "Ana"); esc.origem = u; seletor(esc)._values = ["Caçador"]
 runp(seletor(esc).callback(inter(800, "Ana")))
 c5 = clique(esc, "Confirmar classe", 800, "Ana")
 (conteudo, fk), = followups(c5); assert fk["ephemeral"] is True and fk["embed"].title == "Caçador" and "files" not in fk                # a classe continua privada
@@ -1353,7 +1361,7 @@ i = enviar_modal(modal2, {"razao": "0", "vontade": "1", "alma": "1"})           
 (aviso, kw_aviso), = followups(i); assert "Você distribuiu 7 pontos de atributo, mas no nível 1 o total é 6." in aviso and kw_aviso["ephemeral"] is True
 assert db.attributes_of(row(800, "Ana Painel"))["vontade"] == 0
 nova4 = editada(i)["view"]
-i = enviar_modal(paineis.ModalAtributos(nova4, "fisicos"), {"forca": "1", "destreza": "0", "vitalidade": "3"})    # diminuir não pode
+i = enviar_modal(criar(paineis.ModalAtributos, nova4, "fisicos"), {"forca": "1", "destreza": "0", "vitalidade": "3"})    # diminuir não pode
 assert "Só dá pra aumentar atributo, e Força ficaria menor do que já está." in followups(i)[0][0] and db.attributes_of(row(800, "Ana Painel"))["forca"] == 2
 nova4 = editada(i)["view"]
 c8 = clique(nova4, "Mentais", 800, "Ana"); modal2 = c8.response.send_modal.call_args.args[0]
@@ -1374,7 +1382,7 @@ err2 = inter(800, "Ana"); err2.response.is_done = MagicMock(return_value=True); 
 c = inter(800, "Ana"); runp(modal2.on_error(c, RuntimeError("x"))); assert c.response.send_message.call_args.args[0] == paineis.MSG_ERRO
 
 # --- atalhos: dados, níveis e ajuda ---
-painel = paineis.PainelFicha(800, row(800, "Ana Painel")["id"], "Ana"); painel.origem = u
+painel = criar(paineis.PainelFicha, 800, row(800, "Ana Painel")["id"], "Ana"); painel.origem = u
 c = clique(painel, "Dados", 800, "Ana"); bandeja = enviada(c)
 assert isinstance(bandeja, paineis.BandejaDados) and sent(c)[1]["ephemeral"] and bandeja.origem is c and "## 1d20" in sent(c)[1]["embed"].description
 c = clique(painel, "Níveis", 800, "Ana"); (_, fk), = followups(c); assert fk["ephemeral"] and fk["embed"].title == "📈 XP e vantagens de cada nível" and c.response.edit_message.call_count == 1
@@ -1398,14 +1406,14 @@ c = inter(800, "Ana"); seletor(pv)._values = ["99999"]; runp(seletor(pv).callbac
 c = inter(800, "Ana"); runp(bot.minha_ficha.callback(c, "Fantasma")); assert "Não achei nenhum personagem" in txt(c) and "view" not in sent(c)[1]      # sem personagem: sem painel
 
 # --- a classe social 100: o botão fica esperando o mestre, e o aviso ao cargo Mestre sai junto ---
-m = novo(802, "Caio", "Caio Cem"); pv = paineis.PainelFicha(802, row(802, "Caio Cem")["id"], "Caio"); pv.origem = m
+m = novo(802, "Caio", "Caio Cem"); pv = criar(paineis.PainelFicha, 802, row(802, "Caio Cem")["id"], "Caio"); pv.origem = m
 cem = inter(802, "Caio"); cem.guild = NS(roles=[NS(id=555, name="Mestre", mention="<@&555>")])
 with dados(100): runp(botao(pv, "Classe social").callback(cem))
 (conteudo, fk), = followups(cem); assert fk["embed"].title == "🎲 Resultado especial" and conteudo == "<@&555>" and fk["allowed_mentions"].roles == [cem.guild.roles[0]] and "ephemeral" not in fk
 v = editada(cem)["view"]; assert estado(v)["Classe social"] == ("⏳", True) and estado(v)["Classe"] == ("🔒", True)
 # --- quem tem magia vê o botão de Rank de magia ---
 vp = novo(803, "Vlad", "Vlad Vampiro"); preparar(803, "Vlad Vampiro", "Vampiro", "Mundano"); db.clear_definition(row(803, "Vlad Vampiro")["id"], "magic_rank")
-pv = paineis.PainelFicha(803, row(803, "Vlad Vampiro")["id"], "Vlad"); pv.origem = vp
+pv = criar(paineis.PainelFicha, 803, row(803, "Vlad Vampiro")["id"], "Vlad"); pv.origem = vp
 assert estado(pv)["Magia"] == ("✨", False) and estado(pv)["Físicos"] == ("🧬", True)                     # a magia vem antes dos atributos
 with dados(70): c = clique(pv, "Magia", 803, "Vlad")
 assert followups(c)[0][1]["embed"].title == "Rank Raro" and "ephemeral" not in followups(c)[0][1]
@@ -1413,7 +1421,7 @@ v = editada(c)["view"]; assert estado(v)["Magia"] == ("✅", True) and estado(v)
 # --- com a chavinha da ordem desligada, os passos ficam todos abertos (menos atributos, que precisam da raça) ---
 bot.ORDEM_DA_CRIACAO = False
 try:
-    lv = novo(804, "Livre", "Livre Painel"); pv = paineis.PainelFicha(804, row(804, "Livre Painel")["id"], "Livre")
+    lv = novo(804, "Livre", "Livre Painel"); pv = criar(paineis.PainelFicha, 804, row(804, "Livre Painel")["id"], "Livre")
     assert estado(pv) == {"Raça": ("🩸", False), "Classe social": ("⚜️", False), "Classe": ("🎓", False), "Magia": ("✨", False), "Físicos": ("🧬", True), "Mentais": ("🧠", True),
                           "Dados": ("🎲", False), "Níveis": ("📈", False), "Ajuda": ("❓", False)}
 finally:
@@ -1453,7 +1461,7 @@ c = clique(tray, "Motivo", 800, "Ana"); mm = c.response.send_modal.call_args.arg
 assert isinstance(mm, paineis.ModalMotivo) and mm.title == "Motivo da rolagem" and mm.campo.max_length == 80 and not mm.campo.required
 mm.campo._value = "  ataque com a espada  "; c = inter(800, "Ana"); runp(mm.on_submit(c))
 assert tray.motivo == "ataque com a espada" and dict((f.name, f.value) for f in editada(c)["embed"].fields)["Motivo"] == "ataque com a espada"
-mm2 = runp(botao(tray, "Motivo").callback(inter(800, "Ana"))); mm2 = paineis.ModalMotivo(tray); assert mm2.campo.default == "ataque com a espada"
+mm2 = runp(botao(tray, "Motivo").callback(inter(800, "Ana"))); mm2 = criar(paineis.ModalMotivo, tray); assert mm2.campo.default == "ataque com a espada"
 mm2.campo._value = "   "; runp(mm2.on_submit(inter(800, "Ana"))); assert tray.motivo is None
 mm.campo._value = "ataque com a espada"; runp(mm.on_submit(inter(800, "Ana")))
 runp(tray.on_timeout()); assert all(b.disabled for b in tray.children); tray._montar()                     # (só pra seguir usando a mesma bandeja)
@@ -1467,20 +1475,20 @@ assert historico_texto(800)[-1] == ("2d20+4", "ataque com a espada", "Ana Painel
 c = clique(tray, "Rolar", 800, "Ana", "🎲")                                                               # pode rolar de novo com a mesma bandeja (dados de verdade)
 assert "natural" not in followups(c)[0][1]["embed"].description and len(historico_de(800)) == antes + 2   # 2d20 nunca ganha o destaque de natural
 # sem personagem ou com a ficha incompleta: bloqueia com a mesma mensagem do /rolar, sem rolar nada
-sem = paineis.BandejaDados(805, "Sem Nada")
+sem = criar(paineis.BandejaDados, 805, "Sem Nada")
 with dados(): c = clique(sem, "Rolar", 805, "Sem Nada", "🎲")
 assert followups(c)[0][0].startswith("Você ainda não tem personagem.") and followups(c)[0][1]["ephemeral"] and db.count_rolls("805") == 0 and c.response.edit_message.call_count == 1
-novo(806, "Meio", "Meio Painel"); meio = paineis.BandejaDados(806, "Meio")
+novo(806, "Meio", "Meio Painel"); meio = criar(paineis.BandejaDados, 806, "Meio")
 with dados(): c = clique(meio, "Rolar", 806, "Meio", "🎲")
 assert followups(c)[0][0].startswith("🔒 A ficha de **Meio Painel**") and followups(c)[0][1]["ephemeral"] and db.count_rolls("806") == 0
 # mestre passa direto, mesmo sem personagem
-mest = paineis.BandejaDados(807, "Mestre Bandeja")
+mest = criar(paineis.BandejaDados, 807, "Mestre Bandeja")
 with fixo(9): c = clique(mest, "Rolar", 807, "Mestre Bandeja", "🎲", roles=["Mestre"])
 assert followups(c)[0][1]["embed"].title == "🎲 Mestre Bandeja rolou 1d20" and historico_texto(807) == [("1d20", None, None, 9)]
 # só o dono usa a bandeja
 assert runp(tray.interaction_check(inter(999, "Intruso"))) is False and runp(tray.interaction_check(inter(800, "Ana"))) is True
 # 20 natural na bandeja
-solo = paineis.BandejaDados(800, "Ana")
+solo = criar(paineis.BandejaDados, 800, "Ana")
 try:
     dice.roll = lambda n: dice.RollResult(n, [20], 0, 20)
     c = clique(solo, "Rolar", 800, "Ana", "🎲"); assert "🌟 **20 natural!**" in followups(c)[0][1]["embed"].description
@@ -1511,7 +1519,7 @@ finally:
     lore.IMAGENS_URL.pop("raca-dhampir", None)
 mfic = inter(820, "Nova"); runp(bot.minha_ficha.callback(mfic, None)); assert "files" not in sent(mfic)[1]              # ficha privada nunca leva anexo
 # o painel refaz a ficha com a mesma cor e o mesmo resumo
-pv = paineis.PainelFicha(820, row(820, "Sem Nada Ainda")["id"], "Nova"); c = clique(pv, "Níveis", 820, "Nova")
+pv = criar(paineis.PainelFicha, 820, row(820, "Sem Nada Ainda")["id"], "Nova"); c = clique(pv, "Níveis", 820, "Nova")
 assert editada(c)["embed"].author.name.endswith("Nível 3") and editada(c)["embed"].color.value == lore.RACAS["Humano"]["cor"]
 print("S. ficha mais bonita OK")
 
@@ -1604,12 +1612,12 @@ assert tent(903, "Cla Fechada") == (1, 1)
 
 # --- painel: o botão "Raça (n)" abre a confirmação dentro do painel, e a classe social também ---
 pz = novo(904, "Pan", "Pan Chances")
-with dados(40): c = clique(paineis.PainelFicha(904, row(904, "Pan Chances")["id"], "Pan"), "Raça", 904, "Pan")
+with dados(40): c = clique(criar(paineis.PainelFicha, 904, row(904, "Pan Chances")["id"], "Pan"), "Raça", 904, "Pan")
 pn = editada(c)["view"]; assert estado(pn)["Raça (2)"] == ("🔄", False)
 c = clique(pn, "Raça (2)", 904, "Pan"); tela = editada(c)["view"]
 assert isinstance(tela, paineis.ConfirmarRepeticao) and c.followup.send.call_count == 0 and editada(c)["embed"].title == "🔄 Rolar a raça de novo?" and pn.is_finished()
 assert tent(904, "Pan Chances") == (1, 0)                                                                    # abrir a confirmação não gasta chance
-with dados(50): c = clique(paineis.PainelFicha(904, row(904, "Pan Chances")["id"], "Pan"), "Classe social", 904, "Pan")
+with dados(50): c = clique(criar(paineis.PainelFicha, 904, row(904, "Pan Chances")["id"], "Pan"), "Classe social", 904, "Pan")
 pn = editada(c)["view"]; assert estado(pn)["Classe social (2)"] == ("🔄", False) and estado(pn)["Raça (2)"] == ("🔄", False)
 c = clique(pn, "Classe social (2)", 904, "Pan"); tela = editada(c)["view"]; assert isinstance(tela, paineis.ConfirmarRepeticao) and editada(c)["embed"].title == "🔄 Rolar a classe social de novo?"
 with dados(85): c = inter(904, "Pan"); runp(tela.children[0].callback(c))
@@ -1617,11 +1625,144 @@ assert followups(c)[0][1]["embed"].title == "2º Estado · Nobreza" and tent(904
 # painel com a chavinha da ordem desligada: rolar de novo continua valendo
 bot.ORDEM_DA_CRIACAO = False
 try:
-    assert estado(paineis.PainelFicha(904, row(904, "Pan Chances")["id"], "Pan"))["Raça (2)"] == ("🔄", False)
+    assert estado(criar(paineis.PainelFicha, 904, row(904, "Pan Chances")["id"], "Pan"))["Raça (2)"] == ("🔄", False)
 finally:
     bot.ORDEM_DA_CRIACAO = True
 # a ajuda e o texto dos comandos falam das chances
 assert "3 chances" in ajuda.AJUDA["raca_inicial"]["detalhes"] and "3 chances" in ajuda.AJUDA["classe_social"]["detalhes"] and "uma rolagem só" in ajuda.AJUDA["magia_inicial"]["detalhes"] and "vantagem" in ajuda.AJUDA["magia_inicial"]["detalhes"]
 print("T. três chances OK")
+
+# ============================ U. Disciplinas ============================
+db.DB_PATH = os.path.join(tmp, "disc.db"); db.init_db()
+pay = {c.name: c.to_dict(bot.bot.tree) for c in bot.bot.tree.get_commands()}
+dsc = pay["disciplinas"]; md = sub_("mestre", "disciplina")
+assert [o["name"] for o in dsc["options"]] == ["personagem"] and req(dsc["options"]) == set() and opt(dsc, "personagem")["autocomplete"] is True and len(dsc["description"]) <= 100
+assert [o["name"] for o in md["options"]] == ["usuario", "disciplina", "grau", "personagem"] and req(md["options"]) == {"usuario", "disciplina", "grau"}
+assert [c["value"] for c in opt(md, "disciplina")["choices"]] == list(rules.DISCIPLINES) and (opt(md, "grau")["min_value"], opt(md, "grau")["max_value"]) == (0, 5)
+def graus_de(uid, nome): return db.get_disciplines(row(uid, nome)["id"])
+def painel_de(uid, nome, jogador): p = criar(paineis.PainelFicha, uid, row(uid, nome)["id"], jogador); return p
+def tela_disc(painel, uid, jogador):
+    c = clique(painel, "Disciplinas", uid, jogador, "🩸"); return c, editada(c)["view"]
+def escolher(tela, disciplina, uid, jogador):
+    c = inter(uid, jogador); seletor(tela)._values = [disciplina]; runp(seletor(tela).callback(c)); return c
+def subir(tela, uid, jogador):
+    b = [x for x in tela.children if isinstance(x, discord.ui.Button) and x.label.startswith("Subir")][0]
+    c = inter(uid, jogador); runp(b.callback(c)); return c
+def pra_subir(c): return {f.name: f.value for f in editada(c)["embed"].fields}["Pra subir"]
+
+# --- a ficha: o campo Disciplinas só existe pra Vampiro e Dhampir ---
+v = novo(950, "Vlad", "Vlad Vampiro"); preparar(950, "Vlad Vampiro", "Vampiro", "Mundano"); a950 = alvo(950, "Vlad")
+d = novo(951, "Dani", "Dani Dhampir"); preparar(951, "Dani Dhampir", "Dhampir", "Sábio"); a951 = alvo(951, "Dani")
+h = novo(952, "Hugo", "Hugo Humano"); preparar(952, "Hugo Humano", "Humano", "Sábio")
+run(bot.minha_ficha.callback(v, None)); assert campos(v)["Disciplinas"] == "Pontos: 0 de 4 usados (4 livres)\nnenhuma ainda (o botão **Disciplinas** do `/minha_ficha` abre o painel)"
+assert list(campos(v))[-2:] == ["Disciplinas", "Ranks das perícias especiais"]                             # entra antes dos ranks, que continuam por último
+run(bot.minha_ficha.callback(d, None)); assert campos(d)["Disciplinas"].startswith("Pontos: 0 de 3 usados (3 livres)")
+run(bot.minha_ficha.callback(h, None)); assert "Disciplinas" not in campos(h)
+run(bot.mestre_ficha.callback(gm, a950, None)); assert "Disciplinas" in campos(gm)                          # o mestre também vê
+
+# --- o botão na ficha ---
+pv = painel_de(950, "Vlad Vampiro", "Vlad"); pv.origem = v; confere_componentes(pv)
+assert estado(pv)["Disciplinas"] == ("🩸", False) and botao(pv, "Disciplinas").style == discord.ButtonStyle.primary and botao(pv, "Disciplinas").row == 0
+assert "Disciplinas" not in estado(painel_de(952, "Hugo Humano", "Hugo"))                          # Humano não tem o botão
+
+# --- o painel: menu, texto de cada grau e subir um grau por clique ---
+c, tela = tela_disc(pv, 950, "Vlad")
+assert isinstance(tela, paineis.PainelDisciplinas), type(tela)
+assert pv.is_finished(), "o painel da ficha devia ter saído de cena"
+assert tela.origem is v, (tela.origem, v)
+assert c.followup.send.call_count == 0, c.followup.send.call_args_list
+e = editada(c)["embed"]; assert e.title == "🩸 Disciplinas de Vlad Vampiro" and "Pontos: 0 de 4 usados (4 livres)" in e.description and [f.name for f in e.fields] == list(rules.DISCIPLINES)
+confere_componentes(tela); sel = seletor(tela)
+assert [o.value for o in sel.options] == list(rules.DISCIPLINES) and sel.options[0].description == "grau 0/5 · força sobrenatural bruta" and sel.options[8].description == "em desenvolvimento"
+assert [b.label for b in tela.children if isinstance(b, discord.ui.Button)] == ["Voltar"]                    # sem escolha: só o Voltar
+c = escolher(tela, "Potência", 950, "Vlad"); e = editada(c)["embed"]
+assert e.title == "🩸 Potência" and [f.name for f in e.fields] == ["▫️ Grau 1", "▫️ Grau 2", "▫️ Grau 3", "Graus 4 e 5", "Pra subir"] and e.footer.text == "Pontos: 0 de 4 usados (4 livres)"
+assert pra_subir(c) == "Aperta o botão pra gastar 1 ponto e subir pro grau 1. Não dá pra desfazer." and [o.default for o in seletor(tela).options][0] is True
+assert [b.label for b in tela.children if isinstance(b, discord.ui.Button)] == ["Subir pro grau 1", "Ver todas", "Voltar"]
+c = subir(tela, 950, "Vlad"); (aviso, fk), = followups(c)
+assert aviso == "🩸 **Potência** subiu pro grau 1. Sobram 3 pontos." and fk["ephemeral"] is True and graus_de(950, "Vlad Vampiro") == {"Potência": 1}
+e = editada(c)["embed"]; assert e.fields[0].name == "✅ Grau 1" and e.fields[1].name == "▫️ Grau 2" and e.footer.text == "Pontos: 1 de 4 usados (3 livres)" and botao(tela, "Subir pro grau 2")
+c = subir(tela, 950, "Vlad"); assert followups(c)[0][0] == "🩸 **Potência** subiu pro grau 2. Sobram 2 pontos."
+c = subir(tela, 950, "Vlad"); assert followups(c)[0][0] == "🩸 **Potência** subiu pro grau 3. Sobra 1 ponto." and graus_de(950, "Vlad Vampiro") == {"Potência": 3}
+b = [x for x in tela.children if isinstance(x, discord.ui.Button)][0]; assert b.label == "Subir" and b.disabled                # o jogador não passa do grau 3 sozinho
+assert pra_subir(c) == "Essa Disciplina já está no grau 3. Os graus 4 e 5 só um mestre concede."
+c = inter(950, "Vlad"); runp(b.callback(c))                                                                  # painel velho: a regra confere de novo na hora
+assert followups(c)[0][0] == "Essa Disciplina já está no grau 3. Os graus 4 e 5 só um mestre concede." and graus_de(950, "Vlad Vampiro") == {"Potência": 3}
+c = escolher(tela, "Celeridade", 950, "Vlad"); c = subir(tela, 950, "Vlad")
+assert followups(c)[0][0] == "🩸 **Celeridade** subiu pro grau 1. Não sobrou ponto." and graus_de(950, "Vlad Vampiro") == {"Potência": 3, "Celeridade": 1}
+c = escolher(tela, "Ofuscação", 950, "Vlad"); assert pra_subir(c) == "Você não tem pontos de Disciplina sobrando. Vem +1 a cada 2 níveis (2, 4, 6, 8 e 10)."
+b = [x for x in tela.children if isinstance(x, discord.ui.Button)][0]; assert b.disabled and b.label == "Subir"
+c = inter(950, "Vlad"); runp(b.callback(c)); assert "não tem pontos de Disciplina sobrando" in followups(c)[0][0] and graus_de(950, "Vlad Vampiro") == {"Potência": 3, "Celeridade": 1}
+# a ficha já mostra o que foi gasto
+run(bot.minha_ficha.callback(v, None)); assert campos(v)["Disciplinas"] == "Pontos: 4 de 4 usados\n**Potência** 3/5 ▰▰▰▱▱\n**Celeridade** 1/5 ▰▱▱▱▱"
+# subir de nível dá +1 ponto (nível 2) e o aviso do /mestre dar_xp lembra do botão
+run(bot.mestre_dar_xp.callback(gm, a950, 1000, None, None)); assert "Você ganhou +1 ponto de Disciplina: gasta no botão **Disciplinas** do `/minha_ficha`." in desc(gm)
+c = escolher(tela, "Ofuscação", 950, "Vlad"); assert pra_subir(c).startswith("Aperta o botão")
+c = subir(tela, 950, "Vlad"); assert graus_de(950, "Vlad Vampiro")["Ofuscação"] == 1 and "Não sobrou ponto." in followups(c)[0][0]
+# "Ver todas" e "Voltar"
+c = clique(tela, "Ver todas", 950, "Vlad", "📜"); assert editada(c)["embed"].title == "🩸 Disciplinas de Vlad Vampiro" and tela.selecionada is None
+por = {f.name: f.value for f in editada(c)["embed"].fields}; assert por["Potência"].startswith("▰▰▰▱▱ 3/5") and por["Domínio"].startswith("▱▱▱▱▱ 0/5") and por["Sanguessugia"] == "⏳ em desenvolvimento"
+c = clique(tela, "Voltar", 950, "Vlad", "⬅️"); assert isinstance(editada(c)["view"], paineis.PainelFicha) and editada(c)["embed"].title == "📖 Ficha de Vlad Vampiro"
+assert estado(editada(c)["view"])["Disciplinas"] == ("🩸", False) and botao(editada(c)["view"], "Disciplinas").style == discord.ButtonStyle.secondary       # sem ponto sobrando: cinza
+assert runp(tela.interaction_check(inter(999, "Intruso"))) is False and runp(tela.interaction_check(inter(950, "Vlad"))) is True
+
+# --- Sanguessugia: bloqueada pra todo mundo enquanto o texto não existir ---
+tela = criar(paineis.PainelDisciplinas, 951, row(951, "Dani Dhampir")["id"], "Dani"); tela.origem = d
+c = escolher(tela, "Sanguessugia", 951, "Dani"); e = editada(c)["embed"]
+assert [f.name for f in e.fields][:1] == ["⏳ Em desenvolvimento"] and "Grau 1" not in " ".join(f.name for f in e.fields) and "ainda não foram definidos" in e.fields[0].value
+assert "gastar ponto nela por enquanto" in pra_subir(c)
+b = [x for x in tela.children if isinstance(x, discord.ui.Button)][0]; assert b.label == "Subir" and b.disabled
+c = inter(951, "Dani"); runp(b.callback(c)); assert followups(c)[0][0] == paineis.TEXTO_DO_PROBLEMA["bloqueada"] and graus_de(951, "Dani Dhampir") == {}
+rules.SANGUESSUGIA_LIBERADA = True                                                                           # o dia em que o texto ficar pronto: é só virar a chave
+try:
+    tela = criar(paineis.PainelDisciplinas, 951, row(951, "Dani Dhampir")["id"], "Dani"); tela.origem = d
+    c = escolher(tela, "Sanguessugia", 951, "Dani"); c = subir(tela, 951, "Dani")
+    assert followups(c)[0][0] == "🩸 **Sanguessugia** subiu pro grau 1. Sobram 2 pontos." and graus_de(951, "Dani Dhampir") == {"Sanguessugia": 1}
+finally:
+    rules.SANGUESSUGIA_LIBERADA = False
+db.set_discipline_grade(row(951, "Dani Dhampir")["id"], "Sanguessugia", 0)
+
+# --- /disciplinas: qualquer um lê; só Vampiro e Dhampir gastam ---
+c = inter(950, "Vlad"); run(bot.disciplinas_comando.callback(c, None)); pn = enviada(c)
+assert isinstance(pn, paineis.PainelDisciplinas) and sent(c)[1]["ephemeral"] and pn.origem is c and titulo(c) == "🩸 Disciplinas de Vlad Vampiro" and pn.personagem_id == row(950, "Vlad Vampiro")["id"]
+c = inter(952, "Hugo"); run(bot.disciplinas_comando.callback(c, None)); pn = enviada(c)
+assert titulo(c) == "🩸 Disciplinas" and "Só **Vampiros e Dhampirs** têm Disciplinas" in desc(c) and "0/5" not in " ".join(f.value for f in sent(c)[1]["embed"].fields)
+assert seletor(pn).options[0].description == "força sobrenatural bruta"
+c2 = escolher(pn, "Domínio", 952, "Hugo"); e = editada(c2)["embed"]
+assert [f.name for f in e.fields] == ["Grau 1", "Grau 2", "Grau 3", "Graus 4 e 5"] and e.footer.text is None and e.fields[0].value.startswith("Impõe a sua vontade")     # só leitura: sem marcação nem "Pra subir"
+assert [b.label for b in pn.children if isinstance(b, discord.ui.Button)] == ["Ver todas", "Voltar"]        # sem botão de subir
+c = inter(952, "Hugo"); runp(pn._subir(c)); assert followups(c)[0][0] == "Só Vampiros e Dhampirs têm Disciplinas." and graus_de(952, "Hugo Humano") == {}
+c = inter(960, "Sem Personagem"); run(bot.disciplinas_comando.callback(c, None)); pn = enviada(c)                # sem personagem: também lê
+assert titulo(c) == "🩸 Disciplinas" and pn.personagem_id is None and [b for b in pn.children if isinstance(b, discord.ui.Button)] == []
+c2 = escolher(pn, "Regeneração", 960, "Sem Personagem"); assert [f.name for f in editada(c2)["embed"].fields][-1] == "Limite" and [b.label for b in pn.children if isinstance(b, discord.ui.Button)] == ["Ver todas"]
+c = inter(950, "Vlad"); run(bot.disciplinas_comando.callback(c, "Fantasma")); assert "Não achei nenhum personagem seu" in txt(c) and sent(c)[1]["ephemeral"] and "view" not in sent(c)[1]
+for painel_lido in (criar(paineis.PainelDisciplinas, 952, row(952, "Hugo Humano")["id"], "Hugo"), criar(paineis.PainelDisciplinas, 960, None, "Sem")): confere_componentes(painel_lido)
+
+# --- /mestre disciplina: sem conferir pontos, com registro ---
+run(bot.mestre_disciplina.callback(gm, alvo(952, "Hugo"), "Potência", 1, None)); assert "só Vampiros e Dhampirs têm Disciplinas" in txt(gm) and "corrigir_raca" in txt(gm) and sent(gm)[1]["ephemeral"] and graus_de(952, "Hugo Humano") == {}
+run(bot.mestre_disciplina.callback(gm, alvo(960, "Sem Personagem"), "Potência", 1, None)); assert "ainda não tem personagem" in txt(gm)
+run(bot.mestre_disciplina.callback(gm, a951, "Sanguessugia", 1, None)); assert txt(gm) == paineis.TEXTO_DO_PROBLEMA["bloqueada"] and sent(gm)[1]["ephemeral"] and graus_de(951, "Dani Dhampir") == {}
+run(bot.mestre_disciplina.callback(gm, a951, "Potência", 4, None))                                            # grau 4 direto (só o mestre concede)
+assert titulo(gm) == "⬆️ Potência: grau 4/5" and "**0** → **4**  ▰▰▰▰▱" in desc(gm) and "Pontos: 3 de 3 usados" in desc(gm) and "Grau concedido pelo mestre: os graus 4 e 5 não gastam ponto." in desc(gm)
+assert not sent(gm)[1].get("ephemeral") and graus_de(951, "Dani Dhampir") == {"Potência": 4} and "Os graus 1 a 3 contam como pontos gastos do jogador" in rodape(gm)
+run(bot.mestre_disciplina.callback(gm, a951, "Potência", 4, None)); assert "Nada mudou" in txt(gm) and sent(gm)[1]["ephemeral"]
+run(bot.mestre_disciplina.callback(gm, a951, "Presença", 2, "Dani Dhampir")); assert "Pontos: 5 de 3 usados (passou 2)" in desc(gm) and "Grau concedido" not in desc(gm)   # o mestre não é barrado pelos pontos
+run(bot.mestre_disciplina.callback(gm, a951, "Presença", 0, None)); assert titulo(gm) == "🛠️ Presença: grau 0/5" and graus_de(951, "Dani Dhampir") == {"Potência": 4}
+run(bot.mestre_disciplina.callback(gm, a951, "Potência", 1, "Fantasma")); assert "não tem nenhum personagem chamado" in txt(gm)
+with sqlite3.connect(db.DB_PATH) as cn:
+    assert [x for x in cn.execute("SELECT action, detail FROM master_actions WHERE action='disciplina' ORDER BY id")] == [("disciplina", "Potência: 0 -> 4"), ("disciplina", "Presença: 0 -> 2"), ("disciplina", "Presença: 2 -> 0")]
+# o jogador com grau 4 do mestre não sobe mais sozinho, e a ficha mostra o 4
+tela = criar(paineis.PainelDisciplinas, 951, row(951, "Dani Dhampir")["id"], "Dani"); tela.origem = d
+c = escolher(tela, "Potência", 951, "Dani"); assert pra_subir(c) == "Essa Disciplina já está no grau 4. Os graus 4 e 5 só um mestre concede." and [f.name for f in editada(c)["embed"].fields][:3] == ["✅ Grau 1", "✅ Grau 2", "✅ Grau 3"]
+run(bot.minha_ficha.callback(d, None)); assert "**Potência** 4/5 ▰▰▰▰▱" in campos(d)["Disciplinas"] and campos(d)["Disciplinas"].startswith("Pontos: 3 de 3 usados")
+# subir de nível de um Humano não fala de Disciplina
+run(bot.mestre_dar_xp.callback(gm, alvo(952, "Hugo"), 1000, None, None)); assert "Disciplina" not in desc(gm)
+# excluir o personagem leva as Disciplinas junto
+async def exclui_vlad():
+    u = inter(950, "Vlad"); await bot.personagem_excluir.callback(u, "Vlad Vampiro"); view = u.response.send_message.call_args.kwargs["view"]
+    await view.confirmar.callback(inter(950, "Vlad"))
+run(exclui_vlad()); assert row(950, "Vlad Vampiro") is None
+with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT COUNT(*) FROM character_disciplines").fetchone()[0] == 1       # só as do Dani sobraram
+print("U. Disciplinas OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

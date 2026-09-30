@@ -40,7 +40,7 @@ db.init_db(p); db.init_db(p)                                              # roda
 with sqlite3.connect(p) as c:
     assert c.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     tabelas = {r[0] for r in c.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%'")}
-assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes"}, tabelas
+assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes","character_disciplines"}, tabelas
 print("2. init_db OK")
 
 # ---------- 3. personagens ----------
@@ -230,6 +230,9 @@ assert rules.reroll_block(por[4], "social_class") == "mestre" and rules.attempts
 db.set_race(2, "Vampiro", 90, p6); assert db.get_character_by_id(2, p6)["race_attempts"] == 2                                 # já dá pra usar
 with db._connect(p6) as cn: db.init_db(p6)                                                                                     # rodar de novo não zera nem soma
 assert db.get_character_by_id(2, p6)["race_attempts"] == 2 and db.get_character_by_id(1, p6)["race_attempts"] == 1
+with sqlite3.connect(p6) as cn:                                                                                                   # a tabela nova nasce vazia no banco migrado
+    assert cn.execute("SELECT COUNT(*) FROM character_disciplines").fetchone()[0] == 0
+db.set_discipline_grade(1, "Potência", 2, p6); assert db.get_disciplines(1, p6) == {"Potência": 2}
 print("6f. v6 -> v7 (com dados) OK")
 
 # ---------- 7. XP: níveis, saltos, remoção, extrato ----------
@@ -471,5 +474,26 @@ db.clear_definition(cid, "magic_rank", pc); assert g()["race_attempts"] == 0
 db.set_race(cid, "Humano", 40, pc); db.delete_character(cid, "1", "Ana", pc); novo_id = db.create_character("1", "Rolador", path=pc)["id"]
 assert (g(novo_id)["race_attempts"], g(novo_id)["social_class_attempts"]) == (0, 0)
 print("16. chances de raça e classe social OK")
+
+# ---------- 17. Disciplinas ----------
+pd = novo_banco("disciplinas.db"); vid = db.create_character("1", "Vlad", path=pd)["id"]; outro = db.create_character("1", "Outro", path=pd)["id"]
+assert db.get_disciplines(vid, pd) == {}
+db.set_discipline_grade(vid, "Regeneração", 2, pd); db.set_discipline_grade(vid, "Potência", 1, pd)
+assert db.get_disciplines(vid, pd) == {"Potência": 1, "Regeneração": 2}                              # na ordem do sistema, não na ordem em que foram dadas
+db.set_discipline_grade(vid, "Potência", 3, pd); db.set_discipline_grade(vid, "Potência", 4, pd)      # sobe, e o grau 4 do mestre também grava
+assert db.get_disciplines(vid, pd)["Potência"] == 4 and db.get_disciplines(outro, pd) == {}           # o outro personagem não muda
+db.set_discipline_grade(vid, "Regeneração", 0, pd); assert "Regeneração" not in db.get_disciplines(vid, pd)    # grau 0 tira
+db.set_discipline_grade(vid, "Regeneração", 0, pd)                                                    # tirar o que não tem não estoura
+with sqlite3.connect(pd) as cn: assert cn.execute("SELECT COUNT(*) FROM character_disciplines WHERE grade = 0").fetchone()[0] == 0
+for ruim in (("Sombra", 1), ("Potência", 6), ("Potência", -1)):
+    try: db.set_discipline_grade(vid, *ruim, pd); raise SystemExit("deveria recusar " + str(ruim))
+    except ValueError: pass
+assert db.get_disciplines(vid, pd) == {"Potência": 4}
+db.set_discipline_grade(vid, "Sanguessugia", 1, pd); assert db.get_disciplines(vid, pd)["Sanguessugia"] == 1     # o banco não bloqueia a Sanguessugia: quem bloqueia é a regra
+snap = db.delete_character(vid, "1", "Ana", pd)
+assert snap["disciplines"] == {"Potência": 4, "Sanguessugia": 1} and db.get_disciplines(vid, pd) == {}         # a cópia dos excluídos leva as Disciplinas, e elas somem
+with sqlite3.connect(pd) as cn: assert cn.execute("SELECT COUNT(*) FROM character_disciplines WHERE character_id = ?", (vid,)).fetchone()[0] == 0
+with sqlite3.connect(pd) as cn: assert cn.execute("SELECT COUNT(*) FROM deleted_characters WHERE character_id = ?", (vid,)).fetchone()[0] == 1   # uma cópia só
+print("17. Disciplinas OK")
 
 print("\nTODOS OS TESTES DO BANCO PASSARAM")

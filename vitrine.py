@@ -260,6 +260,97 @@ def previa_classe(personagem: str, classe: str) -> discord.Embed:
 
 
 # ---------------------------------------------------------------------------
+# Disciplinas
+# ---------------------------------------------------------------------------
+COR_DISCIPLINA = 0x8B0000
+
+
+def _maiuscula(texto: str) -> str:
+    return texto[:1].upper() + texto[1:]
+
+
+def barra_de_grau(grau: int) -> str:
+    return rules.bar(grau, rules.MAX_DISCIPLINE_GRADE)
+
+
+def linha_de_pontos(nivel: int, raca: str | None, graus: dict[str, int]) -> str:
+    """'Pontos: 3 de 4 usados (1 livre)', com o aviso quando um mestre deu graus além dos pontos."""
+    total = rules.discipline_points_total(nivel, raca)
+    usados = rules.discipline_points_used(graus)
+    livres = total - usados
+    if livres > 0:
+        sobra = f" ({livres} {'livre' if livres == 1 else 'livres'})"
+    elif livres < 0:
+        sobra = f" (passou {-livres})"
+    else:
+        sobra = ""
+    return f"Pontos: {usados} de {total} usados{sobra}"
+
+
+def texto_disciplinas_da_ficha(personagem, graus: dict[str, int]) -> str:
+    """O campo 'Disciplinas' da ficha: os pontos e as Disciplinas que o personagem já tem."""
+    cabecalho = linha_de_pontos(personagem["level"], personagem["race"], graus)
+    if not graus:
+        return f"{cabecalho}\nnenhuma ainda (o botão **Disciplinas** do `/minha_ficha` abre o painel)"
+    linhas = [f"**{d}** {g}/{rules.MAX_DISCIPLINE_GRADE} {barra_de_grau(g)}" for d, g in graus.items()]
+    return cabecalho + "\n" + "\n".join(linhas)
+
+
+def embed_disciplinas(nome: str | None, raca: str | None, nivel: int, graus: dict[str, int]) -> discord.Embed:
+    """A lista das dez Disciplinas. Quem tem Disciplinas vê o grau de cada uma; quem não tem só lê o tema."""
+    tem = rules.has_disciplines(raca)
+    embed = discord.Embed(
+        title="🩸 Disciplinas" + (f" de {nome}" if nome and tem else ""), color=COR_DISCIPLINA,
+    )
+    if tem:
+        embed.description = (
+            f"{lore.DIVISOR_CURTO}\n\n{linha_de_pontos(nivel, raca, graus)}\n"
+            "Escolhe uma no menu pra ler o texto de cada grau e subir."
+        )
+    else:
+        embed.description = (
+            f"{lore.DIVISOR_CURTO}\n\nSó **Vampiros e Dhampirs** têm Disciplinas. "
+            "Aqui você pode ler o que cada uma faz."
+        )
+    for disciplina in rules.DISCIPLINES:
+        info = lore.DISCIPLINAS[disciplina]
+        if rules.discipline_blocked(disciplina):
+            valor = "⏳ em desenvolvimento"
+        elif tem:
+            grau = graus.get(disciplina, 0)
+            valor = f"{barra_de_grau(grau)} {grau}/{rules.MAX_DISCIPLINE_GRADE}\n{_maiuscula(info['tema'])}"
+        else:
+            valor = _maiuscula(info["tema"])
+        embed.add_field(name=disciplina, value=valor, inline=True)
+    return embed
+
+
+def embed_disciplina(disciplina: str, grau_atual: int | None = None, pontos: str | None = None,
+                     aviso: str | None = None) -> discord.Embed:
+    """O texto de cada grau de uma Disciplina. Com grau_atual, marca ✅ os graus que o personagem já tem."""
+    info = lore.DISCIPLINAS[disciplina]
+    embed = discord.Embed(
+        title=f"🩸 {disciplina}",
+        description=f"{lore.DIVISOR_CURTO}\n\n{_citar(_maiuscula(info['tema']), True)}",
+        color=COR_DISCIPLINA,
+    )
+    if info["graus"] is None or rules.discipline_blocked(disciplina):
+        embed.add_field(name="⏳ Em desenvolvimento", value=lore.DISCIPLINA_EM_DESENVOLVIMENTO, inline=False)
+    else:
+        for grau, texto in info["graus"].items():
+            marca = "" if grau_atual is None else ("✅ " if grau_atual >= grau else "▫️ ")
+            embed.add_field(name=f"{marca}Grau {grau}", value=texto, inline=False)
+    embed.add_field(name="Graus 4 e 5", value=lore.GRAUS_4_E_5, inline=False)
+    if info.get("limite"):
+        embed.add_field(name="Limite", value=info["limite"], inline=False)
+    if aviso:
+        embed.add_field(name="Pra subir", value=aviso, inline=False)
+    if pontos:
+        embed.set_footer(text=pontos)
+    return embed
+
+
+# ---------------------------------------------------------------------------
 # Rank de magia
 # ---------------------------------------------------------------------------
 

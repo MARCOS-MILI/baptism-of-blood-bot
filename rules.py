@@ -409,3 +409,62 @@ def reroll_block(personagem, campo: str) -> str | None:
     if attempts_left(personagem, campo) == 0:
         return "tentativas"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Disciplinas (só Vampiro e Dhampir)
+# ---------------------------------------------------------------------------
+DISCIPLINES = (
+    "Potência", "Celeridade", "Ofuscação", "Presença", "Domínio",
+    "Vidência", "Proteísmo", "Hemomancia", "Sanguessugia", "Regeneração",
+)
+MAX_DISCIPLINE_GRADE = 5
+# O jogador só sobe até o grau da criação (3) sozinho; os graus 4 e 5 só o mestre concede.
+PLAYER_MAX_DISCIPLINE_GRADE = DISCIPLINE_CREATION_MAX_GRADE
+# A Sanguessugia ainda não tem texto nos graus 1 a 3. Enquanto isso for False, ninguém (nem o mestre) pode dar
+# grau nela, pra não gastar ponto num poder sem efeito. Quando o texto estiver pronto, é só virar True aqui
+# (e preencher os graus dela no lore.py); não precisa mexer no banco.
+SANGUESSUGIA_LIBERADA = False
+
+
+def has_disciplines(race: str | None) -> bool:
+    return race in VAMPIRIC_RACES
+
+
+def discipline_blocked(discipline: str) -> bool:
+    return discipline == "Sanguessugia" and not SANGUESSUGIA_LIBERADA
+
+
+def discipline_points_total(level: int, race: str | None) -> int:
+    """Pontos de Disciplina que o personagem já ganhou: os da criação (Vampiro 4, Dhampir 3) mais +1 a cada
+    2 níveis. 0 pra quem não é Vampiro nem Dhampir."""
+    if not has_disciplines(race):
+        return 0
+    return INITIAL_DISCIPLINE_POINTS[race] + total_gains(level, race)["disciplina"]
+
+
+def discipline_points_used(grades: dict[str, int]) -> int:
+    """1 ponto = 1 grau, contando até o grau 3 de cada Disciplina. Os graus 4 e 5, que só o mestre concede,
+    não gastam ponto."""
+    return sum(min(g, PLAYER_MAX_DISCIPLINE_GRADE) for g in grades.values())
+
+
+def discipline_points_free(level: int, race: str | None, grades: dict[str, int]) -> int:
+    """Pontos que sobram (pode ficar negativo se um mestre deu graus sem conferir)."""
+    return discipline_points_total(level, race) - discipline_points_used(grades)
+
+
+def discipline_raise_problem(race: str | None, level: int, grades: dict[str, int], discipline: str) -> str | None:
+    """Por que o jogador não pode subir essa Disciplina um grau: 'raca', 'desconhecida', 'bloqueada',
+    'grau_maximo' ou 'sem_pontos'. None se pode."""
+    if not has_disciplines(race):
+        return "raca"
+    if discipline not in DISCIPLINES:
+        return "desconhecida"
+    if discipline_blocked(discipline):
+        return "bloqueada"
+    if grades.get(discipline, 0) >= PLAYER_MAX_DISCIPLINE_GRADE:
+        return "grau_maximo"
+    if discipline_points_free(level, race, grades) <= 0:
+        return "sem_pontos"
+    return None

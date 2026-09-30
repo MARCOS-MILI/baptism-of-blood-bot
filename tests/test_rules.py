@@ -217,4 +217,45 @@ cn.execute("INSERT INTO c VALUES ('Vampiro','Comum','2º Estado','Ladrão',1,1,2
 assert rules.creation_status(cn.execute("SELECT * FROM c").fetchone())["pronta"]
 print("6. ordem da criação OK")
 
+# ---------- 7. Disciplinas ----------
+assert rules.DISCIPLINES == ("Potência", "Celeridade", "Ofuscação", "Presença", "Domínio", "Vidência", "Proteísmo", "Hemomancia", "Sanguessugia", "Regeneração")
+assert rules.MAX_DISCIPLINE_GRADE == 5 and rules.PLAYER_MAX_DISCIPLINE_GRADE == 3 and rules.SANGUESSUGIA_LIBERADA is False
+import lore
+assert list(lore.DISCIPLINAS) == list(rules.DISCIPLINES)                                             # o lore cobre as dez, na mesma ordem
+for nome, info in lore.DISCIPLINAS.items():
+    assert info["tema"].strip()
+    if nome == "Sanguessugia":
+        assert info["graus"] is None                                                                  # em desenvolvimento: sem texto inventado
+    else:
+        assert sorted(info["graus"]) == [1, 2, 3] and all(t.strip() and "—" not in t for t in info["graus"].values()), nome
+assert list(lore.DISCIPLINAS["Regeneração"]) == ["tema", "graus", "limite"] and "Sol, Prata, Água Sagrada e Armas Sagradas" in lore.DISCIPLINAS["Regeneração"]["limite"]
+assert all("limite" not in i for n, i in lore.DISCIPLINAS.items() if n != "Regeneração")
+assert lore.DISCIPLINAS["Potência"]["graus"][3] == "O dano desarmado vira 1d12." and "10 de Mana" in lore.DISCIPLINAS["Proteísmo"]["graus"][2] and "DT fixa 22" in lore.DISCIPLINAS["Vidência"]["graus"][3]
+# pontos: Vampiro 4 e Dhampir 3 na criação, +1 nos níveis pares; Humano não tem
+assert [rules.discipline_points_total(n, "Vampiro") for n in range(1, 11)] == [4, 5, 5, 6, 6, 7, 7, 8, 8, 9]
+assert [rules.discipline_points_total(n, "Dhampir") for n in range(1, 11)] == [3, 4, 4, 5, 5, 6, 6, 7, 7, 8]
+assert rules.discipline_points_total(10, "Humano") == 0 and rules.discipline_points_total(5, None) == 0 and rules.has_disciplines("Dhampir") and not rules.has_disciplines("Humano")
+# 1 ponto = 1 grau, contando só até o 3; os graus 4 e 5 (do mestre) não gastam ponto
+assert rules.discipline_points_used({}) == 0 and rules.discipline_points_used({"Potência": 2, "Celeridade": 1}) == 3
+assert rules.discipline_points_used({"Potência": 4, "Domínio": 5}) == 6 and rules.discipline_points_used({"Potência": 3}) == 3
+assert rules.discipline_points_free(1, "Vampiro", {"Potência": 3, "Celeridade": 1}) == 0 and rules.discipline_points_free(1, "Dhampir", {"Potência": 3, "Celeridade": 1}) == -1
+# quando o jogador pode subir um grau
+Q = rules.discipline_raise_problem
+assert Q("Humano", 1, {}, "Potência") == "raca" and Q(None, 1, {}, "Potência") == "raca"
+assert Q("Vampiro", 1, {}, "Potência") is None and Q("Dhampir", 1, {}, "Regeneração") is None
+assert Q("Vampiro", 1, {}, "Sombra") == "desconhecida"
+assert Q("Vampiro", 1, {}, "Sanguessugia") == "bloqueada" and rules.discipline_blocked("Sanguessugia") and not rules.discipline_blocked("Potência")
+assert Q("Vampiro", 1, {"Potência": 3}, "Potência") == "grau_maximo"                                  # o jogador não passa do 3 sozinho
+assert Q("Vampiro", 1, {"Potência": 4}, "Potência") == "grau_maximo"                                  # grau 4 dado pelo mestre também não sobe mais
+assert Q("Vampiro", 1, {"Potência": 3, "Celeridade": 1}, "Ofuscação") == "sem_pontos"                # 4 pontos gastos
+assert Q("Vampiro", 2, {"Potência": 3, "Celeridade": 1}, "Ofuscação") is None                        # o nível 2 deu +1 ponto
+assert Q("Dhampir", 1, {"Potência": 2, "Celeridade": 1}, "Presença") == "sem_pontos" and Q("Dhampir", 2, {"Potência": 2, "Celeridade": 1}, "Presença") is None
+# a Sanguessugia liberada vira uma Disciplina como as outras (sem migração de banco)
+rules.SANGUESSUGIA_LIBERADA = True
+try:
+    assert not rules.discipline_blocked("Sanguessugia") and Q("Vampiro", 1, {}, "Sanguessugia") is None
+finally:
+    rules.SANGUESSUGIA_LIBERADA = False
+print("7. Disciplinas OK")
+
 print("\nTODOS OS TESTES DAS REGRAS PASSARAM")

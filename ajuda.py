@@ -172,6 +172,20 @@ AJUDA = {
         "requisito": "Só depois que um dos seus personagens estiver com a ficha pronta.",
     },
     # ------------------------------------------------------------------ consultas
+    "disciplinas": {
+        "grupo": "consulta",
+        "resumo": "lê o texto das Disciplinas e gasta os pontos (Vampiro e Dhampir)",
+        "uso": "/disciplinas",
+        "detalhes": (
+            "Abre um menu com as dez Disciplinas: Potência, Celeridade, Ofuscação, Presença, Domínio, Vidência, "
+            "Proteísmo, Hemomancia, Sanguessugia e Regeneração. Escolhe uma pra ler o texto de cada grau. Quem é "
+            "Vampiro ou Dhampir também vê o próprio grau e gasta os pontos no botão Subir: 1 ponto por grau, só "
+            "aumenta, e só até o grau 3 (os graus 4 e 5 só um mestre concede). O Vampiro começa com 4 pontos, o "
+            "Dhampir com 3, e os dois ganham +1 a cada 2 níveis. A Sanguessugia ainda está em desenvolvimento e não "
+            "recebe ponto. O mesmo painel abre no botão Disciplinas do `/minha_ficha`."
+        ),
+        "requisito": "Qualquer um pode ler. Só Vampiro e Dhampir gastam pontos.",
+    },
     "niveis": {
         "grupo": "consulta",
         "resumo": "mostra o XP e as vantagens de cada nível",
@@ -221,6 +235,16 @@ AJUDA = {
         "resumo": "põe o personagem no começo de um nível",
         "uso": "/mestre corrigir_nivel usuario:@alguém nivel:3",
         "detalhes": "Ajusta o XP pro mínimo daquele nível e registra no extrato. Serve pra consertar um erro.",
+    },
+    "mestre disciplina": {
+        "grupo": "mestre",
+        "resumo": "define o grau de uma Disciplina (0 a 5)",
+        "uso": "/mestre disciplina usuario:@alguém disciplina:Potência grau:4",
+        "detalhes": (
+            "Só pra Vampiro e Dhampir. Define o grau na mão, sem conferir pontos: os graus 1 a 3 contam como pontos "
+            "gastos do jogador, e os graus 4 e 5 (que só o mestre concede) não gastam ponto. Grau 0 tira a Disciplina. "
+            "A Sanguessugia fica bloqueada pra todo mundo enquanto os graus 1 a 3 dela não estiverem definidos."
+        ),
     },
     "mestre rank_pericia": {
         "grupo": "mestre",
@@ -323,7 +347,7 @@ AJUDA = {
 # Como o /ajuda geral mostra os comandos de mestre (só pra quem é mestre): (rótulo, comandos)
 MESTRE_SUBGRUPOS = [
     ("XP e nível", ["dar_xp", "upar", "corrigir_nivel"]),
-    ("Ficha", ["ficha", "atributos", "corrigir_classe", "rank_pericia"]),
+    ("Ficha", ["ficha", "atributos", "corrigir_classe", "rank_pericia", "disciplina"]),
     ("Sorteios", ["apagar", "corrigir_magia", "corrigir_raca", "corrigir_estado"]),
     ("Jogadores", ["jogador", "vagas", "excluir_personagem", "apagar_historico", "exportar"]),
 ]
@@ -332,7 +356,7 @@ MESTRE_SUBGRUPOS = [
 ORDEM_SUGESTAO = [
     "personagem criar", "raca_inicial", "classe_social", "classe", "magia_inicial", "atributos", "minha_ficha",
     "rolar", "dados", "niveis", "rank", "calcular_recursos", "historico", "extrato_xp", "personagem usar",
-    "personagem listar", "personagem excluir", "ajuda",
+    "personagem listar", "personagem excluir", "disciplinas", "ajuda",
 ]
 
 

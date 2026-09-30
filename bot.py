@@ -444,6 +444,12 @@ def _embed_ficha(personagem, jogador: str) -> discord.Embed:
     )
     res = _recursos_do_personagem(personagem)
     embed.add_field(name="Recursos", value=_texto_recursos(res) if res else _SEM_CLASSE, inline=False)
+    if rules.has_disciplines(personagem["race"]):
+        embed.add_field(
+            name="Disciplinas",
+            value=vitrine.texto_disciplinas_da_ficha(personagem, db.get_disciplines(personagem["id"])),
+            inline=False,
+        )
     ranks = db.get_skill_ranks(personagem["id"])
     linhas = [
         f"**{pericia}** {ranks[pericia]}/{rules.MAX_SKILL_RANK} {rules.bar(ranks[pericia], rules.MAX_SKILL_RANK)}"
@@ -1132,6 +1138,23 @@ async def minha_ficha(interaction: discord.Interaction, personagem: str | None =
     painel.origem = interaction
 
 
+@bot.tree.command(name="disciplinas", description="Lê o texto das dez Disciplinas vampíricas e, se for Vampiro ou Dhampir, gasta os pontos.")
+@app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+async def disciplinas_comando(interaction: discord.Interaction, personagem: str | None = None):
+    uid = str(interaction.user.id)
+    char = db.resolve_character(uid, personagem)
+    if personagem and char is None:  # pediu um personagem que não existe; sem pedir nenhum, o painel só lê
+        await interaction.response.send_message(
+            f"Não achei nenhum personagem seu chamado **{personagem}**. Use `/personagem listar` pra ver os seus.",
+            ephemeral=True,
+        )
+        return
+    painel = paineis.PainelDisciplinas(interaction.user.id, char["id"] if char else None, str(interaction.user.display_name))
+    await interaction.response.send_message(embed=painel.embed(), view=painel, ephemeral=True)
+    painel.origem = interaction
+
+
 @bot.tree.command(name="dados", description="Abre uma bandeja de dados com botões (d4 a d100), sem digitar nada.")
 async def dados_comando(interaction: discord.Interaction):
     bandeja = paineis.BandejaDados(interaction.user.id, str(interaction.user.display_name))
@@ -1580,6 +1603,10 @@ def _embed_xp(char, res: dict, motivo: str | None, mestre: str) -> discord.Embed
                 f"Use `/atributos` pra distribuir {'o ponto' if g['atributo'] == 1 else 'os pontos'} de atributo. "
                 "Distribui logo: o nível novo já conta com os atributos que você tiver."
             )
+        if g["disciplina"]:
+            linhas.append(
+                f"Você ganhou +{g['disciplina']} ponto de Disciplina: gasta no botão **Disciplinas** do `/minha_ficha`."
+            )
         cor = discord.Color.green()
     elif depois < antes:
         titulo = f"⬇️ {char['name']} perdeu nível ({_mais(aplicado)} XP)"
@@ -1753,6 +1780,65 @@ async def mestre_rank_pericia(
         ),
         color=discord.Color.green() if subiu else discord.Color.orange(),
     )
+    await interaction.response.send_message(embed=embed)
+
+
+@mestre_grupo.command(name="disciplina", description="Define o grau (0 a 5) de uma Disciplina de um personagem, sem conferir pontos.")
+@app_commands.describe(
+    usuario="Jogador dono do personagem",
+    disciplina="Qual Disciplina",
+    grau="O grau novo (0 tira a Disciplina; 4 e 5 só o mestre concede)",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+)
+@app_commands.choices(disciplina=[app_commands.Choice(name=n, value=n) for n in rules.DISCIPLINES])
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_disciplina(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    disciplina: str,
+    grau: app_commands.Range[int, 0, 5],
+    personagem: str | None = None,
+):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    if not rules.has_disciplines(char["race"]):
+        await interaction.response.send_message(
+            f"**{char['name']}** é {char['race'] or 'de raça ainda não sorteada'}, e só Vampiros e Dhampirs têm Disciplinas. "
+            "Se é uma exceção, corrige a raça antes com `/mestre corrigir_raca`.",
+            ephemeral=True,
+        )
+        return
+    if rules.discipline_blocked(disciplina):
+        await interaction.response.send_message(paineis.TEXTO_DO_PROBLEMA["bloqueada"], ephemeral=True)
+        return
+
+    antes = db.get_disciplines(char["id"]).get(disciplina, 0)
+    if grau == antes:
+        await interaction.response.send_message(
+            f"Nada mudou: **{char['name']}** já está com {disciplina} no grau {grau}.", ephemeral=True
+        )
+        return
+    db.set_discipline_grade(char["id"], disciplina, grau)
+    _auditar(interaction, usuario, char, "disciplina", f"{disciplina}: {antes} -> {grau}")
+
+    graus = db.get_disciplines(char["id"])
+    subiu = grau > antes
+    linhas = [
+        f"{interaction.user.display_name} definiu {disciplina} de **{char['name']}** ({usuario.display_name}).",
+        f"**{antes}** → **{grau}**  {vitrine.barra_de_grau(grau)}",
+        vitrine.linha_de_pontos(char["level"], char["race"], graus),
+    ]
+    if grau > rules.PLAYER_MAX_DISCIPLINE_GRADE:
+        linhas.append("Grau concedido pelo mestre: os graus 4 e 5 não gastam ponto.")
+    embed = discord.Embed(
+        title=f"{'⬆️' if subiu else '🛠️'} {disciplina}: grau {grau}/{rules.MAX_DISCIPLINE_GRADE}",
+        description="\n".join(linhas),
+        color=discord.Color.dark_red() if subiu else discord.Color.orange(),
+    )
+    embed.set_footer(text="Os graus 1 a 3 contam como pontos gastos do jogador; o mestre não é barrado por eles.")
     await interaction.response.send_message(embed=embed)
 
 
