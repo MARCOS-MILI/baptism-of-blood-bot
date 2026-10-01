@@ -1112,15 +1112,15 @@ def pronto(uid, jogador, personagem, raca="Humano", classe="Caçador"):
 # --- os cartões saem com a imagem anexada (quando existe) e o texto do resultado ---
 k1 = novo(600, "Ana", "Ana Humana")
 with dados(50): run(bot.raca_inicial.callback(k1, None))
-assert titulo(k1) == "Humanos" and nomes_de_arquivo(k1) == ["raca-humano.webp"] and sent(k1)[1]["embed"].image.url == "attachment://raca-humano.webp"
-assert all(isinstance(f, discord.File) for f in sent(k1)[1]["files"]) and not sent(k1)[1].get("ephemeral") and "Raça de Ana Humana" in txt(k1)
+assert titulo(k1) == "Humanos" and nomes_de_arquivo(k1) == [] and sent(k1)[1]["embed"].image.url == lore.IMAGENS_URL["raca-humano"]
+assert "files" not in sent(k1)[1] and not sent(k1)[1].get("ephemeral") and "Raça de Ana Humana" in txt(k1)
 assert "São seres mundanos" in desc(k1) and "Em jogo=" in txt(k1)
 k2 = novo(601, "Beto", "Beto Vampiro")
 with dados(90): run(bot.raca_inicial.callback(k2, None))
 assert titulo(k2) == "Vampiros" and nomes_de_arquivo(k2) == ["raca-vampiro.jpg"] and "Conde Drácula" in desc(k2)
 k3 = novo(602, "Caio", "Caio Dhampir")
 with dados(97): run(bot.raca_inicial.callback(k3, None))
-assert titulo(k3) == "Dhampirs" and nomes_de_arquivo(k3) == ["raca-dhampir.webp"] and sent(k3)[1]["embed"].image.url == "attachment://raca-dhampir.webp" and "amaldiçoados pela imortalidade" in desc(k3)
+assert titulo(k3) == "Dhampirs" and nomes_de_arquivo(k3) == [] and sent(k3)[1]["embed"].image.url == lore.IMAGENS_URL["raca-dhampir"] and "amaldiçoados pela imortalidade" in desc(k3)
 assert row(602, "Caio Dhampir")["race"] == "Dhampir" and [h["purpose"] for h in historico_de(602)] == ["raca_inicial"]
 for n, esperado_titulo, arquivo in [(50, "3° Estado —  Camponeses", "estado-3.png"), (85, "2° Estado —  Nobreza", "estado-2.png")]:
     u = novo(610 + n, f"E{n}", f"Estado {n}")
@@ -1323,7 +1323,7 @@ assert c1.response.edit_message.call_count == 1 and c1.followup.send.call_count 
 nova = editada(c1)["view"]; assert isinstance(nova, paineis.PainelFicha) and nova is not painel and nova.origem is u
 assert editada(c1)["embed"].title == "📖 Ficha de Ana Painel" and "⚠️ **Ficha incompleta.**" in editada(c1)["embed"].description
 (conteudo, fk), = followups(c1)
-assert conteudo is None and nome_do_cartao(fk["embed"]) == "Humanos" and [f.filename for f in fk["files"]] == ["raca-humano.webp"] and "ephemeral" not in fk    # público, com a imagem
+assert conteudo is None and nome_do_cartao(fk["embed"]) == "Humanos" and "files" not in fk and fk["embed"].image.url == lore.IMAGENS_URL["raca-humano"] and "ephemeral" not in fk    # público, com o gif
 assert row(800, "Ana Painel")["race"] == "Humano" and [h["purpose"] for h in historico_de(800)] == ["raca_inicial"]
 assert estado(nova)["Raça (2)"] == ("🔄", False) and estado(nova)["Classe"] == ("🔒", True) and botao(nova, "Raça (2)").style == discord.ButtonStyle.secondary   # sobram 2 chances
 assert fk["embed"].footer.text == "jogador: Ana · tentativa 1 de 3"
@@ -1529,13 +1529,15 @@ e = ficha_de(820, "Nova"); assert e.author.name == "🩸 Vampiro · 🎓 Ladrão
 for raca, cor, emoji in (("Humano", lore.RACAS["Humano"]["cor"], "🕯️"), ("Dhampir", lore.RACAS["Dhampir"]["cor"], "🌒")):
     db.set_race(row(820, "Sem Nada Ainda")["id"], raca, 50); e = ficha_de(820, "Nova")
     assert e.color.value == cor and e.author.name.startswith(f"{emoji} {raca} · ")
-lore.IMAGENS_URL["raca-dhampir"] = "https://exemplo.com/dhampir.gif"                                                  # link direto: aparece na ficha (privada, sem anexo)
+_urls = dict(lore.IMAGENS_URL); lore.IMAGENS_URL.clear()                                                              # aqui só entra o que o teste põe: nada de links de verdade
 try:
+    e = ficha_de(820, "Nova"); assert e.thumbnail.url is None                                                         # o arquivo de assets/ não vira miniatura (não dá pra anexar na ficha privada)
+    lore.IMAGENS_URL["raca-dhampir"] = "https://exemplo.com/dhampir.gif"                                              # link direto: aparece na ficha (privada, sem anexo)
     e = ficha_de(820, "Nova"); assert e.thumbnail.url == "https://exemplo.com/dhampir.gif"
-    db.set_race(row(820, "Sem Nada Ainda")["id"], "Humano", 50); e = ficha_de(820, "Nova")
-    assert e.thumbnail.url is None                                                                                     # o arquivo de assets/ não vira miniatura (não dá pra anexar na ficha privada)
+    db.set_race(row(820, "Sem Nada Ainda")["id"], "Humano", 50); e = ficha_de(820, "Nova"); assert e.thumbnail.url is None
 finally:
-    lore.IMAGENS_URL.pop("raca-dhampir", None)
+    lore.IMAGENS_URL.clear(); lore.IMAGENS_URL.update(_urls)
+assert ficha_de(820, "Nova").thumbnail.url == lore.IMAGENS_URL["raca-humano"]                                         # com os gifs de verdade, a ficha do Humano mostra o da Sypha
 mfic = inter(820, "Nova"); runp(bot.minha_ficha.callback(mfic, None)); assert "files" not in sent(mfic)[1]              # ficha privada nunca leva anexo
 # o painel refaz a ficha com a mesma cor e o mesmo resumo
 pv = criar(paineis.PainelFicha, 820, row(820, "Sem Nada Ainda")["id"], "Nova"); c = clique(pv, "Níveis", 820, "Nova")

@@ -42,14 +42,16 @@ assert vitrine.chave_de_imagem("raca", "Dhampir") == "raca-dhampir" and vitrine.
 print("2. nomes dos arquivos OK")
 
 # ---------- 3. as imagens que acompanham o bot ----------
-ENVIADAS = [("raca", "Humano"), ("raca", "Vampiro"), ("estado", "3"), ("estado", "2"), ("estado", "1")]
+ENVIADAS = [("raca", "Humano"), ("raca", "Dhampir"), ("raca", "Vampiro"), ("estado", "3"), ("estado", "2"), ("estado", "1")]
+_reserva = dict(lore.IMAGENS_URL); lore.IMAGENS_URL.clear()      # aqui se confere os arquivos da pasta (a reserva dos gifs), não os links
 for tipo, nome in ENVIADAS:
     ref = vitrine.achar_imagem(tipo, nome)
     assert ref is not None and ref[0] == "arquivo", (tipo, nome)
     with Image.open(ref[1]) as im:
         assert im.width >= 400 and im.height >= 200 and im.format in ("PNG", "JPEG", "GIF", "WEBP"), ref[1]
     assert os.path.getsize(ref[1]) < 8 * 1024 * 1024                       # cabe folgado no limite de upload do Discord
-assert vitrine.achar_imagem("raca", "Dhampir")[0] == "arquivo" and vitrine.achar_imagem("raca", "Dhampir")[1].endswith("raca-dhampir.webp") and vitrine.achar_imagem("classe", "Caçador") is None    # o Dhampir já tem arte; as classes ainda não
+lore.IMAGENS_URL.update(_reserva)
+assert vitrine.achar_imagem("raca", "Dhampir") == ("url", lore.IMAGENS_URL["raca-dhampir"]) and vitrine.achar_imagem("classe", "Caçador") is None    # o Dhampir já tem arte; as classes ainda não
 # nenhum arquivo em assets/ com nome fora da convenção (um nome errado nunca apareceria no cartão)
 convencao = ("raca-", "estado-", "clero-", "classe-", "magia-")
 for arq in os.listdir(vitrine.PASTA_IMAGENS):
@@ -62,6 +64,7 @@ pasta_original, urls_original = vitrine.PASTA_IMAGENS, dict(lore.IMAGENS_URL)
 try:
     with tempfile.TemporaryDirectory() as tmp:
         vitrine.PASTA_IMAGENS = tmp
+        lore.IMAGENS_URL.clear()                                                  # sem os gifs de verdade: só vale o que o teste cria
         assert vitrine.achar_imagem("raca", "Dhampir") is None
         Image.new("RGB", (10, 10)).save(os.path.join(tmp, "raca-dhampir.png"))
         assert vitrine.achar_imagem("raca", "Dhampir") == ("arquivo", os.path.join(tmp, "raca-dhampir.png"))
@@ -113,8 +116,8 @@ for raca in dice.RACES:
     assert "🎲" not in e.description and "1d100" not in e.description and lore.DIVISOR not in e.description      # sem o dado e sem o divisor antigo
     assert e.color.value == lore.RACAS[raca]["cor"] and [f.name for f in e.fields] == ["Em jogo"]
 h, v, d = (vitrine.cartao_raca("X", r, "J") for r in dice.RACES)
-assert nomes(h) == ["raca-humano.webp"] and h.embed.image.url == "attachment://raca-humano.webp"
-assert nomes(v) == ["raca-vampiro.jpg"] and nomes(d) == ["raca-dhampir.webp"] and d.embed.image.url == "attachment://raca-dhampir.webp"
+assert nomes(h) == [] and h.embed.image.url == lore.IMAGENS_URL["raca-humano"]
+assert nomes(v) == ["raca-vampiro.jpg"] and nomes(d) == [] and d.embed.image.url == lore.IMAGENS_URL["raca-dhampir"]
 assert [lore.RACAS[r]["emoji_titulo"] for r in ("Humano", "Vampiro", "Dhampir")] == ["<:cruz2:1467276532916686899>", "<:cruz2:1467276532916686899>", "<:cruz3:1467277925857366066>"]      # o Dhampir abre o cabeçalho com a cruz3
 assert lore.RACAS["Dhampir"]["texto"].startswith("Trata-se de seres amaldiçoados pela imortalidade desde o seu nascimento") and lore.RACAS["Dhampir"]["texto"].endswith("fonte principal de alimentação e poder.") and "Alucard" not in lore.RACAS["Dhampir"]["texto"]
 assert d.embed.description.startswith("<:cruz3:1467277925857366066>") and "𝐃hampirs" in d.embed.description.split("\n")[0]                          # o cabeçalho decorado do Dhampir
@@ -240,7 +243,8 @@ assert vitrine.resumo_da_ficha(nova_ficha) == "Nível 1" and vitrine.cor_da_fich
 assert vitrine.resumo_da_ficha(dict(race="Vampiro", class_name="Caçador", level=4)) == "🩸 Vampiro · 🎓 Caçador · Nível 4"
 assert vitrine.resumo_da_ficha(dict(race="Humano", class_name=None, level=2)) == "🕯️ Humano · Nível 2"
 assert vitrine.cor_da_ficha(dict(race="Dhampir", class_name=None, level=1)) == lore.RACAS["Dhampir"]["cor"]
-assert vitrine.miniatura_da_ficha(dict(race="Humano")) is None and vitrine.miniatura_da_ficha(dict(race=None)) is None    # arquivo de assets/ não vira miniatura
+assert vitrine.miniatura_da_ficha(dict(race="Vampiro")) is None and vitrine.miniatura_da_ficha(dict(race=None)) is None    # arquivo de assets/ não vira miniatura
+assert vitrine.miniatura_da_ficha(dict(race="Humano")) == lore.IMAGENS_URL["raca-humano"] and vitrine.miniatura_da_ficha(dict(race="Dhampir")) == lore.IMAGENS_URL["raca-dhampir"]    # já os gifs (links diretos) viram
 print("8. prévia de classe e resumo da ficha OK")
 
 # ---------- 9. enfeites, itálico, rodapé com a tentativa e o resultado atual ----------
@@ -523,5 +527,17 @@ assert "mas sendo sujeitos a algumas ou até mesmo a todas as fraquezas de um va
 assert dh["fraquezas"].startswith("Algumas ou até todas as de um vampiro comum, conforme a linhagem") and "Sem Sol" not in dh["fraquezas"] and "Sol" in dh["fraquezas"] and "Fome" in dh["fraquezas"]      # vale o que está no card
 assert "Fraquezas: " + dh["fraquezas"] in vitrine._em_jogo_da_raca("Dhampir")
 print("19. tabela do site e português dos cards OK")
+
+# ---------- 20. os gifs do Tenor (Humano e Dhampir) e a reserva em arquivo ----------
+URL_H, URL_D = "https://media1.tenor.com/m/BUJrIhFy5hIAAAAC/sypha-castlevania.gif", "https://media1.tenor.com/m/bi24o_IvfJoAAAAC/alucard-castlevania-nocturne.gif"
+assert lore.IMAGENS_URL == {"raca-humano": URL_H, "raca-dhampir": URL_D} and all(u.startswith("https://media") and u.endswith(".gif") and "/view/" not in u for u in lore.IMAGENS_URL.values())    # link direto do arquivo, não a página do Tenor
+assert vitrine.achar_imagem("raca", "Humano") == ("url", URL_H) and vitrine.achar_imagem("raca", "Dhampir") == ("url", URL_D) and vitrine.achar_imagem("raca", "Vampiro")[0] == "arquivo"      # o Vampiro segue com o arquivo
+guardado = dict(lore.IMAGENS_URL); lore.IMAGENS_URL.clear()
+try:                                                                                                              # sem o link, volta pras imagens paradas da pasta assets
+    assert vitrine.achar_imagem("raca", "Humano")[1].endswith("raca-humano.webp") and vitrine.achar_imagem("raca", "Dhampir")[1].endswith("raca-dhampir.webp")
+    assert nomes(vitrine.cartao_raca("K", "Dhampir", "M")) == ["raca-dhampir.webp"] and vitrine.cartao_raca("K", "Dhampir", "M").embed.image.url == "attachment://raca-dhampir.webp"
+finally: lore.IMAGENS_URL.update(guardado)
+assert vitrine.achar_imagem("raca", "Humano") == ("url", URL_H)
+print("20. gifs do Tenor OK")
 
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")
