@@ -15,8 +15,10 @@ outro lugar), coloque em IMAGENS_URL abaixo; o link tem que apontar direto pra i
 
 # Chave: "<tipo>-<nome>" no mesmo formato do nome do arquivo. Valor: link direto da imagem.
 IMAGENS_URL: dict[str, str] = {
-    # GIFs do Tenor (link direto do arquivo, o que termina em .gif; o link da página /view/ não serve). Se um link
-    # sair do ar, é só apagar a linha: o cartão volta pra imagem parada de assets/.
+    # GIFs do Tenor (link direto do arquivo, o que termina em .gif; o link da página /view/ não serve). O bot baixa
+    # cada um quando liga e anexa o arquivo no cartão (o Discord às vezes não mostra imagem de link). Se o download
+    # falhar, o cartão usa a imagem parada de assets/ e deixa a causa no log ("[imagens] ..."); só sem arquivo nenhum
+    # é que o link vai direto.
     "raca-humano": "https://media1.tenor.com/m/BUJrIhFy5hIAAAAC/sypha-castlevania.gif",
     "raca-dhampir": "https://media1.tenor.com/m/bi24o_IvfJoAAAAC/alucard-castlevania-nocturne.gif",
 }

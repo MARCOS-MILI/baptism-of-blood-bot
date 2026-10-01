@@ -20,6 +20,7 @@ for k in ("DB_PATH", "RAILWAY_VOLUME_MOUNT_PATH"):
 import discord
 from discord import app_commands
 
+os.environ["BAIXAR_IMAGENS"] = "0"      # o teste nunca mexe na rede: o download dos gifs tem teste próprio, com um baixador de mentira
 import bot
 import db
 import habil
@@ -1112,15 +1113,15 @@ def pronto(uid, jogador, personagem, raca="Humano", classe="Caçador"):
 # --- os cartões saem com a imagem anexada (quando existe) e o texto do resultado ---
 k1 = novo(600, "Ana", "Ana Humana")
 with dados(50): run(bot.raca_inicial.callback(k1, None))
-assert titulo(k1) == "Humanos" and nomes_de_arquivo(k1) == [] and sent(k1)[1]["embed"].image.url == lore.IMAGENS_URL["raca-humano"]
-assert "files" not in sent(k1)[1] and not sent(k1)[1].get("ephemeral") and "Raça de Ana Humana" in txt(k1)
+assert titulo(k1) == "Humanos" and nomes_de_arquivo(k1) == ["raca-humano.webp"] and sent(k1)[1]["embed"].image.url == "attachment://raca-humano.webp"
+assert all(isinstance(f, discord.File) for f in sent(k1)[1]["files"]) and not sent(k1)[1].get("ephemeral") and "Raça de Ana Humana" in txt(k1)
 assert "São seres mundanos" in desc(k1) and "Em jogo=" in txt(k1)
 k2 = novo(601, "Beto", "Beto Vampiro")
 with dados(90): run(bot.raca_inicial.callback(k2, None))
 assert titulo(k2) == "Vampiros" and nomes_de_arquivo(k2) == ["raca-vampiro.jpg"] and "Conde Drácula" in desc(k2)
 k3 = novo(602, "Caio", "Caio Dhampir")
 with dados(97): run(bot.raca_inicial.callback(k3, None))
-assert titulo(k3) == "Dhampirs" and nomes_de_arquivo(k3) == [] and sent(k3)[1]["embed"].image.url == lore.IMAGENS_URL["raca-dhampir"] and "amaldiçoados pela imortalidade" in desc(k3)
+assert titulo(k3) == "Dhampirs" and nomes_de_arquivo(k3) == ["raca-dhampir.webp"] and sent(k3)[1]["embed"].image.url == "attachment://raca-dhampir.webp" and "amaldiçoados pela imortalidade" in desc(k3)
 assert row(602, "Caio Dhampir")["race"] == "Dhampir" and [h["purpose"] for h in historico_de(602)] == ["raca_inicial"]
 for n, esperado_titulo, arquivo in [(50, "3° Estado —  Camponeses", "estado-3.png"), (85, "2° Estado —  Nobreza", "estado-2.png")]:
     u = novo(610 + n, f"E{n}", f"Estado {n}")
@@ -1323,7 +1324,7 @@ assert c1.response.edit_message.call_count == 1 and c1.followup.send.call_count 
 nova = editada(c1)["view"]; assert isinstance(nova, paineis.PainelFicha) and nova is not painel and nova.origem is u
 assert editada(c1)["embed"].title == "📖 Ficha de Ana Painel" and "⚠️ **Ficha incompleta.**" in editada(c1)["embed"].description
 (conteudo, fk), = followups(c1)
-assert conteudo is None and nome_do_cartao(fk["embed"]) == "Humanos" and "files" not in fk and fk["embed"].image.url == lore.IMAGENS_URL["raca-humano"] and "ephemeral" not in fk    # público, com o gif
+assert conteudo is None and nome_do_cartao(fk["embed"]) == "Humanos" and [f.filename for f in fk["files"]] == ["raca-humano.webp"] and "ephemeral" not in fk    # público, com a imagem (o gif ainda não foi baixado no teste)
 assert row(800, "Ana Painel")["race"] == "Humano" and [h["purpose"] for h in historico_de(800)] == ["raca_inicial"]
 assert estado(nova)["Raça (2)"] == ("🔄", False) and estado(nova)["Classe"] == ("🔒", True) and botao(nova, "Raça (2)").style == discord.ButtonStyle.secondary   # sobram 2 chances
 assert fk["embed"].footer.text == "jogador: Ana · tentativa 1 de 3"
@@ -2689,6 +2690,23 @@ c = apertar(va, "Como funciona", 1700, "Novata"); kw = sent(c)[1]; assert kw["em
 pp_inc = editada(clique(painel_de(1700, "Aurora Reis", "Novata"), "Perícias", 1700, "Novata"))["view"]
 c = rolar_icone(pp_inc, "Furtividade", 1700, "Novata")
 assert followups(c) == [("🔒 A ficha de **Aurora Reis** ainda não está pronta. O passo a passo está em `/ajuda`.", {"ephemeral": True})] and historico_de(1700) == []
+# o download dos gifs: começa na partida, em segundo plano, deixa o resultado no log e dá pra desligar
+import contextlib
+import io as io_
+chamadas = []
+async def baixar_falso():
+    chamadas.append("baixou"); return {"raca-humano": "ok (3 bytes, gif)", "raca-dhampir": "falhou: HTTP 403"}
+async def partida():
+    await bot._preparar_bot(); await asyncio.gather(*bot._tarefas_de_fundo)
+baixar_real = bot.vitrine.baixar_imagens; bot.vitrine.baixar_imagens = baixar_falso; bot.bot.add_view = lambda v: None
+try:
+    os.environ["BAIXAR_IMAGENS"] = "1"; saida = io_.StringIO()
+    with contextlib.redirect_stdout(saida): run(partida())
+    assert chamadas == ["baixou"] and saida.getvalue() == "[imagens] raca-humano: ok (3 bytes, gif)\n[imagens] raca-dhampir: falhou: HTTP 403\n"
+    bot._tarefas_de_fundo.clear(); os.environ["BAIXAR_IMAGENS"] = "0"
+    run(partida()); assert chamadas == ["baixou"] and bot._tarefas_de_fundo == []                                  # desligado: não baixa nada
+finally:
+    os.environ["BAIXAR_IMAGENS"] = "0"; bot.vitrine.baixar_imagens = baixar_real; bot.bot.add_view = add_view_real; bot._tarefas_de_fundo.clear()
 print("AB. Comece aqui OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

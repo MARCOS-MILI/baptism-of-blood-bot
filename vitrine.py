@@ -23,6 +23,9 @@ EXTENSOES = ("gif", "png", "jpg", "jpeg", "webp")
 
 _bytes_em_cache: dict[str, bytes] = {}
 
+LIMITE_DO_DOWNLOAD = 8 * 1024 * 1024   # o que o Discord aceita de anexo, com folga
+_baixadas: dict[str, tuple[str, bytes]] = {}   # chave da imagem -> (nome do arquivo, conteúdo) dos links já baixados
+
 
 def slug(texto: str) -> str:
     """'Mestre de Forja' vira 'mestre-de-forja': minúsculas, sem acento, hífen no lugar de espaço."""
@@ -34,16 +37,65 @@ def chave_de_imagem(tipo: str, nome: str) -> str:
     return f"{tipo}-{slug(nome)}"
 
 
+def _arquivo_local(chave: str) -> str | None:
+    for extensao in EXTENSOES:
+        caminho = os.path.join(PASTA_IMAGENS, f"{chave}.{extensao}")
+        if os.path.isfile(caminho):
+            return caminho
+    return None
+
+
+def _extensao_pela_assinatura(dados: bytes) -> str | None:
+    """Confere nos primeiros bytes se é mesmo uma imagem (e de que tipo), pra não anexar uma página de erro."""
+    if dados[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if dados[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if dados[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if dados[:4] == b"RIFF" and dados[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+async def _baixar_link(link: str) -> bytes:
+    import aiohttp   # já vem com o discord.py
+    cabecalhos = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25), headers=cabecalhos) as sessao:
+        async with sessao.get(link) as resposta:
+            if resposta.status != 200:
+                raise RuntimeError(f"HTTP {resposta.status}")
+            return await resposta.read()
+
+
+async def baixar_imagens(baixar=None) -> dict[str, str]:
+    """Baixa os links de IMAGENS_URL e guarda na memória, pra o cartão anexar o arquivo (anexo sempre aparece; o Discord
+    às vezes não mostra uma imagem de link). Devolve o que aconteceu com cada uma, pra ir pro log."""
+    baixar = baixar or _baixar_link
+    resultado = {}
+    for chave, link in list(lore.IMAGENS_URL.items()):
+        try:
+            dados = await baixar(link)
+            if len(dados) > LIMITE_DO_DOWNLOAD:
+                raise ValueError("passou de 8 MB")
+            extensao = _extensao_pela_assinatura(dados)
+            if extensao is None:
+                raise ValueError("não é uma imagem")
+        except Exception as erro:   # um link fora do ar não pode derrubar o bot: o cartão usa a imagem da pasta
+            resultado[chave] = f"falhou: {erro}"
+            continue
+        _baixadas[chave] = (f"{chave}.{extensao}", dados)
+        resultado[chave] = f"ok ({len(dados)} bytes, {extensao})"
+    return resultado
+
+
 def achar_imagem(tipo: str, nome: str) -> tuple[str, str] | None:
     """('url', link) ou ('arquivo', caminho) da imagem desse resultado, ou None se não tem."""
     chave = chave_de_imagem(tipo, nome)
     if chave in lore.IMAGENS_URL:
         return ("url", lore.IMAGENS_URL[chave])
-    for extensao in EXTENSOES:
-        caminho = os.path.join(PASTA_IMAGENS, f"{chave}.{extensao}")
-        if os.path.isfile(caminho):
-            return ("arquivo", caminho)
-    return None
+    caminho = _arquivo_local(chave)
+    return ("arquivo", caminho) if caminho else None
 
 
 def _conteudo(caminho: str) -> bytes:
@@ -148,10 +200,21 @@ def _montar(*, autor: str, titulo: str, cor: int, topo: str | None = None, texto
 
     arquivos: list[discord.File] = []
 
-    def aplicar(referencia, colocar):
+    def aplicar(referencia, colocar, anexar_link=False):
         if referencia is None:
             return
         tipo, valor = referencia
+        if tipo == "url" and anexar_link:
+            # a imagem grande de um link vira anexo: o que o bot baixou, senão a imagem parada da pasta, senão o link
+            chave = next((k for k, v in lore.IMAGENS_URL.items() if v == valor), None)
+            if chave in _baixadas:
+                nome_do_arquivo, dados = _baixadas[chave]
+                arquivos.append(discord.File(io.BytesIO(dados), filename=nome_do_arquivo))
+                colocar(url=f"attachment://{nome_do_arquivo}")
+                return
+            local = _arquivo_local(chave) if chave else None
+            if local:
+                tipo, valor = "arquivo", local
         if tipo == "url":
             colocar(url=valor)
             return
@@ -159,7 +222,7 @@ def _montar(*, autor: str, titulo: str, cor: int, topo: str | None = None, texto
         arquivos.append(discord.File(io.BytesIO(_conteudo(valor)), filename=nome_do_arquivo))
         colocar(url=f"attachment://{nome_do_arquivo}")
 
-    aplicar(imagem, embed.set_image)
+    aplicar(imagem, embed.set_image, anexar_link=True)
     aplicar(miniatura, embed.set_thumbnail)
     if rodape:
         embed.set_footer(text=rodape)

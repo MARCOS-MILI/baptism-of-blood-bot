@@ -34,6 +34,7 @@ Setup rápido:
   3. python bot.py
 """
 
+import asyncio
 import os
 import sys
 import tempfile
@@ -2720,11 +2721,23 @@ paineis.registrar(paineis.Ganchos(
 escudo.registrar(eh_mestre=_membro_eh_mestre, bloqueio_de_rolagem=_bloqueio_curto)
 
 
+_tarefas_de_fundo: list[asyncio.Task] = []
+
+
+async def _baixar_imagens_em_segundo_plano():
+    """Baixa os gifs dos links (IMAGENS_URL) sem atrasar a partida e deixa no log o que aconteceu com cada um."""
+    for chave, situacao in (await vitrine.baixar_imagens()).items():
+        print(f"[imagens] {chave}: {situacao}", flush=True)
+
+
 async def _preparar_bot():
-    """Roda uma vez, antes de conectar: registra os botões do quadro da cena, que têm identificador fixo e
-    por isso continuam funcionando nas mensagens antigas depois que o bot reinicia."""
+    """Roda uma vez, antes de conectar: registra os botões do quadro da cena e do Comece aqui, que têm identificador
+    fixo e por isso continuam funcionando nas mensagens antigas depois que o bot reinicia, e começa a baixar os gifs.
+    (BAIXAR_IMAGENS=0 desliga o download.)"""
     bot.add_view(escudo.QuadroDaCena())
     bot.add_view(ComecoAqui())
+    if os.environ.get("BAIXAR_IMAGENS", "1") != "0":
+        _tarefas_de_fundo.append(asyncio.create_task(_baixar_imagens_em_segundo_plano()))
 
 
 bot.setup_hook = _preparar_bot
