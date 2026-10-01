@@ -291,6 +291,17 @@ AJUDA = {
         ),
         "requisito": "Só mestres.",
     },
+    "mestre comecar_aqui": {
+        "grupo": "mestre",
+        "resumo": "posta a mensagem de boas-vindas com botões",
+        "uso": "/mestre comecar_aqui",
+        "detalhes": (
+            "Posta no canal onde você usar a mensagem de boas-vindas, com os botões Criar personagem (só pede o nome), "
+            "Minha ficha, Dados e Como funciona. Assim os jogadores novos começam clicando, sem digitar comando. "
+            "Fixa a mensagem no canal (o pino). Os botões continuam funcionando mesmo se o bot reiniciar."
+        ),
+        "requisito": "Só mestres.",
+    },
     "mestre habilidades": {
         "grupo": "mestre",
         "resumo": "a fila das habilidades que os jogadores criaram",
@@ -327,13 +338,14 @@ AJUDA = {
     },
     "pericias": {
         "grupo": "personagem",
-        "resumo": "distribui os pontos das perícias e testa com um clique",
+        "resumo": "rola uma perícia com um toque e distribui os pontos",
         "uso": "/pericias",
         "detalhes": (
-            "Abre a aba Perícias da ficha. Escolhe a perícia e aperta +1 ou -1 pra distribuir os pontos (25 na criação, "
-            "no máximo 7 em cada). Pra testar, escolhe também o atributo (ele depende da ação) e aperta Testar: rola 1d20 "
-            "+ atributo + perícia no canal. O botão Modo troca entre normal, vantagem e desvantagem. ⭐ marca as "
-            "perícias em que a sua classe tem vantagem."
+            "Abre a aba Perícias. Cada perícia tem um ícone: toca nele e o bot rola 1d20 + atributo + perícia sozinho, "
+            "no canal. O atributo é o padrão de cada perícia (o botão Atributo deixa forçar outro). A vantagem da sua "
+            "classe entra sozinha (os ícones azuis, com ⭐), e o botão do modo troca entre normal, vantagem e "
+            "desvantagem. Distribuir abre a tela dos pontos (25 na criação, no máximo 7 em cada) e o menu onde "
+            "Caçador e Mercenário escolhem Luta ou Pontaria e o Mundano escolhe duas perícias."
         ),
         "requisito": "Precisa de um personagem.",
     },
@@ -479,7 +491,7 @@ MESTRE_SUBGRUPOS = [
     ("Sorteios", ["apagar", "corrigir_magia", "corrigir_raca", "corrigir_estado"]),
     ("Cena", ["escudo"]),
     ("Habilidades e perícias", ["habilidades", "pericia"]),
-    ("Ajuda", ["ajuda"]),
+    ("Ajuda", ["ajuda", "comecar_aqui"]),
     ("Jogadores", ["jogador", "vagas", "excluir_personagem", "apagar_historico", "exportar"]),
 ]
 

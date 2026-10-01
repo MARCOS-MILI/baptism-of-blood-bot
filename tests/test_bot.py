@@ -100,7 +100,7 @@ pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
 assert sorted(o["name"] for o in pay["personagem"]["options"]) == ["criar","excluir","listar","usar"]
-assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","sorte","ajuda","habilidades","pericia","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
+assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","sorte","ajuda","habilidades","pericia","comecar_aqui","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
 req = lambda opts: {o["name"] for o in opts if o.get("required")}
 assert req(pay["rolar"]["options"]) == {"dado"} and req(pay["raca_inicial"].get("options", [])) == set()
 assert req(sub_("mestre", "dar_xp")["options"]) == {"usuario", "quantidade"}
@@ -186,7 +186,7 @@ print("B. fluxo básico OK")
 # ============================ C. mestre: permissão e correções ============================
 assert bot._eh_mestre(inter(2,"Zé", admin=True)) and bot._eh_mestre(inter(2,"Zé", manage=True))
 assert bot._eh_mestre(inter(2,"Zé", roles=["mestre"])) and not bot._eh_mestre(inter(2,"Zé", roles=["Jogador"])) and not bot._eh_mestre(inter(2,"Zé"))
-todos = list(bot.mestre_grupo.commands); assert len(todos) == 22
+todos = list(bot.mestre_grupo.commands); assert len(todos) == 23
 for c in todos:                                                     # TODOS os comandos de mestre barram quem não é mestre
     p = inter(3, "Intruso")
     assert run(c._check_can_run(p)) is False, c.name
@@ -1994,7 +1994,7 @@ errm = ic(701, "Ana", CH); runp(mi.on_error(errm, RuntimeError("falhou"))); asse
 registrados = []; original_add = bot.bot.add_view; bot.bot.add_view = lambda v, **k: registrados.append(v)
 try: runp(bot._preparar_bot())
 finally: bot.bot.add_view = original_add
-assert len(registrados) == 1 and isinstance(registrados[0], escudo.QuadroDaCena) and registrados[0].is_persistent()
+assert [type(v) for v in registrados] == [escudo.QuadroDaCena, bot.ComecoAqui] and all(v.is_persistent() for v in registrados)
 # a ajuda conhece os três comandos
 for chave in ("iniciativa", "intencao", "mestre escudo"): assert chave in ajuda.AJUDA and len(ajuda.AJUDA[chave]["detalhes"]) <= 600
 print("V. Escudo do Mestre OK")
@@ -2390,7 +2390,7 @@ gm_ = inter(4, "Mestre Belmont", roles=["Mestre"]); jog = inter(1500, "Jogador")
 assert bot._eh_mestre in bot.mestre_ajuda.checks and bot._eh_mestre(jog) is False
 run(bot.mestre_ajuda.callback(gm_, None)); e = sent(gm_)[1]["embed"]
 assert sent(gm_)[1]["ephemeral"] and e.title == "🛡️ Ajuda do mestre" and [f.name for f in e.fields] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Habilidades e perícias", "Ajuda", "Jogadores"] and len(e) <= 6000
-assert sum(f.value.count("`/mestre ") for f in e.fields) == 22 and "`/mestre sorte` mexe na sorte dos d20 de um personagem" in e.fields[2].value
+assert sum(f.value.count("`/mestre ") for f in e.fields) == 23 and "`/mestre sorte` mexe na sorte dos d20 de um personagem" in e.fields[2].value
 run(bot.mestre_ajuda.callback(gm_, "dar_xp")); e = sent(gm_)[1]["embed"]; assert e.title == "📖 /mestre dar_xp" and sent(gm_)[1]["ephemeral"]
 run(bot.mestre_ajuda.callback(gm_, "mestre sorte")); assert sent(gm_)[1]["embed"].title == "📖 /mestre sorte"
 run(bot.mestre_ajuda.callback(gm_, "corrigir")); assert txt(gm_) == "Não achei nenhum comando de mestre com \"corrigir\". Quis dizer: `/mestre corrigir_nivel`, `/mestre corrigir_magia`, `/mestre corrigir_raca`, `/mestre corrigir_estado`, `/mestre corrigir_classe`?"
@@ -2445,67 +2445,105 @@ MESTRE_ = dict(roles=["Mestre"])
 pe = pronto(1600, "Per", "Perito", classe="Caçador"); PC = row(1600, "Perito")["id"]
 db.set_attributes(PC, {"forca": 3, "destreza": 2, "vitalidade": 3, "razao": 0, "vontade": 2, "alma": 1})          # Caçador: Mana (1+2)x3+5 = 14
 
-# --- a aba Perícias: distribuir ---
+# --- a aba Perícias: um ícone por perícia, que rola sozinho ---
+def botao_de(view, pericia):
+    achados = [b for b in view.children if isinstance(b, discord.ui.Button) and str(b.emoji) == rules.SKILL_ICONS[pericia]]
+    assert len(achados) == 1, pericia; return achados[0]
+def rolar_icone(view, pericia, uid=1600, nome="Per"):
+    c = inter(uid, nome); runp(botao_de(view, pericia).callback(c)); return c
+def azuis(view): return [p for p in rules.SKILLS if botao_de(view, p).style == discord.ButtonStyle.primary]
 c = clique(painel_de(1600, "Perito", "Per"), "Perícias", 1600, "Per"); pp = editada(c)["view"]
-assert isinstance(pp, paineis.PainelPericias) and editada(c)["embed"].title == "🎯 Perícias de Perito"; confere_componentes(pp)
-assert estado_completo(pp) == {"Ficha": ("📋", False), "Vitais": ("❤️", False), "Perícias": ("🎯", True), "Habilidades": ("✨", False), "-1": ("None", True), "+1": ("None", False), "Testar": ("🎲", True), "Modo: Normal": ("🎲", False)}
-sk, at = selects(pp); assert sk.placeholder == "1. Escolhe a perícia" and at.placeholder == "2. Atributo do teste (só pra rolar)" and len(sk.options) == 18 and len(at.options) == 6
-assert [o.label for o in sk.options][:3] == ["Acrobacia", "Atletismo", "Furtividade"] and sk.options[0].default and sk.options[0].description == "0 pontos" and [o.description for o in sk.options if "⭐" in o.description] == ["0 pontos · ⭐ vantagem da classe"] * 3
-assert [(o.label, o.description) for o in at.options][:2] == [("Força", "valor 3"), ("Destreza", "valor 2")] and not any(o.default for o in at.options)
-assert "🎯 Pontos livres: **25** de 25" in editada(c)["embed"].description
-for _ in range(7): c = clique(pp, "+1", 1600, "Per")
-assert pontos_de(1600, "Perito") == {"Acrobacia": 7} and estado_completo(pp)["+1"] == ("None", True) and "Pontos livres: **18** de 25" in editada(c)["embed"].description      # chegou no máximo: o +1 desliga
-c = inter(1600, "Per"); runp(pp._mudar(1, c)); assert pontos_de(1600, "Perito") == {"Acrobacia": 7}                                          # nem forçando passa de 7
-escolher(pp, 0, "Luta", 1600, "Per")
-for _ in range(5): c = clique(pp, "+1", 1600, "Per")
-c = clique(pp, "-1", 1600, "Per"); assert pontos_de(1600, "Perito") == {"Acrobacia": 7, "Luta": 4} and "Pontos livres: **14** de 25" in editada(c)["embed"].description and pp.selecionada == "Luta"
-assert [o.description for o in selects(pp)[0].options if o.label == "Luta"] == ["4 pontos · ⭐ vantagem da classe"]
-for _ in range(4): clique(pp, "-1", 1600, "Per")
-assert pontos_de(1600, "Perito") == {"Acrobacia": 7} and estado_completo(pp)["-1"] == ("None", True); c = inter(1600, "Per"); runp(pp._mudar(-1, c)); assert pontos_de(1600, "Perito") == {"Acrobacia": 7}    # em 0, nada negativo
+assert isinstance(pp, paineis.PainelPericias) and editada(c)["embed"].title == "🎲 Perícias de Perito"; confere_componentes(pp)
+botoes = [b for b in pp.children if isinstance(b, discord.ui.Button)]; icones = [b for b in botoes if b.label is None]
+assert len(botoes) == 25 and {r: sum(1 for b in botoes if b.row == r) for r in range(5)} == {0: 5, 1: 5, 2: 5, 3: 5, 4: 5}
+assert [str(b.emoji) for b in icones] == [rules.SKILL_ICONS[p] for p in rules.SKILLS] and [b.row for b in icones] == [1] * 5 + [2] * 5 + [3] * 5 + [4] * 3          # 18 ícones: 5, 5, 5 e 3
+assert {b.label: (str(b.emoji), b.row) for b in botoes if b.label} == {"Ficha": ("📋", 0), "Vitais": ("❤️", 0), "Perícias": ("🎯", 0), "Habilidades": ("✨", 0), "Normal": ("🎲", 0), "Distribuir": ("🎯", 4), "Atributo": ("🧬", 4)}
+assert azuis(pp) == ["Religião"]                                                                                         # Caçador que ainda não escolheu: só a vantagem fixa é azul
+d = editada(c)["embed"].description; assert "⚠️ Escolhe a vantagem da sua classe: Luta ou Pontaria." in d and "🥷 **Furtividade** +2 · Destreza 2 + 0" in d.split("\n") and "⛪ **Religião** +0 · Razão 0 + 0 ⭐" in d.split("\n")
+with d20s(9): c = rolar_icone(pp, "Furtividade")                                                                        # Destreza 2 + 0 pontos
+e = card_publico(c); assert e.title == "🎲 Perito rolou 1d20+2" and e.description == "**9 + 2 = 11**" and e.footer.text == "Furtividade (Destreza) · jogador: Per" and "ephemeral" not in followups(c)[0][1] and editada(c)["view"] is pp
+assert [(h["purpose"], h["notation"], h["total"], h["character_name"]) for h in historico_de(1600)][0] == ("Furtividade (Destreza)", "1d20+2", 11, "Perito")
+with d20s(4, 15): c = rolar_icone(pp, "Religião")                                                                       # a vantagem da classe entra sozinha
+assert card_publico(c).title == "🎲 Perito rolou 1d20" and card_publico(c).description == "**15 = 15**\n⭐ classe: vantagem (4 e 15)" and card_publico(c).footer.text == "Religião (Razão) · jogador: Per"
+db.set_skill_points(PC, "Luta", 4)
+with d20s(14): c = rolar_icone(pp, "Luta")                                                                              # Força 3 + 4 pontos, sem vantagem (ainda não escolheu)
+assert card_publico(c).title == "🎲 Perito rolou 1d20+7" and card_publico(c).description == "**14 + 7 = 21**"
+# o modo do jogador
+c = clique(pp, "Normal", 1600, "Per"); assert pp.modo == "vantagem" and editada(c)["embed"].footer.text.startswith("Modo: vantagem") and estado_completo(pp)["Vantagem"] == ("⬆️", False)
+with d20s(4, 15): c = rolar_icone(pp, "Furtividade")
+assert card_publico(c).description == "**15 + 2 = 17**\n🎲 modo vantagem (4 e 15)"
+with d20s(4, 15): c = rolar_icone(pp, "Religião")                                                                       # vantagem do jogador + vantagem da classe: não soma, vale a do jogador
+assert card_publico(c).description == "**15 = 15**\n🎲 modo vantagem (4 e 15)"
+c = clique(pp, "Vantagem", 1600, "Per"); assert pp.modo == "desvantagem" and estado_completo(pp)["Desvantagem"] == ("⬇️", False)
+with d20s(12, 3): c = rolar_icone(pp, "Furtividade")
+assert card_publico(c).description == "**3 + 2 = 5**\n🎲 modo desvantagem (12 e 3)"
+with d20s(8): c = rolar_icone(pp, "Religião")                                                                            # desvantagem e vantagem da classe se cancelam
+assert card_publico(c).title == "🎲 Perito rolou 1d20" and card_publico(c).description == "**8 = 8**"
+c = clique(pp, "Desvantagem", 1600, "Per"); assert pp.modo == "normal"
+db.add_dice_effect(PC, "bonus", 2, 1, False, None, "4")                                                                # sorte do mestre junto com a vantagem da classe
+with d20s(4, 15): c = rolar_icone(pp, "Religião")
+assert card_publico(c).description == "**15 + 2 = 17**\n🍀 classe: vantagem (4 e 15) · +2" and db.get_dice_effects(PC) == []
+# o atributo forçado
+c = clique(pp, "Atributo", 1600, "Per"); assert pp.atributo == "forca" and botao(pp, "Atributo").style == discord.ButtonStyle.success and editada(c)["embed"].footer.text == "Modo: normal · Atributo: Força · jogador: Per"
+with d20s(9): c = rolar_icone(pp, "Furtividade")                                                                         # Força 3 em vez de Destreza 2
+assert card_publico(c).title == "🎲 Perito rolou 1d20+3" and card_publico(c).description == "**9 + 3 = 12**" and card_publico(c).footer.text == "Furtividade (Força) · jogador: Per"
+for esperado in ("destreza", "vitalidade", "razao", "vontade", "alma", None): clique(pp, "Atributo", 1600, "Per"); assert pp.atributo == esperado
+assert botao(pp, "Atributo").style == discord.ButtonStyle.secondary and runp(pp.interaction_check(inter(999, "Intruso"))) is False and runp(pp.interaction_check(inter(1600, "Per"))) is True
+# --- a tela de distribuir pontos ---
+for p in rules.SKILLS: db.set_skill_points(PC, p, 0)
+c = clique(pp, "Distribuir", 1600, "Per"); pd = editada(c)["view"]
+assert isinstance(pd, paineis.PainelDistribuirPericias) and pp.is_finished() and editada(c)["embed"].title == "🎯 Pontos de perícia de Perito"; confere_componentes(pd)
+assert estado_completo(pd) == {"Ficha": ("📋", False), "Vitais": ("❤️", False), "Perícias": ("🎯", True), "Habilidades": ("✨", False), "-1": ("None", True), "+1": ("None", False), "Rolar perícias": ("🎲", False)}
+sk, vant = selects(pd); assert sk.placeholder == "1. Escolhe a perícia" and len(sk.options) == 18 and sk.options[0].default and (vant.placeholder, vant.min_values, vant.max_values) == ("⭐ Escolhe a vantagem da classe (Luta ou Pontaria)", 1, 1)
+assert [(o.label, o.default) for o in vant.options] == [("Luta", False), ("Pontaria", False)] and [o.description for o in sk.options if "⭐" in o.description] == ["0 pontos · ⭐ vantagem da classe"] and "⚠️ Escolhe a vantagem da sua classe" in editada(c)["embed"].description
+c = escolher(pd, 1, "Pontaria", 1600, "Per"); assert db.get_skill_picks(PC) == ["Pontaria"] and "⚠️" not in editada(c)["embed"].description and [(o.label, o.default) for o in selects(pd)[1].options] == [("Luta", False), ("Pontaria", True)]
+c = escolher(pd, 1, "Luta", 1600, "Per"); assert db.get_skill_picks(PC) == ["Luta"]                                       # troca, não soma
+c = escolher(pd, 1, "Furtividade", 1600, "Per"); assert db.get_skill_picks(PC) == ["Luta"]                              # o que não cabe na classe é ignorado
+c = inter(1600, "Per"); runp(pd._redesenhar(c)); assert "🎯 Pontos livres: **25** de 25" in editada(c)["embed"].description
+for _ in range(7): c = clique(pd, "+1", 1600, "Per")
+assert pontos_de(1600, "Perito") == {"Acrobacia": 7} and estado_completo(pd)["+1"] == ("None", True) and "Pontos livres: **18** de 25" in editada(c)["embed"].description      # chegou no máximo: o +1 desliga
+c = inter(1600, "Per"); runp(pd._mudar(1, c)); assert pontos_de(1600, "Perito") == {"Acrobacia": 7}                      # nem forçando passa de 7
+escolher(pd, 0, "Luta", 1600, "Per")
+for _ in range(5): c = clique(pd, "+1", 1600, "Per")
+c = clique(pd, "-1", 1600, "Per"); assert pontos_de(1600, "Perito") == {"Acrobacia": 7, "Luta": 4} and "Pontos livres: **14** de 25" in editada(c)["embed"].description and pd.selecionada == "Luta"
+assert [o.description for o in selects(pd)[0].options if o.label == "Luta"] == ["4 pontos · ⭐ vantagem da classe"]
+for _ in range(4): clique(pd, "-1", 1600, "Per")
+assert pontos_de(1600, "Perito") == {"Acrobacia": 7} and estado_completo(pd)["-1"] == ("None", True); c = inter(1600, "Per"); runp(pd._mudar(-1, c)); assert pontos_de(1600, "Perito") == {"Acrobacia": 7}    # em 0, nada negativo
 for pericia, n in (("Luta", 4), ("Fortitude", 7), ("Reflexos", 7)): db.set_skill_points(PC, pericia, n)
-escolher(pp, 0, "Atletismo", 1600, "Per"); c = inter(1600, "Per"); runp(pp._redesenhar(c))
-assert "✅ Todos os 25 pontos distribuídos" in editada(c)["embed"].description and estado_completo(pp)["+1"] == ("None", True) and editada(c)["embed"].color == discord.Color.green()     # tudo gasto: o +1 desliga mesmo com 0 na perícia
-db.set_skill_points(PC, "Reflexos", 0); db.set_skill_points(PC, "Fortitude", 3); c = inter(1600, "Per"); runp(pp._redesenhar(c))
+escolher(pd, 0, "Atletismo", 1600, "Per"); c = inter(1600, "Per"); runp(pd._redesenhar(c))
+assert "✅ Todos os 25 pontos distribuídos" in editada(c)["embed"].description and estado_completo(pd)["+1"] == ("None", True) and editada(c)["embed"].color == discord.Color.green()     # tudo gasto: o +1 desliga mesmo com 0 na perícia
+db.set_skill_points(PC, "Reflexos", 0); db.set_skill_points(PC, "Fortitude", 3); c = inter(1600, "Per"); runp(pd._redesenhar(c))
 assert pontos_de(1600, "Perito") == {"Acrobacia": 7, "Luta": 4, "Fortitude": 3} and "Pontos livres: **11** de 25" in editada(c)["embed"].description
-# --- a aba Perícias: testar ---
-escolher(pp, 0, "Luta", 1600, "Per"); assert estado_completo(pp)["Testar"] == ("🎲", True) and estado_completo(pp)["-1"] == ("None", False)
-c = escolher(pp, 1, "forca", 1600, "Per"); assert pp.atributo == "forca" and estado_completo(pp)["Testar"] == ("🎲", False) and editada(c)["embed"].footer.text == "Teste: Luta + Força · modo normal · jogador: Per" and [o.default for o in selects(pp)[1].options][0]
-with d20s(14): c = clique(pp, "Testar", 1600, "Per")                                                                    # 1d20 + Força 3 + Luta 4
-e = card_publico(c); assert e.title == "🎲 Perito rolou 1d20+7" and e.description == "**14 + 7 = 21**" and e.footer.text == "Luta (Força) · jogador: Per" and "ephemeral" not in followups(c)[0][1]
-assert editada(c)["view"] is pp and [(h["purpose"], h["notation"], h["total"], h["character_name"]) for h in historico_de(1600)][0] == ("Luta (Força)", "1d20+7", 21, "Perito")
-c = clique(pp, "Modo: Normal", 1600, "Per"); assert estado_completo(pp)["Modo: Vantagem"] == ("⬆️", False) and "Modo: Normal" not in estado_completo(pp) and pp.modo == "vantagem" and editada(c)["embed"].footer.text == "Teste: Luta + Força · modo vantagem · jogador: Per"
-with d20s(4, 15): c = clique(pp, "Testar", 1600, "Per")
-assert card_publico(c).description == "**15 + 7 = 22**\n🎲 modo vantagem (4 e 15)"                                               # o modo do jogador não vira "sorte do mestre" (🍀)
-c = clique(pp, "Modo: Vantagem", 1600, "Per"); assert "Modo: Desvantagem" in estado_completo(pp) and estado_completo(pp)["Modo: Desvantagem"][0] == "⬇️"
-with d20s(12, 3): c = clique(pp, "Testar", 1600, "Per")
-assert card_publico(c).description == "**3 + 7 = 10**\n🎲 modo desvantagem (12 e 3)"
-db.add_dice_effect(PC, "bonus", 2, 1, False, None, "4")                                                                 # sorte do mestre + modo do jogador, juntos
-with d20s(12, 3): c = clique(pp, "Testar", 1600, "Per")
-assert card_publico(c).description == "**3 + 9 = 12**\n🍀 modo desvantagem (12 e 3) · +2" and db.get_dice_effects(PC) == []
-c = clique(pp, "Modo: Desvantagem", 1600, "Per"); assert pp.modo == "normal"
-escolher(pp, 0, "Furtividade", 1600, "Per"); escolher(pp, 1, "alma", 1600, "Per")                                      # 0 pontos e Alma 1: +1
-with d20s(9): c = clique(pp, "Testar", 1600, "Per"); assert card_publico(c).description == "**9 + 1 = 10**" and card_publico(c).title == "🎲 Perito rolou 1d20+1"
-escolher(pp, 1, "razao", 1600, "Per")                                                                                 # 0 pontos e Razão 0: sem modificador
-with d20s(9): c = clique(pp, "Testar", 1600, "Per"); assert card_publico(c).title == "🎲 Perito rolou 1d20" and card_publico(c).description == "**9 = 9**"
-c = inter(1600, "Per"); pp.atributo = None; runp(pp._testar(c)); assert followups(c)[0] == ("Escolhe o atributo do teste no segundo menu.", {"ephemeral": True}); pp.atributo = "razao"      # sem atributo, nem rola
-assert runp(pp.interaction_check(inter(999, "Intruso"))) is False and runp(pp.interaction_check(inter(1600, "Per"))) is True
-c = clique(pp, "Ficha", 1600, "Per"); assert isinstance(editada(c)["view"], paineis.PainelFicha) and pp.is_finished()
-# --- Mundano começa com 30; Sábio ganha mais por nível ---
-mu = pronto(1601, "Mun", "Mundana", classe="Mundano"); assert "de 30" in editada(clique(painel_de(1601, "Mundana", "Mun"), "Perícias", 1601, "Mun"))["embed"].description
+# de volta pra rolagem: a escolha de Luta já vale
+c = clique(pd, "Rolar perícias", 1600, "Per"); pp2 = editada(c)["view"]; assert isinstance(pp2, paineis.PainelPericias) and pd.is_finished() and azuis(pp2) == ["Luta", "Religião"]
+with d20s(4, 15): c = rolar_icone(pp2, "Luta")                                                                          # Força 3 + 4 pontos, e a vantagem da classe sozinha
+assert card_publico(c).title == "🎲 Perito rolou 1d20+7" and card_publico(c).description == "**15 + 7 = 22**\n⭐ classe: vantagem (4 e 15)" and "⚠️" not in editada(c)["embed"].description
+c = clique(pp2, "Ficha", 1600, "Per"); assert isinstance(editada(c)["view"], paineis.PainelFicha) and pp2.is_finished()
+# --- Mundano escolhe duas; Sábio tem as duas fixas; os pontos de cada um ---
+mu = pronto(1601, "Mun", "Mundana", classe="Mundano"); MU = row(1601, "Mundana")["id"]
+pm = editada(clique(painel_de(1601, "Mundana", "Mun"), "Perícias", 1601, "Mun"))["view"]
+assert "⚠️ Escolhe 2 perícias com vantagem." in pm.embed().description and azuis(pm) == []
+cm = clique(pm, "Distribuir", 1601, "Mun"); pdm = editada(cm)["view"]; assert "de 30" in editada(cm)["embed"].description
+vm = selects(pdm)[1]; assert (vm.min_values, vm.max_values, len(vm.options), vm.placeholder) == (1, 2, 18, "⭐ Escolhe a vantagem da classe (2 perícias)")
+vm._values = ["Luta", "Furtividade"]; c = inter(1601, "Mun"); runp(vm.callback(c)); assert db.get_skill_picks(MU) == ["Luta", "Furtividade"] and "⚠️" not in editada(c)["embed"].description
+pm2 = editada(clique(pdm, "Rolar perícias", 1601, "Mun"))["view"]; assert azuis(pm2) == ["Furtividade", "Luta"]
 sa = pronto(1602, "Sab", "Sabia", classe="Sábio"); db.set_level(row(1602, "Sabia")["id"], 3)
-assert "de 33" in editada(clique(painel_de(1602, "Sabia", "Sab"), "Perícias", 1602, "Sab"))["embed"].description          # Sábio nível 3: 25 + 2 níveis x 4
+psa = editada(clique(painel_de(1602, "Sabia", "Sab"), "Perícias", 1602, "Sab"))["view"]; assert azuis(psa) == ["Ciências", "Investigação"] and "⚠️" not in psa.embed().description
+csa = clique(psa, "Distribuir", 1602, "Sab"); assert "de 33" in editada(csa)["embed"].description and len(selects(editada(csa)["view"])) == 1          # Sábio nível 3: 25 + 2 x 4, e não tem escolha de vantagem
 # --- /pericias abre a aba direto; /mestre pericia conserta ---
 i = inter(1600, "Per"); runp(bot.pericias_comando.callback(i, None)); v = enviada(i)
-assert isinstance(v, paineis.PainelPericias) and sent(i)[1]["ephemeral"] and v.origem is i and sent(i)[1]["embed"].title == "🎯 Perícias de Perito"
+assert isinstance(v, paineis.PainelPericias) and sent(i)[1]["ephemeral"] and v.origem is i and sent(i)[1]["embed"].title == "🎲 Perícias de Perito"
 i = inter(1600, "Per"); runp(bot.pericias_comando.callback(i, "Fantasma")); assert "Não achei nenhum personagem seu chamado **Fantasma**" in txt(i)
 assert bot._eh_mestre in bot.mestre_pericia.checks
-for pericia, n in (("Fortitude", 0), ("Luta", 4)): db.set_skill_points(PC, pericia, n)
+for p in rules.SKILLS: db.set_skill_points(PC, p, 0)
+db.set_skill_points(PC, "Acrobacia", 7); db.set_skill_points(PC, "Luta", 4)
 run(bot.mestre_pericia.callback(gm, alvo(1600, "Per"), "Luta", 6, None)); assert txt(gm) == "🎯 **Perito**: Luta foi de 4 pra **6**. Pontos livres agora: **12**." and pontos_de(1600, "Perito")["Luta"] == 6 and sent(gm)[1]["ephemeral"]
 run(bot.mestre_pericia.callback(gm, alvo(1600, "Per"), "Luta", 20, None)); assert pontos_de(1600, "Perito")["Luta"] == 20 and "Pontos livres agora: **-2**" in txt(gm)             # o mestre passa do limite
 run(bot.mestre_pericia.callback(gm, alvo(1600, "Per"), "Luta", 0, None)); assert "Luta" not in pontos_de(1600, "Perito")
 run(bot.mestre_pericia.callback(gm, alvo(9990, "Fantasma"), "Luta", 3, None)); assert txt(gm) == "Fantasma ainda não tem personagem criado."
 with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT detail FROM master_actions WHERE action = 'pericia' ORDER BY id").fetchall() == [("Luta: 4 -> 6",), ("Luta: 6 -> 20",), ("Luta: 20 -> 0",)]
 print("AA1. perícias OK")
+
 # --- a aba Habilidades: criar, editar ---
 def enviar_form(m, nome, desc, ef, uid=1600, jog="Per"):
     m.nome._value, m.descricao._value, m.efeito._value = nome, desc, ef; c = inter(uid, jog); runp(m.on_submit(c)); return c
@@ -2618,5 +2656,37 @@ i = inter(1600, "Per"); runp(bot.habilidades_comando.callback(i, None)); v = env
 assert isinstance(v, paineis.PainelHabilidades) and sent(i)[1]["ephemeral"] and v.origem is i and sent(i)[1]["embed"].title == "✨ Habilidades de Perito"
 i = inter(1600, "Per"); runp(bot.habilidades_comando.callback(i, "Fantasma")); assert "Não achei nenhum personagem seu chamado **Fantasma**" in txt(i)
 print("AA2. habilidades criadas e fila do mestre OK")
+
+# ============================ AB. a mensagem "Comece aqui" ============================
+def apertar(view, rotulo, uid, nome):
+    c = inter(uid, nome); botao_ = [b for b in view.children if b.label == rotulo]; assert len(botao_) == 1, rotulo; run(botao_[0].callback(c)); return c
+assert bot._eh_mestre in bot.mestre_comecar_aqui.checks
+registrados = []; add_view_real = bot.bot.add_view; bot.bot.add_view = lambda v: registrados.append(type(v).__name__)
+try: run(bot._preparar_bot())
+finally: bot.bot.add_view = add_view_real
+assert registrados == ["QuadroDaCena", "ComecoAqui"]                                                                    # os dois quadros de botões fixos voltam a funcionar quando o bot reinicia
+va = bot.ComecoAqui(); assert va.timeout is None and va.is_persistent()
+assert [(b.label, str(b.emoji), b.custom_id) for b in va.children] == [("Criar personagem", "🆕", "inicio:criar"), ("Minha ficha", "📋", "inicio:ficha"), ("Dados", "🎲", "inicio:dados"), ("Como funciona", "❓", "inicio:como")]
+# o mestre posta a mensagem (pública) e recebe um aviso só pra ele
+m_ = GM(); run(bot.mestre_comecar_aqui.callback(m_)); kw = sent(m_)[1]
+assert "ephemeral" not in kw and kw["embed"].title == "🩸 Baptism of Blood" and isinstance(kw["view"], bot.ComecoAqui) and "/mestre" not in kw["embed"].description and "ficha" in kw["embed"].description
+assert followups(m_) == [("📌 Postei. Fixa a mensagem no canal (o pino) pra ela ficar sempre à vista. Os botões continuam funcionando mesmo se o bot reiniciar.", {"ephemeral": True})]
+# 🆕 Criar personagem: um formulário só com o nome
+c = apertar(va, "Criar personagem", 1700, "Novata"); mn = c.response.send_modal.call_args.args[0]
+assert isinstance(mn, bot.ModalNovoPersonagem) and mn.title == "Novo personagem" and (mn.nome.label, mn.nome.min_length, mn.nome.max_length, mn.nome.required) == ("Nome do personagem", 2, 60, True)
+mn.nome._value = "A"; c = inter(1700, "Novata"); run(mn.on_submit(c)); assert txt(c) == "⚠️ O nome precisa ter entre 2 e 60 letras." and db.get_active_character("1700") is None
+mn.nome._value = "Aurora Reis"; c = inter(1700, "Novata"); run(mn.on_submit(c)); kw = sent(c)[1]
+assert kw["embed"].title == "🎭 Personagem criado" and "**Aurora Reis** agora é o personagem que você está usando (1 de 3 vagas)." in kw["embed"].description and isinstance(kw["view"], paineis.PainelFicha) and kw["ephemeral"] and db.get_active_character("1700")["name"] == "Aurora Reis"
+c = inter(1700, "Novata"); run(mn.on_submit(c)); assert txt(c) == "Você já tem um personagem chamado **Aurora Reis**. Use `/personagem usar` pra voltar pra ele." and sent(c)[1]["ephemeral"]
+# 📋 Minha ficha, 🎲 Dados e ❓ Como funciona
+c = apertar(va, "Minha ficha", 1700, "Novata"); kw = sent(c)[1]; assert kw["embed"].title == "📖 Ficha de Aurora Reis" and isinstance(kw["view"], paineis.PainelFicha) and kw["ephemeral"] and kw["view"].origem is c
+c = apertar(va, "Minha ficha", 1701, "Sem Ficha"); assert txt(c) == "Você ainda não tem personagem. Aperta **🆕 Criar personagem** na mensagem de boas-vindas pra começar." and sent(c)[1]["ephemeral"]
+c = apertar(va, "Dados", 1700, "Novata"); kw = sent(c)[1]; assert isinstance(kw["view"], paineis.BandejaDados) and kw["ephemeral"]
+c = apertar(va, "Como funciona", 1700, "Novata"); kw = sent(c)[1]; assert kw["embed"].title == "❓ Como funciona" and kw["ephemeral"] and kw["embed"].description.startswith("**1.** Aperta **🆕 Criar personagem** e diz o nome.") and "/mestre" not in kw["embed"].description and len(kw["embed"]) <= 6000
+# ícone de perícia com a ficha incompleta: não rola (igual ao /rolar)
+pp_inc = editada(clique(painel_de(1700, "Aurora Reis", "Novata"), "Perícias", 1700, "Novata"))["view"]
+c = rolar_icone(pp_inc, "Furtividade", 1700, "Novata")
+assert followups(c) == [("🔒 A ficha de **Aurora Reis** ainda não está pronta. O passo a passo está em `/ajuda`.", {"ephemeral": True})] and historico_de(1700) == []
+print("AB. Comece aqui OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

@@ -426,22 +426,35 @@ assert cores == [discord.Color.green(), discord.Color.green(), discord.Color.ora
 zero = vitrine.embed_vitais("K", rec, {"vida": 100}); assert zero.description.endswith("💀 **Vida em 0.** Hora de falar com o mestre.") and "▶️ ❤️ **Vida** · 0/100" in zero.description
 print("16. barras OK")
 
-# ---------- 17. perícias ----------
+# ---------- 17. perícias: a tela de rolar (um ícone por perícia) e a de distribuir ----------
 import habil
-e = vitrine.embed_pericias("Kairon", {"Luta": 5, "Religião": 3}, 25, "Luta", "Força", "normal", "Caçador", "Marcos"); confere_limites(e)
-assert e.title == "🎯 Perícias de Kairon" and e.color == discord.Color.blurple() and e.footer.text == "Teste: Luta + Força · modo normal · jogador: Marcos"
-assert "🎯 Pontos livres: **17** de 25 (máximo 7 em cada perícia)" in e.description and "▫️ Acrobacia · **0** " + "▱" * 7 + "\n" in e.description
-assert "▶️ Luta · **5** ▰▰▰▰▰▱▱ ⭐\n" in e.description and "▫️ Religião · **3** ▰▰▰▱▱▱▱ ⭐\n" in e.description and "▫️ Pontaria · **0** " + "▱" * 7 + " ⭐\n" in e.description and "▫️ Medicina · **0** " + "▱" * 7 + "\n" in e.description
-assert e.description.endswith("⭐ Vantagem da sua classe: Religião e Luta ou Pontaria. No teste, usa o modo **Vantagem**.") and e.description.startswith("**Distribuir:** escolhe a perícia e aperta **+1** ou **-1**.")
-assert [l for l in e.description.split("\n") if l.startswith(("▶️", "▫️"))].__len__() == 18 and e.description.count("▶️") == 1
-tudo = vitrine.embed_pericias("K", {"Luta": 7, "Fortitude": 7, "Reflexos": 7, "Atletismo": 4}, 25, "Luta", None, "vantagem", "Mundano")
-assert "✅ Todos os 25 pontos distribuídos" in tudo.description and tudo.color == discord.Color.green() and tudo.footer.text == "Teste: Luta + atributo (falta escolher) · modo vantagem" and "⭐" not in tudo.description     # Mundano: sem estrela
-a_mais = vitrine.embed_pericias("K", {"Luta": 7, "Fortitude": 7, "Reflexos": 7, "Atletismo": 7}, 25, "Luta", "Alma", "desvantagem", None)
-assert "⚠️ **3** pontos a mais do que o permitido (25). Fala com um mestre." in a_mais.description and a_mais.color == discord.Color.blurple() and a_mais.footer.text.endswith("modo desvantagem")
+ATR = {"forca": 3, "destreza": 2, "vitalidade": 3, "razao": 1, "vontade": 2, "alma": 1}
+e = vitrine.embed_rolar_pericias("Kairon", {"Luta": 5, "Religião": 3}, ATR, "Caçador", ["Pontaria"], "normal", None, "Marcos"); confere_limites(e)
+assert e.title == "🎲 Perícias de Kairon" and e.color == discord.Color.blurple() and e.footer.text == "Modo: normal · Atributo: automático (o padrão de cada perícia) · jogador: Marcos"
+assert e.description.startswith("Toca no ícone da perícia e o bot rola **1d20 + atributo + perícia** sozinho, no nome do seu personagem.\n\n🤸 **Acrobacia** +2 · Destreza 2 + 0\n")
+linhas = [l for l in e.description.split("\n") if " · " in l and "**" in l]; assert len(linhas) == 18 and [l.split(" ")[0] for l in linhas] == [rules.SKILL_ICONS[p] for p in rules.SKILLS]
+for esperado in ("⚔️ **Luta** +8 · Força 3 + 5", "🏹 **Pontaria** +2 · Destreza 2 + 0 ⭐", "⛪ **Religião** +4 · Razão 1 + 3 ⭐", "🛡️ **Fortitude** +3 · Vitalidade 3 + 0", "🔮 **Intuição** +1 · Alma 1 + 0", "😠 **Intimidação** +2 · Vontade 2 + 0"):
+    assert esperado in e.description.split("\n"), esperado
+assert e.description.count("⭐") == 3 and e.description.endswith("⭐ Vantagem da sua classe: entra sozinha na rolagem.") and "⚠️" not in e.description          # 2 nas linhas e 1 na legenda
+forcado = vitrine.embed_rolar_pericias("K", {}, ATR, "Clérigo", [], "vantagem", "forca"); assert "🥷 **Furtividade** +3 · Força 3 + 0" in forcado.description.split("\n") and forcado.footer.text == "Modo: vantagem · Atributo: Força"
+assert "🥷 **Furtividade** +0 · Destreza 0 + 0" in vitrine.embed_rolar_pericias("K", {}, {a: 0 for a in rules.ATTRIBUTES}, None, [], "normal", None).description.split("\n") and "⭐" not in vitrine.embed_rolar_pericias("K", {}, ATR, None, [], "normal", None).description
+assert "⚠️ Escolhe a vantagem da sua classe: Luta ou Pontaria. O menu fica na tela **Distribuir**." in vitrine.embed_rolar_pericias("K", {}, ATR, "Caçador", [], "normal", None).description
+assert vitrine.embed_rolar_pericias("K", {}, ATR, "Mercenário", ["Luta"], "normal", None).description.count("⚠️") == 0
+assert "⚠️ Escolhe 2 perícias com vantagem. O menu fica na tela **Distribuir**." in vitrine.embed_rolar_pericias("K", {}, ATR, "Mundano", [], "normal", None).description and "Escolhe 1 perícia com vantagem." in vitrine.embed_rolar_pericias("K", {}, ATR, "Mundano", ["Luta"], "normal", None).description
+assert "⚠️" not in vitrine.embed_rolar_pericias("K", {}, ATR, "Mundano", ["Luta", "Furtividade"], "normal", None).description and "⚠️" not in vitrine.embed_rolar_pericias("K", {}, ATR, "Clérigo", [], "normal", None).description
+e = vitrine.embed_pericias("Kairon", {"Luta": 5, "Religião": 3}, 25, "Luta", "Caçador", ["Pontaria"], "Marcos"); confere_limites(e)
+assert e.title == "🎯 Pontos de perícia de Kairon" and e.color == discord.Color.blurple() and e.footer.text == "jogador: Marcos" and e.description.startswith("**Distribuir:** escolhe a perícia no menu e aperta **+1** ou **-1**. Pra rolar, aperta **Rolar perícias**.")
+assert "🎯 Pontos livres: **17** de 25 (máximo 7 em cada perícia)" in e.description and "▶️ ⚔️ Luta · **5** ▰▰▰▰▰▱▱\n" in e.description and "▫️ ⛪ Religião · **3** ▰▰▰▱▱▱▱ ⭐\n" in e.description and "▫️ 🏹 Pontaria · **0** " + "▱" * 7 + " ⭐\n" in e.description
+assert "▫️ 🤸 Acrobacia · **0** " + "▱" * 7 + "\n" in e.description and e.description.count("▶️") == 1 and e.description.endswith("⭐ Vantagem da sua classe (entra sozinha na rolagem).") and "⚠️" not in e.description
+tudo = vitrine.embed_pericias("K", {"Luta": 7, "Fortitude": 7, "Reflexos": 7, "Atletismo": 4}, 25, "Luta", "Mundano", [])
+assert "✅ Todos os 25 pontos distribuídos" in tudo.description and tudo.color == discord.Color.green() and "⚠️ Escolhe 2 perícias com vantagem." in tudo.description and "⭐ Vantagem da sua classe" not in tudo.description and tudo.footer.text is None
+a_mais = vitrine.embed_pericias("K", {"Luta": 7, "Fortitude": 7, "Reflexos": 7, "Atletismo": 7}, 25, "Luta", None, [])
+assert "⚠️ **3** pontos a mais do que o permitido (25). Fala com um mestre." in a_mais.description and a_mais.color == discord.Color.blurple()
 assert vitrine.MODOS_DE_TESTE == {"normal": ("🎲", "Normal"), "vantagem": ("⬆️", "Vantagem"), "desvantagem": ("⬇️", "Desvantagem")}
-# o modo escolhido pelo jogador não é a sorte do mestre
-assert vitrine.cartao_rolagem("K", "1d20", R("1d20", [15], 0, 20), None, "M", True, ["modo vantagem (4 e 15)"]).embed.description == "**15 = 15**\n🎲 modo vantagem (4 e 15)"
-assert vitrine.cartao_rolagem("K", "1d20", R("1d20", [15], 0, 20), None, "M", True, ["modo vantagem (4 e 15)", "+2"]).embed.description == "**15 = 15**\n🍀 modo vantagem (4 e 15) · +2"
+# as marcas do cartão: o modo do jogador, a vantagem da classe e a sorte do mestre não se confundem
+M_ = lambda marcas: vitrine.cartao_rolagem("K", "1d20", R("1d20", [15], 0, 20), None, "M", True, marcas).embed.description
+assert M_(["modo vantagem (4 e 15)"]) == "**15 = 15**\n🎲 modo vantagem (4 e 15)" and M_(["classe: vantagem (4 e 15)"]) == "**15 = 15**\n⭐ classe: vantagem (4 e 15)"
+assert M_(["modo vantagem (4 e 15)", "+2"]) == "**15 = 15**\n🍀 modo vantagem (4 e 15) · +2" and M_(["classe: vantagem (4 e 15)", "+2"]) == "**15 = 15**\n🍀 classe: vantagem (4 e 15) · +2" and M_(["+2"]) == "**15 = 15**\n🍀 +2"
 print("17. perícias OK")
 
 # ---------- 18. habilidades criadas: a aba do jogador, o uso e a fila do mestre ----------

@@ -614,8 +614,17 @@ async def _executar_rolagem(interaction, dado: str, motivo: str | None, personag
 
 
 async def _teste_de_pericia(coletor, notacao: str, motivo: str, personagem: str, modo: str) -> None:
-    """O botão Testar da aba Perícias: rola 1d20 + atributo + perícia no nome do personagem do painel."""
-    extras = [dice.EfeitoDeSorte(-1, modo, None, 1, False, "jogador")] if modo in ("vantagem", "desvantagem") else []
+    """O ícone da aba Perícias: rola 1d20 + atributo + perícia no nome do personagem do painel. Com a ficha ainda
+    incompleta não rola (igual ao /rolar), a não ser pra mestre."""
+    char = db.find_character(str(coletor.user.id), personagem)
+    if ORDEM_DA_CRIACAO and char is not None and not _membro_eh_mestre(coletor.user) and not rules.creation_status(char)["pronta"]:
+        coletor.avisar(f"🔒 A ficha de **{char['name']}** ainda não está pronta. O passo a passo está em `/ajuda`.")
+        return
+    extras = []
+    if modo in ("vantagem", "desvantagem"):   # o modo que o jogador escolheu no painel
+        extras = [dice.EfeitoDeSorte(-1, modo, None, 1, False, "jogador")]
+    elif modo == "classe":   # a vantagem que a classe dá nessa perícia
+        extras = [dice.EfeitoDeSorte(-1, "vantagem", None, 1, False, "classe")]
     await _executar_rolagem(coletor, notacao, motivo, personagem, extras)
 
 
@@ -817,6 +826,11 @@ def _embed_aviso_exclusao(personagem, quem_e_dono: str) -> discord.Embed:
 @personagem_grupo.command(name="criar", description="Cria um personagem novo e já passa a usar ele.")
 @app_commands.describe(nome="Nome do personagem")
 async def personagem_criar(interaction: discord.Interaction, nome: str):
+    await _criar_personagem(interaction, nome)
+
+
+async def _criar_personagem(interaction: discord.Interaction, nome: str) -> None:
+    """Cria o personagem e abre a ficha. Usada pelo /personagem criar e pelo botão da mensagem de boas-vindas."""
     limpo = db.normalize_name(nome)
     if not (NOME_MIN <= len(limpo) <= NOME_MAX):
         await interaction.response.send_message(
@@ -1424,6 +1438,85 @@ async def dados_comando(interaction: discord.Interaction):
     bandeja = paineis.BandejaDados(interaction.user.id, str(interaction.user.display_name))
     await interaction.response.send_message(embed=bandeja.embed(), view=bandeja, ephemeral=True)
     bandeja.origem = interaction
+
+
+_SEM_PERSONAGEM_NO_BOTAO = "Você ainda não tem personagem. Aperta **🆕 Criar personagem** na mensagem de boas-vindas pra começar."
+
+
+def _embed_comeco() -> discord.Embed:
+    return discord.Embed(
+        title="🩸 Baptism of Blood",
+        description=(
+            "Aqui o seu personagem é criado e jogado por botões, sem decorar comando.\n\n"
+            "🆕 **Criar personagem**: começa por aqui. É só dizer o nome.\n"
+            "📋 **Minha ficha**: abre a sua ficha, com as abas Vitais, Perícias e Habilidades.\n"
+            "🎲 **Dados**: abre a bandeja de dados.\n"
+            "❓ **Como funciona**: o passo a passo em poucas linhas."
+        ),
+        color=discord.Color.dark_red(),
+    )
+
+
+class ModalNovoPersonagem(discord.ui.Modal):
+    """O formulário do botão Criar personagem: só o nome."""
+
+    def __init__(self):
+        super().__init__(title="Novo personagem", timeout=paineis.TEMPO_DO_PAINEL)
+        self.nome = discord.ui.TextInput(
+            label="Nome do personagem", required=True, min_length=NOME_MIN, max_length=NOME_MAX, placeholder="ex: Kairon Flagon"
+        )
+        self.add_item(self.nome)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await _criar_personagem(interaction, self.nome.value)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        await paineis._avisar_erro(interaction, error)
+
+
+class ComecoAqui(discord.ui.View):
+    """A mensagem de boas-vindas que o mestre posta no canal. Os botões têm identificador fixo, então continuam
+    funcionando depois que o bot reinicia (veja _preparar_bot)."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Criar personagem", emoji="🆕", style=discord.ButtonStyle.success, custom_id="inicio:criar")
+    async def criar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ModalNovoPersonagem())
+
+    @discord.ui.button(label="Minha ficha", emoji="📋", style=discord.ButtonStyle.primary, custom_id="inicio:ficha")
+    async def ficha(self, interaction: discord.Interaction, button: discord.ui.Button):
+        char = db.get_active_character(str(interaction.user.id))
+        if char is None:
+            await interaction.response.send_message(_SEM_PERSONAGEM_NO_BOTAO, ephemeral=True)
+            return
+        painel = paineis.PainelFicha(interaction.user.id, char["id"], str(interaction.user.display_name))
+        await interaction.response.send_message(embed=_embed_ficha(char, interaction.user.display_name), view=painel, ephemeral=True)
+        painel.origem = interaction
+
+    @discord.ui.button(label="Dados", emoji="🎲", style=discord.ButtonStyle.secondary, custom_id="inicio:dados")
+    async def dados(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bandeja = paineis.BandejaDados(interaction.user.id, str(interaction.user.display_name))
+        await interaction.response.send_message(embed=bandeja.embed(), view=bandeja, ephemeral=True)
+        bandeja.origem = interaction
+
+    @discord.ui.button(label="Como funciona", emoji="❓", style=discord.ButtonStyle.secondary, custom_id="inicio:como")
+    async def como(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="❓ Como funciona",
+            description=(
+                "**1.** Aperta **🆕 Criar personagem** e diz o nome.\n"
+                "**2.** A ficha abre com botões: **Raça**, **Classe social**, **Classe** e **Atributos**. Segue na ordem: 🔒 ainda "
+                "não abriu, ✅ já foi feito.\n"
+                "**3.** Com a ficha pronta, ela ganha abas: **Vitais** (vida, mana...), **Perícias** (toca no ícone e o dado rola "
+                "sozinho) e **Habilidades** (você cria, o mestre aprova, e depois é só usar).\n"
+                "**4.** Pra rolar dado, aperta **🎲 Dados** ou escreve `d20+5` no chat.\n\n"
+                "Se ficar perdido, `/ajuda` mostra o seu passo a passo."
+            ),
+            color=discord.Color.dark_red(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name="niveis", description="Mostra o XP e as vantagens de cada nível, de 1 a 10.")
@@ -2250,6 +2343,17 @@ async def mestre_pericia(
     )
 
 
+@mestre_grupo.command(name="comecar_aqui", description="Posta no canal a mensagem de boas-vindas com os botões (criar personagem, ficha, dados).")
+@app_commands.check(_eh_mestre)
+async def mestre_comecar_aqui(interaction: discord.Interaction):
+    await interaction.response.send_message(embed=_embed_comeco(), view=ComecoAqui())
+    await interaction.followup.send(
+        "📌 Postei. Fixa a mensagem no canal (o pino) pra ela ficar sempre à vista. Os botões continuam funcionando "
+        "mesmo se o bot reiniciar.",
+        ephemeral=True,
+    )
+
+
 @mestre_grupo.command(name="escudo", description="Abre o Escudo do Mestre: iniciativa e intenções da cena deste canal.")
 @app_commands.check(_eh_mestre)
 async def mestre_escudo(interaction: discord.Interaction):
@@ -2620,6 +2724,7 @@ async def _preparar_bot():
     """Roda uma vez, antes de conectar: registra os botões do quadro da cena, que têm identificador fixo e
     por isso continuam funcionando nas mensagens antigas depois que o bot reinicia."""
     bot.add_view(escudo.QuadroDaCena())
+    bot.add_view(ComecoAqui())
 
 
 bot.setup_hook = _preparar_bot

@@ -309,11 +309,64 @@ def skill_points_free(level: int, classe: str | None, pontos: dict[str, int]) ->
     return skill_points_total(level, classe) - sum(pontos.values())
 
 
-def class_skill_hints(classe: str | None) -> list[str]:
-    """As perícias em que a classe tem vantagem (as que aparecem escritas no texto da classe). 'Luta ou Pontaria'
-    traz as duas: o jogador escolhe uma. O Mundano ('duas à sua escolha') não traz nenhuma."""
-    texto = CLASS_SKILLS.get(classe or "", "")
-    return [p for p in SKILLS if p in texto]
+# O ícone de cada perícia (os botões da aba Perícias) e o atributo que o bot soma sozinho. É só o padrão: no
+# painel dá pra forçar outro atributo, porque no jogo ele depende da ação. Quer mudar o padrão? É só editar aqui.
+SKILL_ICONS = {
+    "Acrobacia": "🤸", "Atletismo": "🏃", "Furtividade": "🥷", "Reflexos": "⚡", "Fortitude": "🛡️", "Pontaria": "🏹",
+    "Luta": "⚔️", "Política": "🏛️", "Medicina": "🩺", "Ciências": "🧪", "Investigação": "🔎", "Tática": "♟️",
+    "Religião": "⛪", "Percepção": "👁️", "Enganação": "🎭", "Intuição": "🔮", "Intimidação": "😠", "Ocultismo": "🕯️",
+}
+SKILL_DEFAULT_ATTRIBUTE = {
+    "Acrobacia": "destreza", "Atletismo": "forca", "Furtividade": "destreza", "Reflexos": "destreza",
+    "Fortitude": "vitalidade", "Pontaria": "destreza", "Luta": "forca", "Política": "razao", "Medicina": "razao",
+    "Ciências": "razao", "Investigação": "razao", "Tática": "razao", "Religião": "razao", "Percepção": "razao",
+    "Enganação": "razao", "Intuição": "alma", "Intimidação": "vontade", "Ocultismo": "razao",
+}
+
+# Vantagem que a classe dá em perícias (o texto da classe, CLASS_SKILLS). 'fixas' valem sempre; em 'escolha' o jogador
+# fica com uma só; 'livres' é quantas o jogador escolhe entre todas (o Mundano: "duas à sua escolha").
+CLASS_SKILL_ADVANTAGES = {
+    "Caçador": {"fixas": ("Religião",), "escolha": ("Luta", "Pontaria")},
+    "Clérigo": {"fixas": ("Religião", "Medicina")},
+    "Feiticeiros": {"fixas": ("Investigação", "Ocultismo")},
+    "Ladrão": {"fixas": ("Furtividade", "Enganação")},
+    "Mercenário": {"fixas": ("Tática",), "escolha": ("Luta", "Pontaria")},
+    "Mestre de Forja": {"fixas": ("Ocultismo", "Tática")},
+    "Mundano": {"fixas": (), "livres": 2},
+    "Sábio": {"fixas": ("Ciências", "Investigação")},
+}
+
+
+def _picks_validos(classe: str | None, escolhidas) -> list[str]:
+    info = CLASS_SKILL_ADVANTAGES.get(classe or "", {})
+    if info.get("escolha"):
+        return [p for p in escolhidas if p in info["escolha"]][:1]
+    if info.get("livres"):
+        return [p for p in dict.fromkeys(escolhidas) if p in SKILLS][:info["livres"]]
+    return []
+
+
+def skills_with_advantage(classe: str | None, escolhidas) -> set[str]:
+    """As perícias em que a classe dá vantagem: as fixas mais o que o jogador escolheu (só vale o que cabe na classe)."""
+    info = CLASS_SKILL_ADVANTAGES.get(classe or "", {})
+    return set(info.get("fixas", ())) | set(_picks_validos(classe, escolhidas))
+
+
+def skill_advantage_missing(classe: str | None, escolhidas) -> int:
+    """Quantas escolhas de vantagem ainda faltam o jogador fazer (0 se a classe não pede escolha)."""
+    info = CLASS_SKILL_ADVANTAGES.get(classe or "", {})
+    pedidas = 1 if info.get("escolha") else info.get("livres", 0)
+    return pedidas - len(_picks_validos(classe, escolhidas))
+
+
+def effective_roll_mode(manual: str, class_advantage: bool) -> str:
+    """O modo do teste: a vantagem da classe entra sozinha ('classe'); desvantagem escolhida a cancela; vantagem
+    escolhida junto com a da classe não soma."""
+    if not class_advantage:
+        return manual
+    if manual == "desvantagem":
+        return "normal"
+    return "vantagem" if manual == "vantagem" else "classe"
 
 
 # ---------------------------------------------------------------------------

@@ -775,19 +775,18 @@ class ModalValorExato(discord.ui.Modal):
 # Perícias: distribuir os pontos e testar com um clique
 # ---------------------------------------------------------------------------
 _PROXIMO_MODO = {"normal": "vantagem", "vantagem": "desvantagem", "desvantagem": "normal"}
+_CICLO_DE_ATRIBUTO = (None,) + rules.ATTRIBUTES
 
 
 class PainelPericias(_Painel):
-    """Escolhe a perícia, soma ou tira pontos, e testa (1d20 + atributo + perícia) escolhendo o atributo."""
+    """Um ícone por perícia: toca e o bot rola 1d20 + atributo + perícia sozinho. A vantagem da classe entra sozinha."""
 
-    def __init__(self, dono_id: int, personagem_id: int, jogador: str, selecionada: str = rules.SKILLS[0],
-                 atributo: str | None = None, modo: str = "normal"):
+    def __init__(self, dono_id: int, personagem_id: int, jogador: str, modo: str = "normal", atributo: str | None = None):
         super().__init__(dono_id)
         self.personagem_id = personagem_id
         self.jogador = jogador
-        self.selecionada = selecionada if selecionada in rules.SKILLS else rules.SKILLS[0]
-        self.atributo = atributo if atributo in rules.ATTRIBUTES else None
         self.modo = modo if modo in _PROXIMO_MODO else "normal"
+        self.atributo = atributo if atributo in rules.ATTRIBUTES else None   # None = o padrão de cada perícia
         self._montar()
 
     def personagem(self):
@@ -795,89 +794,153 @@ class PainelPericias(_Painel):
 
     def _dados(self):
         char = self.personagem()
-        return char, db.get_skills(char["id"]), rules.skill_points_total(char["level"], char["class_name"])
+        escolhidas = db.get_skill_picks(char["id"])
+        return char, db.get_skills(char["id"]), escolhidas, rules.skills_with_advantage(char["class_name"], escolhidas)
 
     def embed(self) -> discord.Embed:
-        char, pontos, total = self._dados()
-        rotulo = rules.ATTRIBUTE_LABELS[self.atributo] if self.atributo else None
-        return vitrine.embed_pericias(char["name"], pontos, total, self.selecionada, rotulo, self.modo, char["class_name"], self.jogador)
+        char, pontos, escolhidas, _ = self._dados()
+        return vitrine.embed_rolar_pericias(char["name"], pontos, db.attributes_of(char), char["class_name"], escolhidas, self.modo, self.atributo, self.jogador)
 
     def _montar(self) -> None:
         self.clear_items()
         adicionar_abas(self, "pericias")
-        char, pontos, total = self._dados()
+        _, _, _, vantagens = self._dados()
+        emoji, rotulo = vitrine.MODOS_DE_TESTE[self.modo]
+        modo = discord.ui.Button(label=rotulo, emoji=emoji, style=discord.ButtonStyle.secondary, row=0)
+        modo.callback = self._trocar_modo
+        self.add_item(modo)
+        for i, pericia in enumerate(rules.SKILLS):   # 18 ícones: 5, 5, 5 e 3 (a última linha divide com os dois botões)
+            botao = discord.ui.Button(
+                emoji=rules.SKILL_ICONS[pericia], row=1 + i // 5,
+                style=discord.ButtonStyle.primary if pericia in vantagens else discord.ButtonStyle.secondary,
+            )
+            botao.callback = functools.partial(self._rolar, pericia)
+            self.add_item(botao)
+        distribuir = discord.ui.Button(label="Distribuir", emoji="🎯", style=discord.ButtonStyle.secondary, row=4)
+        distribuir.callback = self._ir_distribuir
+        atributo = discord.ui.Button(
+            label="Atributo", emoji="🧬", row=4,
+            style=discord.ButtonStyle.success if self.atributo else discord.ButtonStyle.secondary,
+        )
+        atributo.callback = self._trocar_atributo
+        self.add_item(distribuir)
+        self.add_item(atributo)
+
+    async def _redesenhar(self, interaction: discord.Interaction, coletor: Coletor | None = None) -> None:
+        self._montar()
+        await entregar(interaction, coletor or Coletor(interaction), self.embed(), self)
+
+    async def _rolar(self, pericia: str, interaction: discord.Interaction) -> None:
+        coletor = Coletor(interaction)
+        char, pontos, _, vantagens = self._dados()
+        atributo = self.atributo or rules.SKILL_DEFAULT_ATTRIBUTE[pericia]
+        bonus = db.attributes_of(char)[atributo] + pontos.get(pericia, 0)
+        notacao = f"1d20{bonus:+d}" if bonus else "1d20"
+        motivo = f"{pericia} ({rules.ATTRIBUTE_LABELS[atributo]})"
+        await GANCHOS.teste(coletor, notacao, motivo, char["name"], rules.effective_roll_mode(self.modo, pericia in vantagens))
+        await self._redesenhar(interaction, coletor)
+
+    async def _trocar_modo(self, interaction: discord.Interaction) -> None:
+        self.modo = _PROXIMO_MODO[self.modo]
+        await self._redesenhar(interaction)
+
+    async def _trocar_atributo(self, interaction: discord.Interaction) -> None:
+        self.atributo = _CICLO_DE_ATRIBUTO[(_CICLO_DE_ATRIBUTO.index(self.atributo) + 1) % len(_CICLO_DE_ATRIBUTO)]
+        await self._redesenhar(interaction)
+
+    async def _ir_distribuir(self, interaction: discord.Interaction) -> None:
+        nova = PainelDistribuirPericias(self.dono_id, self.personagem_id, self.jogador)
+        self.passar_pra(nova)
+        await interaction.response.edit_message(embed=nova.embed(), view=nova)
+
+
+class PainelDistribuirPericias(_Painel):
+    """Escolhe a perícia e soma ou tira pontos; também é onde se escolhe a vantagem da classe (Luta ou Pontaria...)."""
+
+    def __init__(self, dono_id: int, personagem_id: int, jogador: str, selecionada: str = rules.SKILLS[0]):
+        super().__init__(dono_id)
+        self.personagem_id = personagem_id
+        self.jogador = jogador
+        self.selecionada = selecionada if selecionada in rules.SKILLS else rules.SKILLS[0]
+        self._montar()
+
+    def personagem(self):
+        return db.get_character_by_id(self.personagem_id)
+
+    def _dados(self):
+        char = self.personagem()
+        return char, db.get_skills(char["id"]), rules.skill_points_total(char["level"], char["class_name"]), db.get_skill_picks(char["id"])
+
+    def embed(self) -> discord.Embed:
+        char, pontos, total, escolhidas = self._dados()
+        return vitrine.embed_pericias(char["name"], pontos, total, self.selecionada, char["class_name"], escolhidas, self.jogador)
+
+    def _montar(self) -> None:
+        self.clear_items()
+        adicionar_abas(self, "pericias")
+        char, pontos, total, escolhidas = self._dados()
         livres = total - sum(pontos.values())
-        dicas = rules.class_skill_hints(char["class_name"])
+        vantagens = rules.skills_with_advantage(char["class_name"], escolhidas)
         opcoes = [
             discord.SelectOption(
-                label=p, value=p, default=p == self.selecionada,
-                description=f"{pontos.get(p, 0)} pontos" + (" · ⭐ vantagem da classe" if p in dicas else ""),
+                label=p, value=p, emoji=rules.SKILL_ICONS[p], default=p == self.selecionada,
+                description=f"{pontos.get(p, 0)} pontos" + (" · ⭐ vantagem da classe" if p in vantagens else ""),
             )
             for p in rules.SKILLS
         ]
         seletor = discord.ui.Select(placeholder="1. Escolhe a perícia", options=opcoes, row=1)
         seletor.callback = functools.partial(self._escolheu_pericia, seletor)
         self.add_item(seletor)
-        atuais = db.attributes_of(char)
-        opcoes_attr = [
-            discord.SelectOption(label=rules.ATTRIBUTE_LABELS[a], value=a, default=a == self.atributo, description=f"valor {atuais[a]}")
-            for a in rules.ATTRIBUTES
-        ]
-        seletor_attr = discord.ui.Select(placeholder="2. Atributo do teste (só pra rolar)", options=opcoes_attr, row=2)
-        seletor_attr.callback = functools.partial(self._escolheu_atributo, seletor_attr)
-        self.add_item(seletor_attr)
         pts = pontos.get(self.selecionada, 0)
-        menos = discord.ui.Button(label="-1", style=discord.ButtonStyle.danger, disabled=pts <= 0, row=3)
+        menos = discord.ui.Button(label="-1", style=discord.ButtonStyle.danger, disabled=pts <= 0, row=2)
         menos.callback = functools.partial(self._mudar, -1)
-        mais = discord.ui.Button(label="+1", style=discord.ButtonStyle.success, disabled=pts >= rules.SKILL_MAX_POINTS or livres <= 0, row=3)
+        mais = discord.ui.Button(label="+1", style=discord.ButtonStyle.success, disabled=pts >= rules.SKILL_MAX_POINTS or livres <= 0, row=2)
         mais.callback = functools.partial(self._mudar, 1)
-        testar = discord.ui.Button(label="Testar", emoji="🎲", style=discord.ButtonStyle.primary, disabled=self.atributo is None, row=3)
-        testar.callback = self._testar
-        emoji, rotulo = vitrine.MODOS_DE_TESTE[self.modo]
-        modo = discord.ui.Button(label=f"Modo: {rotulo}", emoji=emoji, style=discord.ButtonStyle.secondary, row=3)
-        modo.callback = self._trocar_modo
-        for botao in (menos, mais, testar, modo):
+        rolar = discord.ui.Button(label="Rolar perícias", emoji="🎲", style=discord.ButtonStyle.primary, row=2)
+        rolar.callback = self._ir_rolar
+        for botao in (menos, mais, rolar):
             self.add_item(botao)
+        info = rules.CLASS_SKILL_ADVANTAGES.get(char["class_name"] or "", {})
+        if info.get("escolha") or info.get("livres"):
+            permitidas = list(info["escolha"]) if info.get("escolha") else list(rules.SKILLS)
+            limite = 1 if info.get("escolha") else info["livres"]
+            atuais = rules._picks_validos(char["class_name"], escolhidas)
+            vantagem = discord.ui.Select(
+                placeholder="⭐ Escolhe a vantagem da classe" + (f" ({' ou '.join(permitidas)})" if info.get("escolha") else f" ({limite} perícias)"),
+                min_values=1, max_values=limite, row=3,
+                options=[discord.SelectOption(label=p, value=p, emoji=rules.SKILL_ICONS[p], default=p in atuais) for p in permitidas],
+            )
+            vantagem.callback = functools.partial(self._escolheu_vantagem, vantagem)
+            self.add_item(vantagem)
 
-    async def _redesenhar(self, interaction: discord.Interaction, coletor: Coletor | None = None) -> None:
+    async def _redesenhar(self, interaction: discord.Interaction) -> None:
         self._montar()
-        await entregar(interaction, coletor or Coletor(interaction), self.embed(), self)
+        await entregar(interaction, Coletor(interaction), self.embed(), self)
 
     async def _escolheu_pericia(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
         if seletor.values[0] in rules.SKILLS:
             self.selecionada = seletor.values[0]
         await self._redesenhar(interaction)
 
-    async def _escolheu_atributo(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
-        if seletor.values[0] in rules.ATTRIBUTES:
-            self.atributo = seletor.values[0]
+    async def _escolheu_vantagem(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        char = self.personagem()
+        validas = rules._picks_validos(char["class_name"], seletor.values)   # só vale o que cabe na classe
+        if validas:
+            db.set_skill_picks(char["id"], validas)
         await self._redesenhar(interaction)
 
     async def _mudar(self, delta: int, interaction: discord.Interaction) -> None:
-        char, pontos, total = self._dados()
-        atual = pontos.get(self.selecionada, 0)
-        novo = atual + delta
+        char, pontos, total, _ = self._dados()
+        novo = pontos.get(self.selecionada, 0) + delta
         livres = total - sum(pontos.values())
         if 0 <= novo <= rules.SKILL_MAX_POINTS and (delta < 0 or livres > 0):   # os botões já vêm desligados, mas confere
             db.set_skill_points(char["id"], self.selecionada, novo)
         await self._redesenhar(interaction)
 
-    async def _trocar_modo(self, interaction: discord.Interaction) -> None:
-        self.modo = _PROXIMO_MODO[self.modo]
-        await self._redesenhar(interaction)
-
-    async def _testar(self, interaction: discord.Interaction) -> None:
-        coletor = Coletor(interaction)
-        if self.atributo is None:   # o botão já vem desligado, mas confere
-            coletor.avisar("Escolhe o atributo do teste no segundo menu.")
-            await self._redesenhar(interaction, coletor)
-            return
-        char, pontos, _ = self._dados()
-        bonus = db.attributes_of(char)[self.atributo] + pontos.get(self.selecionada, 0)
-        notacao = f"1d20{bonus:+d}" if bonus else "1d20"
-        motivo = f"{self.selecionada} ({rules.ATTRIBUTE_LABELS[self.atributo]})"
-        await GANCHOS.teste(coletor, notacao, motivo, char["name"], self.modo)
-        await self._redesenhar(interaction, coletor)
+    async def _ir_rolar(self, interaction: discord.Interaction) -> None:
+        nova = PainelPericias(self.dono_id, self.personagem_id, self.jogador)
+        self.passar_pra(nova)
+        await interaction.response.edit_message(embed=nova.embed(), view=nova)
 
 
 # ---------------------------------------------------------------------------

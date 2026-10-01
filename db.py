@@ -21,7 +21,7 @@ import dice
 import rules
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -248,6 +248,13 @@ def init_db(path: str | None = None) -> None:
         """)
         # O 'atributo da época': os atributos que o personagem tinha em cada nível que ficou pra trás.
         # O nível atual não tem linha e usa sempre os atributos atuais.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS character_skill_picks (
+                character_id INTEGER NOT NULL,
+                skill TEXT NOT NULL,
+                PRIMARY KEY (character_id, skill)
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS character_skills (
                 character_id INTEGER NOT NULL,
@@ -608,6 +615,7 @@ def delete_character(character_id: int, deleted_by_id: str, deleted_by_name: str
         conn.execute("DELETE FROM character_vitals WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM character_skills WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM custom_abilities WHERE character_id = ?", (character_id,))
+        conn.execute("DELETE FROM character_skill_picks WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM character_ranks WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM level_attributes WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM xp_log WHERE character_id = ?", (character_id,))
@@ -824,6 +832,24 @@ def set_skill_points(character_id: int, skill: str, points: int, path: str | Non
                 " ON CONFLICT (character_id, skill) DO UPDATE SET points = excluded.points",
                 (character_id, skill, points),
             )
+
+
+# ---------------------------------------------------------------------------
+# Vantagem de classe nas perícias: o que o jogador escolheu (Luta ou Pontaria; as duas do Mundano)
+# ---------------------------------------------------------------------------
+def get_skill_picks(character_id: int, path: str | None = None) -> list[str]:
+    with _connect(path) as conn:
+        linhas = conn.execute("SELECT skill FROM character_skill_picks WHERE character_id = ? ORDER BY rowid", (character_id,)).fetchall()
+    return [l["skill"] for l in linhas]
+
+
+def set_skill_picks(character_id: int, skills: list[str], path: str | None = None) -> None:
+    """Troca TODAS as escolhas do personagem pelas dadas."""
+    if any(p not in rules.SKILLS for p in skills):
+        raise ValueError("Perícia desconhecida na escolha.")
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM character_skill_picks WHERE character_id = ?", (character_id,))
+        conn.executemany("INSERT OR IGNORE INTO character_skill_picks (character_id, skill) VALUES (?, ?)", [(character_id, p) for p in skills])
 
 
 # ---------------------------------------------------------------------------

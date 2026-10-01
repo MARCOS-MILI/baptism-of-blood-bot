@@ -318,9 +318,17 @@ assert [rules.skill_points_total(n, "Caçador") for n in (1, 2, 3, 10)] == [25, 
 assert [rules.skill_points_total(n, "Sábio") for n in (1, 2, 10)] == [25, 29, 61] and [rules.skill_points_total(n, "Mundano") for n in (1, 3)] == [30, 34]   # Sábio +4 por nível, Mundano +5 na criação
 assert rules.skill_points_total(11, "Caçador") == 43 and rules.skill_points_total(0, "Caçador") == 25 and rules.skill_points_total(1, None) == 25 and rules.skill_points_total(2, "Nenhuma") == 27
 assert rules.skill_points_free(2, "Caçador", {"Luta": 7, "Pontaria": 5}) == 15 and rules.skill_points_free(1, "Sábio", {}) == 25 and rules.skill_points_free(1, None, {"Luta": 7, "Fortitude": 7, "Reflexos": 7, "Atletismo": 7}) == -3
-assert rules.class_skill_hints("Caçador") == ["Pontaria", "Luta", "Religião"] and rules.class_skill_hints("Clérigo") == ["Medicina", "Religião"]
-assert rules.class_skill_hints("Mercenário") == ["Pontaria", "Luta", "Tática"] and rules.class_skill_hints("Mestre de Forja") == ["Tática", "Ocultismo"] and rules.class_skill_hints("Sábio") == ["Ciências", "Investigação"]
-assert rules.class_skill_hints("Mundano") == [] and rules.class_skill_hints(None) == [] and rules.class_skill_hints("Paladino") == []                 # "duas à sua escolha": nenhuma marcada
+assert set(rules.SKILL_ICONS) == set(rules.SKILL_DEFAULT_ATTRIBUTE) == set(rules.SKILLS) and len(set(rules.SKILL_ICONS.values())) == 18 and set(rules.SKILL_DEFAULT_ATTRIBUTE.values()) <= set(rules.ATTRIBUTES)      # um ícone diferente por perícia
+assert [rules.SKILL_DEFAULT_ATTRIBUTE[p] for p in ("Furtividade", "Luta", "Fortitude", "Intuição", "Intimidação", "Medicina")] == ["destreza", "forca", "vitalidade", "alma", "vontade", "razao"]
+assert set(rules.CLASS_SKILL_ADVANTAGES) == set(rules.CLASS_SKILLS)
+for classe, info in rules.CLASS_SKILL_ADVANTAGES.items():                                                        # os dados batem com o texto da classe
+    assert set(info["fixas"]) | set(info.get("escolha", ())) == {p for p in rules.SKILLS if p in rules.CLASS_SKILLS[classe]}, classe
+SA, M, E = rules.skills_with_advantage, rules.skill_advantage_missing, rules.effective_roll_mode
+assert SA("Clérigo", []) == {"Religião", "Medicina"} and SA("Ladrão", ["Luta"]) == {"Furtividade", "Enganação"} and SA("Mestre de Forja", []) == {"Ocultismo", "Tática"}      # classe sem escolha ignora a escolha
+assert SA("Caçador", []) == {"Religião"} and SA("Caçador", ["Pontaria"]) == {"Religião", "Pontaria"} and SA("Caçador", ["Luta", "Pontaria"]) == {"Religião", "Luta"} and SA("Caçador", ["Furtividade"]) == {"Religião"}    # só uma das duas, e só as da lista
+assert SA("Mercenário", ["Luta"]) == {"Tática", "Luta"} and SA("Mundano", []) == set() and SA("Mundano", ["Luta", "Furtividade", "Medicina"]) == {"Luta", "Furtividade"} and SA("Mundano", ["Luta", "Luta"]) == {"Luta"} and SA(None, ["Luta"]) == set() and SA("Paladino", []) == set()
+assert [M("Caçador", p) for p in ([], ["Luta"], ["Pontaria", "Luta"], ["Furtividade"])] == [1, 0, 0, 1] and [M("Mundano", p) for p in ([], ["Luta"], ["Luta", "Furtividade"], ["Luta", "Luta"])] == [2, 1, 0, 1] and M("Clérigo", []) == 0 and M(None, []) == 0
+assert [E(m, False) for m in ("normal", "vantagem", "desvantagem")] == ["normal", "vantagem", "desvantagem"] and [E(m, True) for m in ("normal", "vantagem", "desvantagem")] == ["classe", "vantagem", "normal"]   # a da classe não soma com a escolhida, e desvantagem a cancela
 assert rules.ABILITY_STATUS == ("pendente", "ajuste", "aprovada", "recusada") and rules.MAX_CUSTOM_ABILITIES == 8 and rules.ABILITY_ROLL_KINDS == ("dano", "cura")
 print("11. perícias OK")
 

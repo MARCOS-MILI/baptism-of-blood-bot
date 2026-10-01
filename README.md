@@ -153,11 +153,15 @@ A ficha (`/minha_ficha`) agora tem uma linha de **abas** no topo: **📋 Ficha**
 
 Na aba **Vitais** a pessoa vê quatro barras (▰▰▰▱▱) com o atual e o máximo de cada vital. Escolhe a barra no menu e usa os botões **-10 -5 -1 +1 +5 +10** pra descer ou subir; **Valor exato** abre um formulário e **Restaurar tudo** é o descanso. A vida ficando em 0 pinta o cartão de cinza e avisa. O máximo vem do cálculo por nível (precisa ter escolhido a classe). O bot guarda quanto o personagem **perdeu**, não o valor atual (tabela `character_vitals`): assim, se o máximo sobe com o nível, o atual sobe junto, e o atual nunca passa do máximo.
 
+## Mensagem de boas-vindas
+
+`/mestre comecar_aqui` posta no canal uma mensagem com quatro botões: **🆕 Criar personagem** (abre um formulário só com o nome e já abre a ficha), **📋 Minha ficha**, **🎲 Dados** e **❓ Como funciona**. Os botões têm identificador fixo (`inicio:...`) e são registrados na partida (`_preparar_bot`), então continuam funcionando em mensagens antigas depois que o bot reinicia. O mestre deve fixar a mensagem (o pino).
+
 ## Perícias e habilidades criadas
 
 A ficha ganhou mais duas abas, **🎯 Perícias** e **✨ Habilidades** (também abrem com `/pericias` e `/habilidades`).
 
-**Perícias.** As 18 perícias comuns do site. 25 pontos na criação (o Mundano 30), mais os pontos de cada nível (+2, e +4 pro Sábio), no máximo 7 em cada perícia (o site só fala do máximo na criação; aqui vale sempre, em `rules.SKILL_MAX_POINTS`). Escolhe a perícia no menu e usa **+1** e **-1**. Pra testar, escolhe também o atributo (ele não é fixo por perícia) e aperta **Testar**: rola 1d20 + atributo + perícia no canal, entra no histórico e respeita a sorte do mestre. O botão **Modo** troca entre normal, vantagem e desvantagem; o modo escolhido pelo jogador aparece com 🎲 e a sorte do mestre com 🍀. ⭐ marca as perícias em que a classe tem vantagem.
+**Perícias.** As 18 perícias comuns do site, cada uma com um ícone. Na aba **🎲 Perícias** o jogador toca no ícone e o bot rola 1d20 + atributo + perícia sozinho (entra no histórico e respeita a sorte do mestre). O atributo é o padrão de cada perícia (`SKILL_DEFAULT_ATTRIBUTE` em `rules.py`) e o botão **Atributo** força outro; o botão do modo troca entre normal, vantagem e desvantagem. A vantagem que a classe dá entra sozinha (`CLASS_SKILL_ADVANTAGES`): Caçador e Mercenário escolhem Luta ou Pontaria e o Mundano escolhe duas, na tela **Distribuir**, que também tem os pontos (25 na criação, Mundano 30, +2 por nível, Sábio +4, máximo 7 em cada, sempre). O modo escolhido pelo jogador aparece com 🎲, a vantagem da classe com ⭐ e a sorte do mestre com 🍀.
 
 **Habilidades criadas.** O jogador aperta **Criar habilidade** e preenche um formulário (nome, descrição, efeito que quer). Cai na fila do mestre (`/mestre habilidades`), que escolhe pelos menus o dado de dano ou cura, o custo (Mana, Estamina, Sanidade ou Vida) e um atributo pra somar, e aprova, pede ajuste (com nota) ou recusa. **Valores exatos** deixa digitar o que não está nos menus e **Corrigir texto** muda o texto. Aprovada, o jogador usa com **⚡ Usar**: o custo sai da barra, o dado rola e o cartão sai no canal (com o histórico). Sem recurso suficiente nada é gasto. O dano e a cura não são aplicados a ninguém (o bot não guarda monstros), o cartão só mostra o número. A lógica está em `habil.py`; as tabelas são `character_skills` e `custom_abilities`.
 
@@ -338,7 +342,7 @@ Depois disso, novos deploys não apagam mais nada. Vale lembrar que o Volume é 
 
 ## Bancos antigos
 
-Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 11, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
+Ao iniciar, o bot atualiza sozinho um banco criado em versões anteriores (o esquema atual é a versão 12, e a atualização é só aditiva, nunca apaga nem reescreve coluna existente): as colunas e tabelas novas são criadas, quem já passou do nível 1 ganha os níveis de trás congelados com os atributos de hoje (a tabela `level_attributes`, que também guarda o atributo da época dali pra frente), o XP de cada personagem passa a ser o do começo do nível em que ele já estava, a raça que se chamava "Meio humano, meio vampiro" vira "Dhampir" e, no formato mais antigo de todos, cada definição por jogador vira um personagem com o nome do jogador.
 
 ## O que ainda falta
 

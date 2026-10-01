@@ -292,15 +292,54 @@ def embed_vitais(nome: str, recursos: dict, perdidos: dict, jogador: str | None 
 MODOS_DE_TESTE = {"normal": ("🎲", "Normal"), "vantagem": ("⬆️", "Vantagem"), "desvantagem": ("⬇️", "Desvantagem")}
 
 
-def embed_pericias(nome: str, pontos: dict, total: int, selecionada: str, atributo: str | None, modo: str,
-                   classe: str | None, jogador: str | None = None) -> discord.Embed:
+def _aviso_de_vantagem(classe: str | None, escolhidas) -> str | None:
+    """O lembrete quando a classe pede uma escolha de vantagem que o jogador ainda não fez."""
+    faltam = rules.skill_advantage_missing(classe, escolhidas)
+    if faltam <= 0:
+        return None
+    info = rules.CLASS_SKILL_ADVANTAGES[classe]
+    if info.get("escolha"):
+        return f"⚠️ Escolhe a vantagem da sua classe: {' ou '.join(info['escolha'])}. O menu fica na tela **Distribuir**."
+    return f"⚠️ Escolhe {faltam} perícia{'s' if faltam > 1 else ''} com vantagem. O menu fica na tela **Distribuir**."
+
+
+def embed_rolar_pericias(nome: str, pontos: dict, atributos: dict, classe: str | None, escolhidas, modo: str,
+                         forcado: str | None, jogador: str | None = None) -> discord.Embed:
+    """A tela principal das perícias: um ícone por perícia, e o bonus de cada uma já somado."""
+    vantagens = rules.skills_with_advantage(classe, escolhidas)
+    linhas = []
+    for pericia in rules.SKILLS:
+        atributo = forcado or rules.SKILL_DEFAULT_ATTRIBUTE[pericia]
+        valor, pts = atributos[atributo], pontos.get(pericia, 0)
+        linhas.append(
+            f"{rules.SKILL_ICONS[pericia]} **{pericia}** {valor + pts:+d} · {rules.ATTRIBUTE_LABELS[atributo]} {valor} + {pts}"
+            + (" ⭐" if pericia in vantagens else "")
+        )
+    descricao = "Toca no ícone da perícia e o bot rola **1d20 + atributo + perícia** sozinho, no nome do seu personagem.\n\n" + "\n".join(linhas)
+    if vantagens:
+        descricao += "\n\n⭐ Vantagem da sua classe: entra sozinha na rolagem."
+    aviso = _aviso_de_vantagem(classe, escolhidas)
+    if aviso:
+        descricao += f"\n\n{aviso}"
+    embed = discord.Embed(title=f"🎲 Perícias de {nome}", description=descricao, color=discord.Color.blurple())
+    _, rotulo = MODOS_DE_TESTE[modo]
+    embed.set_footer(
+        text=f"Modo: {rotulo.lower()} · Atributo: {rules.ATTRIBUTE_LABELS[forcado] if forcado else 'automático (o padrão de cada perícia)'}"
+        + (f" · jogador: {jogador}" if jogador else "")
+    )
+    return embed
+
+
+def embed_pericias(nome: str, pontos: dict, total: int, selecionada: str, classe: str | None, escolhidas,
+                   jogador: str | None = None) -> discord.Embed:
+    """A tela de distribuir os pontos."""
     livres = total - sum(pontos.values())
-    dicas = rules.class_skill_hints(classe)
+    vantagens = rules.skills_with_advantage(classe, escolhidas)
     linhas = []
     for pericia in rules.SKILLS:
         pts = pontos.get(pericia, 0)
         seta = "▶️" if pericia == selecionada else "▫️"
-        linhas.append(f"{seta} {pericia} · **{pts}** {barra(pts, rules.SKILL_MAX_POINTS, rules.SKILL_MAX_POINTS)}" + (" ⭐" if pericia in dicas else ""))
+        linhas.append(f"{seta} {rules.SKILL_ICONS[pericia]} {pericia} · **{pts}** {barra(pts, rules.SKILL_MAX_POINTS, rules.SKILL_MAX_POINTS)}" + (" ⭐" if pericia in vantagens else ""))
     if livres > 0:
         situacao = f"🎯 Pontos livres: **{livres}** de {total} (máximo {rules.SKILL_MAX_POINTS} em cada perícia)"
     elif livres == 0:
@@ -308,19 +347,20 @@ def embed_pericias(nome: str, pontos: dict, total: int, selecionada: str, atribu
     else:
         situacao = f"⚠️ **{-livres}** pontos a mais do que o permitido ({total}). Fala com um mestre."
     descricao = (
-        "**Distribuir:** escolhe a perícia e aperta **+1** ou **-1**.\n"
-        "**Testar:** escolhe a perícia **e** o atributo, e aperta **Testar** (rola 1d20 + atributo + perícia).\n\n"
+        "**Distribuir:** escolhe a perícia no menu e aperta **+1** ou **-1**. Pra rolar, aperta **Rolar perícias**.\n\n"
         f"{situacao}\n\n" + "\n".join(linhas)
     )
-    if dicas:
-        descricao += f"\n\n⭐ Vantagem da sua classe: {rules.CLASS_SKILLS[classe]}. No teste, usa o modo **Vantagem**."
-    emoji, rotulo = MODOS_DE_TESTE[modo]
+    if vantagens:
+        descricao += "\n\n⭐ Vantagem da sua classe (entra sozinha na rolagem)."
+    aviso = _aviso_de_vantagem(classe, escolhidas)
+    if aviso:
+        descricao += f"\n\n{aviso}"
     embed = discord.Embed(
-        title=f"🎯 Perícias de {nome}", description=descricao,
+        title=f"🎯 Pontos de perícia de {nome}", description=descricao,
         color=discord.Color.green() if livres == 0 else discord.Color.blurple(),
     )
-    embed.set_footer(text=f"Teste: {selecionada} + {atributo or 'atributo (falta escolher)'} · modo {rotulo.lower()}"
-                     + (f" · jogador: {jogador}" if jogador else ""))
+    if jogador:
+        embed.set_footer(text=f"jogador: {jogador}")
     return embed
 
 
@@ -685,7 +725,11 @@ def _marca_da_sorte(marcas: list[str] | None) -> str:
     """A marca que o cartão mostra quando o mestre mexeu na sorte da rolagem (vazia se não mexeu, ou se foi discreto)."""
     if not marcas:
         return ""
-    emoji = "🎲" if all(m.startswith("modo ") for m in marcas) else "🍀"   # o modo que o jogador escolheu não é sorte do mestre
+    emoji = "🍀"   # sorte do mestre
+    if all(m.startswith("modo ") for m in marcas):
+        emoji = "🎲"   # o modo que o jogador escolheu
+    elif all(m.startswith("classe: ") for m in marcas):
+        emoji = "⭐"   # a vantagem da classe
     return f"{emoji} {' · '.join(marcas)}"
 
 
