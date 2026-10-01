@@ -291,6 +291,30 @@ AJUDA = {
         ),
         "requisito": "Só mestres.",
     },
+    "mestre habilidades": {
+        "grupo": "mestre",
+        "resumo": "a fila das habilidades que os jogadores criaram",
+        "uso": "/mestre habilidades",
+        "detalhes": (
+            "Mostra as habilidades que os jogadores criaram, as que esperam você primeiro. Escolhe uma no primeiro menu, "
+            "lê o que o jogador pediu e ajusta nos menus: dado (dano ou cura), o que custa (Mana, Estamina, Sanidade ou "
+            "Vida) e um atributo pra somar. Depois aperta Aprovar, Pedir ajuste (com uma nota que ele lê) ou Recusar. "
+            "Corrigir texto muda nome, descrição e efeito; Valores exatos deixa digitar o dado, o custo e o atributo. "
+            "Aprovada, o jogador usa com um botão: o custo sai da barra e o dado rola sozinho."
+        ),
+        "requisito": "Só mestres.",
+    },
+    "mestre pericia": {
+        "grupo": "mestre",
+        "resumo": "define os pontos de uma perícia (conserta a distribuição)",
+        "uso": "/mestre pericia usuario:@alguém pericia:Luta pontos:4",
+        "detalhes": (
+            "Muda os pontos de uma perícia de um personagem pra um valor exato (de 0 a 20), sem conferir o limite. Serve "
+            "pra consertar uma distribuição errada ou dar pontos de recompensa. Mostra quantos pontos livres sobram. "
+            "Fica no registro das ações de mestre."
+        ),
+        "requisito": "Só mestres.",
+    },
     "mestre ajuda": {
         "grupo": "mestre",
         "resumo": "a ajuda só dos comandos de mestre",
@@ -300,6 +324,30 @@ AJUDA = {
             "propósito: os jogadores não veem os comandos de mestre nem esta ajuda. Sem `comando`, mostra a lista toda."
         ),
         "requisito": "Só mestres.",
+    },
+    "pericias": {
+        "grupo": "personagem",
+        "resumo": "distribui os pontos das perícias e testa com um clique",
+        "uso": "/pericias",
+        "detalhes": (
+            "Abre a aba Perícias da ficha. Escolhe a perícia e aperta +1 ou -1 pra distribuir os pontos (25 na criação, "
+            "no máximo 7 em cada). Pra testar, escolhe também o atributo (ele depende da ação) e aperta Testar: rola 1d20 "
+            "+ atributo + perícia no canal. O botão Modo troca entre normal, vantagem e desvantagem. ⭐ marca as "
+            "perícias em que a sua classe tem vantagem."
+        ),
+        "requisito": "Precisa de um personagem.",
+    },
+    "habilidades": {
+        "grupo": "personagem",
+        "resumo": "cria as suas habilidades e usa as aprovadas",
+        "uso": "/habilidades",
+        "detalhes": (
+            "Abre a aba Habilidades da ficha. Aperta Criar habilidade e preenche o formulário: nome, descrição e o que "
+            "você quer que ela faça. O mestre vê, ajusta e aprova, e define o custo (Mana, Estamina...) e o dado de dano "
+            "ou cura. Aprovada, é só escolher e apertar Usar: o custo sai da sua barra e o dado rola sozinho no canal. "
+            "Você pode editar ou apagar as que ainda não foram aprovadas."
+        ),
+        "requisito": "Precisa de um personagem.",
     },
     "mestre sorte": {
         "grupo": "mestre",
@@ -430,6 +478,7 @@ MESTRE_SUBGRUPOS = [
     ("Dados", ["sorte"]),
     ("Sorteios", ["apagar", "corrigir_magia", "corrigir_raca", "corrigir_estado"]),
     ("Cena", ["escudo"]),
+    ("Habilidades e perícias", ["habilidades", "pericia"]),
     ("Ajuda", ["ajuda"]),
     ("Jogadores", ["jogador", "vagas", "excluir_personagem", "apagar_historico", "exportar"]),
 ]
@@ -438,7 +487,7 @@ MESTRE_SUBGRUPOS = [
 ORDEM_SUGESTAO = [
     "personagem criar", "raca_inicial", "classe_social", "classe", "habilidade", "magia_inicial", "atributos", "minha_ficha",
     "rolar", "dados", "iniciativa", "intencao", "niveis", "rank", "calcular_recursos", "historico", "extrato_xp", "personagem usar",
-    "personagem listar", "personagem excluir", "disciplinas", "ajuda",
+    "personagem listar", "personagem excluir", "disciplinas", "pericias", "habilidades", "ajuda",
 ]
 
 
@@ -631,7 +680,7 @@ def visao_geral(status: dict | None, tem_personagem: bool, mestre: bool) -> dict
         "descricao": (
             "É só digitar `/` e escolher o comando. Pra ver como usar um deles, com exemplo, usa "
             "`/ajuda comando:nome`, tipo `/ajuda comando:atributos`."
-            + (f"\n\n🎲 Pra rolar dado, nem precisa de barra: escreve `d20+5` no chat." if _dados_por_texto else "")
+            + ("\n\n🎲 Pra rolar dado, nem precisa de barra: escreve `d20+5` no chat." if _dados_por_texto else "")
             + ("\n\n🛡️ Você é mestre: os comandos de mestre ficam separados, em `/mestre ajuda`." if mestre else "")
         ),
         "campos": campos,

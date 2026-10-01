@@ -17,6 +17,9 @@ import discord
 
 import cena
 import db
+import habil
+import rules
+import vitrine
 from paineis import Coletor, TEMPO_DO_PAINEL, _Painel, _avisar_erro, entregar
 
 # O bot.py entrega as duas funções que dependem dele (quem é mestre e a regra de ficha pronta).
@@ -353,6 +356,172 @@ class EscudoDoMestre(_SoMestre):
         await self._e_atualizar_quadro(interaction)
 
 
+# ---------------------------------------------------------------------------
+# A fila das habilidades dos jogadores: o mestre ajusta nos menus e decide nos botões
+# ---------------------------------------------------------------------------
+DADOS_DO_MENU = ("1d4", "1d6", "1d8", "1d10", "1d12", "2d6", "2d8", "2d10", "3d6", "3d8", "4d6", "2d12")
+CUSTOS_DO_MENU = {"mana": (5, 10, 15, 20, 25, 30), "estamina": (5, 10, 15, 20, 25, 30), "sanidade": (5, 10, 15, 20), "vida": (5, 10, 15, 20)}
+
+
+class FilaDeHabilidades(_SoMestre):
+    """Escolhe a habilidade, mexe no custo e na rolagem pelos menus e aprova, pede ajuste ou recusa. Só o mestre vê."""
+
+    def __init__(self, dono_id: int, selecionada: int | None = None):
+        super().__init__(dono_id)
+        self.selecionada = selecionada
+        self.rascunho: dict = {}
+        if selecionada is not None:
+            self._carregar(selecionada)
+        self._montar()
+
+    def _itens(self) -> list:
+        return db.list_ability_queue(25)
+
+    def _escolhida(self):
+        return next((i for i in self._itens() if i["id"] == self.selecionada), None)
+
+    def _carregar(self, ability_id: int) -> None:
+        ab = next((i for i in self._itens() if i["id"] == ability_id), None)
+        self.selecionada = ab["id"] if ab else None
+        self.rascunho = (
+            {"recurso": ab["cost_resource"], "valor": ab["cost_amount"], "tipo": ab["roll_kind"], "dado": ab["roll_dice"], "atributo": ab["roll_attribute"]}
+            if ab else {}
+        )
+
+    def embed(self) -> discord.Embed:
+        return vitrine.embed_fila(self._itens(), self._escolhida(), self.rascunho)
+
+    def _montar(self) -> None:
+        self.clear_items()
+        itens = self._itens()
+        if self.selecionada not in {i["id"] for i in itens}:
+            self.selecionada, self.rascunho = None, {}
+        if not itens:
+            return
+        opcoes = [
+            discord.SelectOption(
+                label=f"{i['name']} · {i['character_name']}"[:100], value=str(i["id"]), emoji=habil.MARCA[i["status"]],
+                description=i["effect_text"][:100], default=i["id"] == self.selecionada,
+            )
+            for i in itens
+        ]
+        fila = discord.ui.Select(placeholder="1. Escolhe a habilidade", options=opcoes, row=0)
+        fila.callback = functools.partial(self._escolheu_fila, fila)
+        self.add_item(fila)
+        if self.selecionada is None:
+            return
+        r = self.rascunho
+        atual = f"{r.get('tipo') or 'dano'}:{r['dado']}" if r.get("dado") else "nenhuma"
+        rolagem = [discord.SelectOption(label="Sem rolagem", value="nenhuma", emoji="➖", default=atual == "nenhuma")]
+        for tipo, emoji in (("dano", "⚔️"), ("cura", "💚")):
+            rolagem += [
+                discord.SelectOption(label=f"{tipo.capitalize()} {d}", value=f"{tipo}:{d}", emoji=emoji, default=atual == f"{tipo}:{d}")
+                for d in DADOS_DO_MENU
+            ]
+        menu_rolagem = discord.ui.Select(placeholder="2. Dado de dano ou cura", options=rolagem, row=1)
+        menu_rolagem.callback = functools.partial(self._escolheu_rolagem, menu_rolagem)
+        self.add_item(menu_rolagem)
+        custo_atual = f"{r['recurso']}:{r['valor']}" if r.get("recurso") and r.get("valor") else "nenhum"
+        custos = [discord.SelectOption(label="Sem custo", value="nenhum", emoji="➖", default=custo_atual == "nenhum")]
+        for recurso, valores in CUSTOS_DO_MENU.items():
+            custos += [
+                discord.SelectOption(
+                    label=f"{rules.VITAL_LABELS[recurso]} {v}", value=f"{recurso}:{v}", emoji=rules.VITAL_EMOJI[recurso],
+                    default=custo_atual == f"{recurso}:{v}",
+                )
+                for v in valores
+            ]
+        menu_custo = discord.ui.Select(placeholder="3. O que custa pra usar", options=custos, row=2)
+        menu_custo.callback = functools.partial(self._escolheu_custo, menu_custo)
+        self.add_item(menu_custo)
+        atributos = [discord.SelectOption(label="Sem atributo", value="nenhum", emoji="➖", default=not r.get("atributo"))]
+        atributos += [
+            discord.SelectOption(label=rules.ATTRIBUTE_LABELS[a], value=a, default=r.get("atributo") == a) for a in rules.ATTRIBUTES
+        ]
+        menu_attr = discord.ui.Select(placeholder="4. Somar um atributo ao dano ou à cura (opcional)", options=atributos, row=3)
+        menu_attr.callback = functools.partial(self._escolheu_atributo, menu_attr)
+        self.add_item(menu_attr)
+        for rotulo, emoji, estilo, acao in (
+            ("Aprovar", "✅", discord.ButtonStyle.success, self._aprovar),
+            ("Pedir ajuste", "🔧", discord.ButtonStyle.primary, self._ajuste),
+            ("Recusar", "❌", discord.ButtonStyle.danger, self._recusar),
+            ("Corrigir texto", "✏️", discord.ButtonStyle.secondary, self._texto),
+            ("Valores exatos", "🔢", discord.ButtonStyle.secondary, self._exatos),
+        ):
+            botao = discord.ui.Button(label=rotulo, emoji=emoji, style=estilo, row=4)
+            botao.callback = acao
+            self.add_item(botao)
+
+    async def _redesenhar(self, interaction: discord.Interaction, coletor: Coletor | None = None) -> None:
+        self._montar()
+        await entregar(interaction, coletor or Coletor(interaction), self.embed(), self)
+
+    # ---- menus ----
+    async def _escolheu_fila(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        self._carregar(int(seletor.values[0]))
+        await self._redesenhar(interaction)
+
+    async def _escolheu_rolagem(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        valor = seletor.values[0]
+        if valor == "nenhuma":
+            self.rascunho["tipo"], self.rascunho["dado"] = None, None
+        else:
+            tipo, dado = valor.split(":", 1)
+            self.rascunho["tipo"], self.rascunho["dado"] = tipo, dado
+        await self._redesenhar(interaction)
+
+    async def _escolheu_custo(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        valor = seletor.values[0]
+        if valor == "nenhum":
+            self.rascunho["recurso"], self.rascunho["valor"] = None, 0
+        else:
+            recurso, quanto = valor.split(":", 1)
+            self.rascunho["recurso"], self.rascunho["valor"] = recurso, int(quanto)
+        await self._redesenhar(interaction)
+
+    async def _escolheu_atributo(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        self.rascunho["atributo"] = None if seletor.values[0] == "nenhum" else seletor.values[0]
+        await self._redesenhar(interaction)
+
+    # ---- decidir ----
+    async def decidir(self, interaction: discord.Interaction, status: str, nota: str | None) -> None:
+        r = self.rascunho
+        resultado = habil.decidir(
+            self.selecionada, status, r.get("recurso"), r.get("valor") or 0, r.get("tipo"), r.get("dado"),
+            r.get("atributo"), nota, str(interaction.user.id),
+        )
+        coletor = Coletor(interaction)
+        coletor.avisar(resultado.texto)
+        if resultado.ok:
+            db.log_master_action(
+                master_id=str(interaction.user.id), master_name=str(interaction.user.display_name), target_user_id="",
+                character_id=None, character_name=None, action="habilidade",
+                detail=f"{status}: habilidade #{self.selecionada} ({habil.texto_do_custo(db.get_ability(self.selecionada))}, {habil.texto_da_rolagem(db.get_ability(self.selecionada))})",
+            )
+        if status == "recusada" and resultado.ok:
+            self.selecionada, self.rascunho = None, {}
+        await self._redesenhar(interaction, coletor)
+
+    async def _aprovar(self, interaction: discord.Interaction) -> None:
+        await self.decidir(interaction, "aprovada", None)
+
+    async def _ajuste(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(ModalNotaDoMestre(self, "ajuste"))
+
+    async def _recusar(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(ModalNotaDoMestre(self, "recusada"))
+
+    async def _texto(self, interaction: discord.Interaction) -> None:
+        ab = self._escolhida()
+        if ab is None:
+            await self._redesenhar(interaction)
+            return
+        await interaction.response.send_modal(ModalTextoDaHabilidade(self, ab))
+
+    async def _exatos(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(ModalValoresExatos(self))
+
+
 class ConfirmarEncerrar(_SoMestre):
     def __init__(self, dono_id: int, channel_id: str):
         super().__init__(dono_id)
@@ -462,6 +631,76 @@ class ModalIniciativa(_Formulario):
         await self.escudo._redesenhar(interaction, coletor)
         if r.mudou:
             await self.escudo._e_atualizar_quadro(interaction)
+
+
+class ModalNotaDoMestre(_Formulario):
+    """A nota que o jogador vai ler: obrigatória no pedido de ajuste, opcional na recusa."""
+
+    def __init__(self, fila: FilaDeHabilidades, status: str):
+        super().__init__(title="Pedir ajuste" if status == "ajuste" else "Recusar habilidade", timeout=TEMPO_DO_PAINEL)
+        self.fila = fila
+        self.status = status
+        self.campo = discord.ui.TextInput(
+            label="O que o jogador precisa ajustar?" if status == "ajuste" else "Motivo (opcional, o jogador vê)",
+            style=discord.TextStyle.paragraph, required=status == "ajuste", max_length=habil.TAMANHO_NOTA,
+        )
+        self.add_item(self.campo)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.fila.decidir(interaction, self.status, self.campo.value)
+
+
+class ModalTextoDaHabilidade(_Formulario):
+    """O mestre corrige o nome, a descrição e o efeito escritos pelo jogador."""
+
+    def __init__(self, fila: FilaDeHabilidades, ab):
+        super().__init__(title="Corrigir a habilidade", timeout=TEMPO_DO_PAINEL)
+        self.fila = fila
+        self.nome = discord.ui.TextInput(label="Nome", max_length=habil.TAMANHO_NOME, default=ab["name"])
+        self.descricao = discord.ui.TextInput(label="Descrição", style=discord.TextStyle.paragraph, max_length=habil.TAMANHO_DESCRICAO, default=ab["description"])
+        self.efeito = discord.ui.TextInput(label="Efeito pedido", style=discord.TextStyle.paragraph, max_length=habil.TAMANHO_EFEITO, default=ab["effect_text"])
+        for campo in (self.nome, self.descricao, self.efeito):
+            self.add_item(campo)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        coletor = Coletor(interaction)
+        coletor.avisar(habil.corrigir_texto(self.fila.selecionada, self.nome.value, self.descricao.value, self.efeito.value).texto)
+        await self.fila._redesenhar(interaction, coletor)
+
+
+class ModalValoresExatos(_Formulario):
+    """Pra quando o dado, o custo ou o atributo não estão nos menus: o mestre digita."""
+
+    def __init__(self, fila: FilaDeHabilidades):
+        super().__init__(title="Valores exatos", timeout=TEMPO_DO_PAINEL)
+        self.fila = fila
+        r = fila.rascunho
+        self.dado = discord.ui.TextInput(label="Dado (ex: 2d8 ou 1d6+2). Vazio = sem rolagem", required=False, max_length=12, default=r.get("dado"))
+        self.tipo = discord.ui.TextInput(label="É dano ou cura?", required=False, max_length=4, default=r.get("tipo") or "dano")
+        self.custo = discord.ui.TextInput(
+            label="Custo (ex: mana 15). Vazio = sem custo", required=False, max_length=20,
+            default=f"{r['recurso']} {r['valor']}" if r.get("recurso") and r.get("valor") else None,
+        )
+        self.atributo = discord.ui.TextInput(
+            label="Atributo somado (ex: Força). Vazio = nenhum", required=False, max_length=12,
+            default=rules.ATTRIBUTE_LABELS[r["atributo"]] if r.get("atributo") else None,
+        )
+        for campo in (self.dado, self.tipo, self.custo, self.atributo):
+            self.add_item(campo)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        coletor = Coletor(interaction)
+        dado, erro_dado = habil.ler_dado(self.dado.value)
+        recurso, valor, erro_custo = habil.ler_custo(self.custo.value)
+        atributo, erro_attr = habil.ler_atributo(self.atributo.value)
+        tipo = self.tipo.value.strip().casefold() or "dano"
+        erro = erro_dado or erro_custo or erro_attr or (None if tipo in rules.ABILITY_ROLL_KINDS else "Escreve **dano** ou **cura** no tipo.")
+        if erro:
+            coletor.avisar(erro)
+        else:
+            self.fila.rascunho = {"recurso": recurso, "valor": valor, "tipo": tipo if dado else None, "dado": dado, "atributo": atributo}
+            coletor.avisar("🔢 Valores marcados. Falta só apertar **Aprovar** (ou pedir ajuste).")
+        await self.fila._redesenhar(interaction, coletor)
 
 
 class ModalNegar(_Formulario):

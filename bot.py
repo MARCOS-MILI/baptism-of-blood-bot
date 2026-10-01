@@ -539,7 +539,7 @@ def _embed_ficha(personagem, jogador: str, para_mestre: bool = False) -> discord
 # Rolagens e histórico
 # ---------------------------------------------------------------------------
 
-def _rolar_com_sorte(char, notacao: str):
+def _rolar_com_sorte(char, notacao: str, extras=()):
     """Rola a notação (que pode ser um N#dado, tipo 3#d20+5) já com a sorte que o mestre pôs no personagem, e
     gasta os usos dela. Devolve (resultados, marcas de cada um). Levanta DiceError se a notação for inválida."""
     efeitos = []
@@ -548,9 +548,9 @@ def _rolar_com_sorte(char, notacao: str):
             dice.EfeitoDeSorte(e["id"], e["kind"], e["value"], e["uses_left"], bool(e["quiet"]))
             for e in db.get_dice_effects(char["id"])
         ]
-    resultados, marcas, usados = dice.roll_many(notacao, efeitos)
+    resultados, marcas, usados = dice.roll_many(notacao, efeitos + list(extras))
     if usados:
-        db.use_dice_effects(usados)
+        db.use_dice_effects([i for i in usados if i > 0])   # os extras (id negativo) não são do banco
     return resultados, marcas
 
 
@@ -581,6 +581,12 @@ def _registrar_e_montar_cartao(uid: str, jogador: str, guild_id: str | None, cha
 @app_commands.autocomplete(personagem=_autocomplete_personagem)
 @app_commands.check(_exigir_personagem_pronto)
 async def rolar(interaction: discord.Interaction, dado: str, motivo: str | None = None, personagem: str | None = None):
+    await _executar_rolagem(interaction, dado, motivo, personagem)
+
+
+async def _executar_rolagem(interaction, dado: str, motivo: str | None, personagem: str | None, extras=()) -> None:
+    """O que o /rolar faz, pra o teste de perícia do painel usar também. 'extras' são efeitos de dado que não vêm do
+    banco (o modo vantagem ou desvantagem que o jogador escolheu)."""
     uid = str(interaction.user.id)
     try:  # confere a notação antes de qualquer coisa, sem rolar e sem gastar a sorte do personagem
         dice.validate(dado)
@@ -599,12 +605,18 @@ async def rolar(interaction: discord.Interaction, dado: str, motivo: str | None 
     else:
         char = db.get_active_character(uid)  # pode ser None: rolar sem personagem continua valendo
 
-    resultados, marcas = _rolar_com_sorte(char, dado)
+    resultados, marcas = _rolar_com_sorte(char, dado, extras)
     cartao = _registrar_e_montar_cartao(
         uid, str(interaction.user.display_name), str(interaction.guild_id) if interaction.guild_id else None,
         char, dado, motivo, resultados, marcas,
     )
     await interaction.response.send_message(**cartao.kwargs())
+
+
+async def _teste_de_pericia(coletor, notacao: str, motivo: str, personagem: str, modo: str) -> None:
+    """O botão Testar da aba Perícias: rola 1d20 + atributo + perícia no nome do personagem do painel."""
+    extras = [dice.EfeitoDeSorte(-1, modo, None, 1, False, "jogador")] if modo in ("vantagem", "desvantagem") else []
+    await _executar_rolagem(coletor, notacao, motivo, personagem, extras)
 
 
 def _bloqueio_curto(uid: str, eh_mestre: bool) -> str | None:
@@ -1351,6 +1363,32 @@ async def minha_ficha(interaction: discord.Interaction, personagem: str | None =
         embed=_embed_ficha(char, interaction.user.display_name), view=painel, ephemeral=True
     )
     painel.origem = interaction
+
+
+async def _abrir_aba(interaction: discord.Interaction, aba: str, personagem: str | None) -> None:
+    """Abre a ficha direto numa aba (perícias ou habilidades), pra a pessoa não precisar procurar."""
+    char, erro = _resolver(str(interaction.user.id), personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    jogador = str(interaction.user.display_name)
+    painel = (paineis.PainelPericias if aba == "pericias" else paineis.PainelHabilidades)(interaction.user.id, char["id"], jogador)
+    await interaction.response.send_message(embed=painel.embed(), view=painel, ephemeral=True)
+    painel.origem = interaction
+
+
+@bot.tree.command(name="pericias", description="Distribui os pontos das suas perícias e testa uma com um clique.")
+@app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+async def pericias_comando(interaction: discord.Interaction, personagem: str | None = None):
+    await _abrir_aba(interaction, "pericias", personagem)
+
+
+@bot.tree.command(name="habilidades", description="Cria as suas habilidades (o mestre aprova) e usa as aprovadas.")
+@app_commands.describe(personagem="Opcional: qual personagem seu (padrão: o que você está usando)")
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+async def habilidades_comando(interaction: discord.Interaction, personagem: str | None = None):
+    await _abrir_aba(interaction, "habilidades", personagem)
 
 
 @bot.tree.command(name="iniciativa", description="Entra na iniciativa da cena deste canal (1d20 + Destreza).")
@@ -2179,6 +2217,39 @@ async def mestre_sorte(
     )
 
 
+@mestre_grupo.command(name="habilidades", description="A fila das habilidades que os jogadores criaram: ajusta, aprova ou recusa.")
+@app_commands.check(_eh_mestre)
+async def mestre_habilidades(interaction: discord.Interaction):
+    fila = escudo.FilaDeHabilidades(interaction.user.id)
+    await interaction.response.send_message(embed=fila.embed(), view=fila, ephemeral=True)
+    fila.origem = interaction
+
+
+@mestre_grupo.command(name="pericia", description="Define os pontos de uma perícia de um personagem (conserta distribuição).")
+@app_commands.describe(
+    usuario="Jogador dono do personagem", pericia="A perícia", pontos="Quantos pontos ela passa a ter (de 0 a 20)",
+    personagem="Opcional: personagem dele (padrão: o que ele está usando)",
+)
+@app_commands.choices(pericia=[app_commands.Choice(name=p, value=p) for p in rules.SKILLS])
+@app_commands.autocomplete(personagem=_autocomplete_personagem)
+@app_commands.check(_eh_mestre)
+async def mestre_pericia(
+    interaction: discord.Interaction, usuario: discord.Member, pericia: str, pontos: app_commands.Range[int, 0, 20],
+    personagem: str | None = None,
+):
+    char, erro = _resolver_do_alvo(usuario, personagem)
+    if erro:
+        await interaction.response.send_message(erro, ephemeral=True)
+        return
+    antes = db.get_skills(char["id"]).get(pericia, 0)
+    db.set_skill_points(char["id"], pericia, pontos)
+    _auditar(interaction, usuario, char, "pericia", f"{pericia}: {antes} -> {pontos}")
+    livres = rules.skill_points_free(char["level"], char["class_name"], db.get_skills(char["id"]))
+    await interaction.response.send_message(
+        f"🎯 **{char['name']}**: {pericia} foi de {antes} pra **{pontos}**. Pontos livres agora: **{livres}**.", ephemeral=True
+    )
+
+
 @mestre_grupo.command(name="escudo", description="Abre o Escudo do Mestre: iniciativa e intenções da cena deste canal.")
 @app_commands.check(_eh_mestre)
 async def mestre_escudo(interaction: discord.Interaction):
@@ -2538,6 +2609,7 @@ paineis.registrar(paineis.Ganchos(
     ajuda=lambda coletor: _responder_ajuda(coletor, None),
     ordem_ligada=lambda: ORDEM_DA_CRIACAO,
     recursos=_recursos_do_personagem,
+    teste=_teste_de_pericia,
 ))
 
 

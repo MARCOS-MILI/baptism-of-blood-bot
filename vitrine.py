@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import discord
 
 import dice
+import habil
 import lore
 import rules
 
@@ -286,6 +287,135 @@ def embed_vitais(nome: str, recursos: dict, perdidos: dict, jogador: str | None 
 
 
 # ---------------------------------------------------------------------------
+# Perícias: distribuir os pontos e testar com um clique
+# ---------------------------------------------------------------------------
+MODOS_DE_TESTE = {"normal": ("🎲", "Normal"), "vantagem": ("⬆️", "Vantagem"), "desvantagem": ("⬇️", "Desvantagem")}
+
+
+def embed_pericias(nome: str, pontos: dict, total: int, selecionada: str, atributo: str | None, modo: str,
+                   classe: str | None, jogador: str | None = None) -> discord.Embed:
+    livres = total - sum(pontos.values())
+    dicas = rules.class_skill_hints(classe)
+    linhas = []
+    for pericia in rules.SKILLS:
+        pts = pontos.get(pericia, 0)
+        seta = "▶️" if pericia == selecionada else "▫️"
+        linhas.append(f"{seta} {pericia} · **{pts}** {barra(pts, rules.SKILL_MAX_POINTS, rules.SKILL_MAX_POINTS)}" + (" ⭐" if pericia in dicas else ""))
+    if livres > 0:
+        situacao = f"🎯 Pontos livres: **{livres}** de {total} (máximo {rules.SKILL_MAX_POINTS} em cada perícia)"
+    elif livres == 0:
+        situacao = f"✅ Todos os {total} pontos distribuídos"
+    else:
+        situacao = f"⚠️ **{-livres}** pontos a mais do que o permitido ({total}). Fala com um mestre."
+    descricao = (
+        "**Distribuir:** escolhe a perícia e aperta **+1** ou **-1**.\n"
+        "**Testar:** escolhe a perícia **e** o atributo, e aperta **Testar** (rola 1d20 + atributo + perícia).\n\n"
+        f"{situacao}\n\n" + "\n".join(linhas)
+    )
+    if dicas:
+        descricao += f"\n\n⭐ Vantagem da sua classe: {rules.CLASS_SKILLS[classe]}. No teste, usa o modo **Vantagem**."
+    emoji, rotulo = MODOS_DE_TESTE[modo]
+    embed = discord.Embed(
+        title=f"🎯 Perícias de {nome}", description=descricao,
+        color=discord.Color.green() if livres == 0 else discord.Color.blurple(),
+    )
+    embed.set_footer(text=f"Teste: {selecionada} + {atributo or 'atributo (falta escolher)'} · modo {rotulo.lower()}"
+                     + (f" · jogador: {jogador}" if jogador else ""))
+    return embed
+
+
+# ---------------------------------------------------------------------------
+# Habilidades criadas pelos jogadores
+# ---------------------------------------------------------------------------
+def _linhas_da_habilidade(ab) -> list[tuple[str, str]]:
+    campos = [("Descrição", ab["description"]), ("Efeito que você pediu", ab["effect_text"])]
+    if ab["status"] == "aprovada":
+        campos.append(("Custo e rolagem", f"{habil.texto_do_custo(ab)} · {habil.texto_da_rolagem(ab)}"))
+    if ab["master_note"] and ab["status"] in ("ajuste", "recusada"):
+        campos.append(("Nota do mestre", ab["master_note"]))
+    return campos
+
+
+def embed_habilidades(nome: str, habilidades: list, selecionada: int | None, jogador: str | None = None) -> discord.Embed:
+    """A aba Habilidades do jogador: o caminho (criar, o mestre aprova, usar) e a lista com o status de cada uma."""
+    topo = "**1.** Cria a sua habilidade · **2.** O mestre ajusta e aprova · **3.** Usa com um clique"
+    if habilidades:
+        linhas = [
+            f"{'▶️' if a['id'] == selecionada else '▫️'} {habil.MARCA[a['status']]} **{a['name']}** · {habil.FRASE[a['status']]}"
+            for a in habilidades
+        ]
+        corpo = "\n".join(linhas)
+    else:
+        corpo = "Você ainda não criou nenhuma habilidade. Aperta **➕ Criar habilidade** pra começar."
+    embed = discord.Embed(title=f"✨ Habilidades de {nome}", description=f"{topo}\n\n{corpo}", color=discord.Color.purple())
+    escolhida = next((a for a in habilidades if a["id"] == selecionada), None)
+    if escolhida is not None:
+        for titulo, valor in _linhas_da_habilidade(escolhida):
+            embed.add_field(name=titulo, value=valor[:1024], inline=False)
+    if jogador:
+        embed.set_footer(text=f"jogador: {jogador}")
+    return embed
+
+
+def cartao_uso_habilidade(personagem: str, ab, uso, jogador: str | None = None) -> Cartao:
+    """A mensagem pública de quando alguém usa uma habilidade: o que gastou e o que rolou."""
+    cor = discord.Color.blurple()
+    if uso.rolagem is not None:
+        cor = discord.Color.red() if ab["roll_kind"] != "cura" else discord.Color.green()
+    embed = discord.Embed(title=f"✨ {ab['name']}", description=_citar(ab["description"], True), color=cor)
+    embed.set_author(name=f"{personagem} usou uma habilidade")
+    if uso.custo:
+        recurso, valor, resta, maximo = uso.custo
+        embed.add_field(name="Custo", value=f"{rules.VITAL_EMOJI[recurso]} -{valor} de {rules.VITAL_LABELS[recurso]} (sobram {resta}/{maximo})", inline=False)
+    if uso.rolagem is not None:
+        conta = f"{ab['roll_dice']}: {uso.rolagem.describe()}"
+        if uso.atributo:
+            conta += f" + {uso.atributo[0]} {uso.atributo[1]}"
+        rotulo = "Cura" if ab["roll_kind"] == "cura" else "Dano"
+        embed.add_field(name=rotulo, value=f"🎲 {conta} = **{uso.total}**", inline=False)
+    embed.add_field(name="O que ela faz", value=ab["effect_text"][:1024], inline=False)
+    if jogador:
+        embed.set_footer(text=f"jogador: {jogador}")
+    return Cartao(embed, [])
+
+
+def embed_fila(itens: list, selecionada, rascunho: dict) -> discord.Embed:
+    """A tela do mestre: quantas esperam e, da escolhida, tudo o que ele precisa pra decidir. 'rascunho' é o que
+    ele já marcou nos menus (ainda não gravado)."""
+    esperando = sum(1 for i in itens if i["status"] == "pendente")
+    ajuste = sum(1 for i in itens if i["status"] == "ajuste")
+    topo = f"⏳ **{esperando}** aguardando · 🔧 **{ajuste}** em ajuste · ✅ {len(itens) - esperando - ajuste} aprovadas (as mais recentes)"
+    if not itens:
+        topo = "Nenhuma habilidade na fila por enquanto. Quando um jogador criar uma, ela aparece aqui."
+    embed = discord.Embed(
+        title="🛡️ Habilidades dos jogadores",
+        description=topo + ("\n\nEscolhe uma no primeiro menu." if selecionada is None and itens else ""),
+        color=discord.Color.dark_gold(),
+    )
+    if selecionada is not None:
+        ab = selecionada
+        quem = f"**{ab['character_name']}**" + (f" · <@{ab['user_id']}>" if ab["user_id"] else "")
+        embed.add_field(name=f"{habil.MARCA[ab['status']]} {ab['name']}", value=f"{quem} · {habil.FRASE[ab['status']]}", inline=False)
+        embed.add_field(name="Descrição", value=ab["description"][:1024], inline=False)
+        embed.add_field(name="Efeito que o jogador pediu", value=ab["effect_text"][:1024], inline=False)
+        embed.add_field(name="Como vai ficar (nos menus)", value=texto_do_rascunho(rascunho), inline=False)
+        if ab["master_note"]:
+            embed.add_field(name="Última nota", value=ab["master_note"][:1024], inline=False)
+        embed.set_footer(text="Ajusta o custo e a rolagem nos menus. Depois: Aprovar, Pedir ajuste ou Recusar.")
+    return embed
+
+
+def texto_do_rascunho(r: dict) -> str:
+    custo = f"{rules.VITAL_EMOJI[r['recurso']]} {r['valor']} de {rules.VITAL_LABELS[r['recurso']]}" if r.get("recurso") and r.get("valor") else "sem custo"
+    if r.get("dado"):
+        extra = f" + {rules.ATTRIBUTE_LABELS[r['atributo']]}" if r.get("atributo") else ""
+        rolagem = f"{'cura' if r.get('tipo') == 'cura' else 'dano'} {r['dado']}{extra}"
+    else:
+        rolagem = "sem rolagem"
+    return f"**Custo:** {custo}\n**Rolagem:** {rolagem}"
+
+
+# ---------------------------------------------------------------------------
 # Resultado especial (66 ou 77): tudo interrogação
 # ---------------------------------------------------------------------------
 
@@ -553,7 +683,10 @@ def cartao_magia(personagem: str, rank: str, rolagem: int, jogador: str) -> Cart
 
 def _marca_da_sorte(marcas: list[str] | None) -> str:
     """A marca que o cartão mostra quando o mestre mexeu na sorte da rolagem (vazia se não mexeu, ou se foi discreto)."""
-    return f"🍀 {' · '.join(marcas)}" if marcas else ""
+    if not marcas:
+        return ""
+    emoji = "🎲" if all(m.startswith("modo ") for m in marcas) else "🍀"   # o modo que o jogador escolheu não é sorte do mestre
+    return f"{emoji} {' · '.join(marcas)}"
 
 
 def cartao_rolagens(quem: str, notacao: str, resultados: list["dice.RollResult"], motivo: str | None,

@@ -17,7 +17,7 @@ from typing import Callable
 import discord
 
 import db
-import dice
+import habil
 import lore
 import rules
 import vitrine
@@ -43,6 +43,7 @@ class Ganchos:
     ajuda: Callable             # async (coletor)
     ordem_ligada: Callable      # () -> bool (a chavinha ORDEM_DA_CRIACAO, lida na hora)
     recursos: Callable          # (personagem) -> {vida, sanidade, mana, estamina: {total...}} (o máximo de cada vital)
+    teste: Callable             # async (coletor, notacao, motivo, nome_do_personagem, modo): rola um teste de perícia
 
 
 GANCHOS: Ganchos | None = None
@@ -67,7 +68,7 @@ class _Resposta:
         return False
 
 
-ABAS = (("ficha", "📋", "Ficha"), ("vitais", "❤️", "Vitais"))
+ABAS = (("ficha", "📋", "Ficha"), ("vitais", "❤️", "Vitais"), ("pericias", "🎯", "Perícias"), ("habilidades", "✨", "Habilidades"))
 
 
 def adicionar_abas(view: "_Painel", atual: str) -> None:
@@ -85,6 +86,12 @@ def adicionar_abas(view: "_Painel", atual: str) -> None:
 async def _ir_pra_aba(view: "_Painel", chave: str, interaction: discord.Interaction) -> None:
     if chave == "vitais":
         nova = PainelVitais(view.dono_id, view.personagem_id, view.jogador)
+        embed = nova.embed()
+    elif chave == "pericias":
+        nova = PainelPericias(view.dono_id, view.personagem_id, view.jogador)
+        embed = nova.embed()
+    elif chave == "habilidades":
+        nova = PainelHabilidades(view.dono_id, view.personagem_id, view.jogador)
         embed = nova.embed()
     else:
         nova = PainelFicha(view.dono_id, view.personagem_id, view.jogador)
@@ -233,7 +240,7 @@ class PainelFicha(_Painel):
                 botao = discord.ui.Button(label=f"{rotulo} ({restam})", emoji="🔄", style=discord.ButtonStyle.secondary, row=1)
                 botao.callback = functools.partial(self._clicou_passo, passo)
             elif situacao == "feito" and passo == "classe" and habilidade_pendente(char):
-                botao = discord.ui.Button(label="Habilidade", emoji="✨", style=discord.ButtonStyle.primary, row=1)
+                botao = discord.ui.Button(label="Habilidade de classe", emoji="✨", style=discord.ButtonStyle.primary, row=1)
                 botao.callback = self._abrir_habilidade
             elif situacao == "feito":
                 botao = discord.ui.Button(label=rotulo, emoji="✅", style=discord.ButtonStyle.success, disabled=True, row=1)
@@ -759,6 +766,261 @@ class ModalValorExato(discord.ui.Modal):
             await interaction.response.send_message("Escreve só um número, tipo 12.", ephemeral=True)
             return
         await self.painel.aplicar_valor(interaction, int(texto))
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        await _avisar_erro(interaction, error)
+
+
+# ---------------------------------------------------------------------------
+# Perícias: distribuir os pontos e testar com um clique
+# ---------------------------------------------------------------------------
+_PROXIMO_MODO = {"normal": "vantagem", "vantagem": "desvantagem", "desvantagem": "normal"}
+
+
+class PainelPericias(_Painel):
+    """Escolhe a perícia, soma ou tira pontos, e testa (1d20 + atributo + perícia) escolhendo o atributo."""
+
+    def __init__(self, dono_id: int, personagem_id: int, jogador: str, selecionada: str = rules.SKILLS[0],
+                 atributo: str | None = None, modo: str = "normal"):
+        super().__init__(dono_id)
+        self.personagem_id = personagem_id
+        self.jogador = jogador
+        self.selecionada = selecionada if selecionada in rules.SKILLS else rules.SKILLS[0]
+        self.atributo = atributo if atributo in rules.ATTRIBUTES else None
+        self.modo = modo if modo in _PROXIMO_MODO else "normal"
+        self._montar()
+
+    def personagem(self):
+        return db.get_character_by_id(self.personagem_id)
+
+    def _dados(self):
+        char = self.personagem()
+        return char, db.get_skills(char["id"]), rules.skill_points_total(char["level"], char["class_name"])
+
+    def embed(self) -> discord.Embed:
+        char, pontos, total = self._dados()
+        rotulo = rules.ATTRIBUTE_LABELS[self.atributo] if self.atributo else None
+        return vitrine.embed_pericias(char["name"], pontos, total, self.selecionada, rotulo, self.modo, char["class_name"], self.jogador)
+
+    def _montar(self) -> None:
+        self.clear_items()
+        adicionar_abas(self, "pericias")
+        char, pontos, total = self._dados()
+        livres = total - sum(pontos.values())
+        dicas = rules.class_skill_hints(char["class_name"])
+        opcoes = [
+            discord.SelectOption(
+                label=p, value=p, default=p == self.selecionada,
+                description=f"{pontos.get(p, 0)} pontos" + (" · ⭐ vantagem da classe" if p in dicas else ""),
+            )
+            for p in rules.SKILLS
+        ]
+        seletor = discord.ui.Select(placeholder="1. Escolhe a perícia", options=opcoes, row=1)
+        seletor.callback = functools.partial(self._escolheu_pericia, seletor)
+        self.add_item(seletor)
+        atuais = db.attributes_of(char)
+        opcoes_attr = [
+            discord.SelectOption(label=rules.ATTRIBUTE_LABELS[a], value=a, default=a == self.atributo, description=f"valor {atuais[a]}")
+            for a in rules.ATTRIBUTES
+        ]
+        seletor_attr = discord.ui.Select(placeholder="2. Atributo do teste (só pra rolar)", options=opcoes_attr, row=2)
+        seletor_attr.callback = functools.partial(self._escolheu_atributo, seletor_attr)
+        self.add_item(seletor_attr)
+        pts = pontos.get(self.selecionada, 0)
+        menos = discord.ui.Button(label="-1", style=discord.ButtonStyle.danger, disabled=pts <= 0, row=3)
+        menos.callback = functools.partial(self._mudar, -1)
+        mais = discord.ui.Button(label="+1", style=discord.ButtonStyle.success, disabled=pts >= rules.SKILL_MAX_POINTS or livres <= 0, row=3)
+        mais.callback = functools.partial(self._mudar, 1)
+        testar = discord.ui.Button(label="Testar", emoji="🎲", style=discord.ButtonStyle.primary, disabled=self.atributo is None, row=3)
+        testar.callback = self._testar
+        emoji, rotulo = vitrine.MODOS_DE_TESTE[self.modo]
+        modo = discord.ui.Button(label=f"Modo: {rotulo}", emoji=emoji, style=discord.ButtonStyle.secondary, row=3)
+        modo.callback = self._trocar_modo
+        for botao in (menos, mais, testar, modo):
+            self.add_item(botao)
+
+    async def _redesenhar(self, interaction: discord.Interaction, coletor: Coletor | None = None) -> None:
+        self._montar()
+        await entregar(interaction, coletor or Coletor(interaction), self.embed(), self)
+
+    async def _escolheu_pericia(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        if seletor.values[0] in rules.SKILLS:
+            self.selecionada = seletor.values[0]
+        await self._redesenhar(interaction)
+
+    async def _escolheu_atributo(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        if seletor.values[0] in rules.ATTRIBUTES:
+            self.atributo = seletor.values[0]
+        await self._redesenhar(interaction)
+
+    async def _mudar(self, delta: int, interaction: discord.Interaction) -> None:
+        char, pontos, total = self._dados()
+        atual = pontos.get(self.selecionada, 0)
+        novo = atual + delta
+        livres = total - sum(pontos.values())
+        if 0 <= novo <= rules.SKILL_MAX_POINTS and (delta < 0 or livres > 0):   # os botões já vêm desligados, mas confere
+            db.set_skill_points(char["id"], self.selecionada, novo)
+        await self._redesenhar(interaction)
+
+    async def _trocar_modo(self, interaction: discord.Interaction) -> None:
+        self.modo = _PROXIMO_MODO[self.modo]
+        await self._redesenhar(interaction)
+
+    async def _testar(self, interaction: discord.Interaction) -> None:
+        coletor = Coletor(interaction)
+        if self.atributo is None:   # o botão já vem desligado, mas confere
+            coletor.avisar("Escolhe o atributo do teste no segundo menu.")
+            await self._redesenhar(interaction, coletor)
+            return
+        char, pontos, _ = self._dados()
+        bonus = db.attributes_of(char)[self.atributo] + pontos.get(self.selecionada, 0)
+        notacao = f"1d20{bonus:+d}" if bonus else "1d20"
+        motivo = f"{self.selecionada} ({rules.ATTRIBUTE_LABELS[self.atributo]})"
+        await GANCHOS.teste(coletor, notacao, motivo, char["name"], self.modo)
+        await self._redesenhar(interaction, coletor)
+
+
+# ---------------------------------------------------------------------------
+# Habilidades criadas pelo jogador
+# ---------------------------------------------------------------------------
+class PainelHabilidades(_Painel):
+    """Cria a habilidade num formulário, acompanha o que o mestre decidiu e usa com um botão."""
+
+    def __init__(self, dono_id: int, personagem_id: int, jogador: str, selecionada: int | None = None):
+        super().__init__(dono_id)
+        self.personagem_id = personagem_id
+        self.jogador = jogador
+        self.selecionada = selecionada
+        self._montar()
+
+    def personagem(self):
+        return db.get_character_by_id(self.personagem_id)
+
+    def _escolhida(self):
+        return next((a for a in db.list_abilities(self.personagem_id) if a["id"] == self.selecionada), None)
+
+    def embed(self) -> discord.Embed:
+        return vitrine.embed_habilidades(self.personagem()["name"], db.list_abilities(self.personagem_id), self.selecionada, self.jogador)
+
+    def _montar(self) -> None:
+        self.clear_items()
+        adicionar_abas(self, "habilidades")
+        lista = db.list_abilities(self.personagem_id)
+        if self.selecionada not in {a["id"] for a in lista}:
+            self.selecionada = None
+        if lista:
+            opcoes = [
+                discord.SelectOption(
+                    label=a["name"][:100], value=str(a["id"]), emoji=habil.MARCA[a["status"]],
+                    description=habil.FRASE[a["status"]], default=a["id"] == self.selecionada,
+                )
+                for a in lista[:25]
+            ]
+            seletor = discord.ui.Select(placeholder="Escolhe uma habilidade", options=opcoes, row=1)
+            seletor.callback = functools.partial(self._escolheu, seletor)
+            self.add_item(seletor)
+        escolhida = self._escolhida()
+        criar = discord.ui.Button(
+            label="Criar habilidade", emoji="➕", style=discord.ButtonStyle.success, row=2,
+            disabled=db.count_active_abilities(self.personagem_id) >= rules.MAX_CUSTOM_ABILITIES,
+        )
+        criar.callback = self._criar
+        usar = discord.ui.Button(
+            label="Usar", emoji="⚡", style=discord.ButtonStyle.primary, row=2,
+            disabled=not (escolhida and escolhida["status"] == "aprovada"),
+        )
+        usar.callback = self._usar
+        mexivel = bool(escolhida and escolhida["status"] in habil.PODE_EDITAR)
+        editar = discord.ui.Button(label="Editar", emoji="✏️", style=discord.ButtonStyle.secondary, row=2, disabled=not mexivel)
+        editar.callback = self._editar
+        apagar = discord.ui.Button(label="Apagar", emoji="🗑", style=discord.ButtonStyle.danger, row=2, disabled=not mexivel)
+        apagar.callback = self._apagar
+        for botao in (criar, usar, editar, apagar):
+            self.add_item(botao)
+
+    async def _redesenhar(self, interaction: discord.Interaction, coletor: Coletor | None = None) -> None:
+        self._montar()
+        await entregar(interaction, coletor or Coletor(interaction), self.embed(), self)
+
+    async def _escolheu(self, seletor: discord.ui.Select, interaction: discord.Interaction) -> None:
+        self.selecionada = int(seletor.values[0])
+        await self._redesenhar(interaction)
+
+    async def _criar(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(ModalHabilidade(self))
+
+    async def _editar(self, interaction: discord.Interaction) -> None:
+        ab = self._escolhida()
+        if ab is None:
+            await self._redesenhar(interaction)
+            return
+        await interaction.response.send_modal(ModalHabilidade(self, ab))
+
+    async def aplicar_formulario(self, interaction: discord.Interaction, nome: str, descricao: str, efeito: str,
+                                 ability_id: int | None) -> None:
+        """Chamado pelo formulário: cria a habilidade (ou refaz o texto) e avisa o que aconteceu."""
+        r = habil.criar(self.personagem_id, nome, descricao, efeito) if ability_id is None else habil.editar(ability_id, nome, descricao, efeito)
+        coletor = Coletor(interaction)
+        coletor.avisar(r.texto)
+        if r.ok and r.id is not None:
+            self.selecionada = r.id
+        await self._redesenhar(interaction, coletor)
+
+    async def _apagar(self, interaction: discord.Interaction) -> None:
+        coletor = Coletor(interaction)
+        ab = self._escolhida()
+        coletor.avisar(habil.apagar(ab["id"]).texto if ab else "Essa habilidade já não existe.")
+        self.selecionada = None
+        await self._redesenhar(interaction, coletor)
+
+    async def _usar(self, interaction: discord.Interaction) -> None:
+        coletor = Coletor(interaction)
+        ab = self._escolhida()
+        char = self.personagem()
+        if ab is None:
+            coletor.avisar("Essa habilidade já não existe.")
+        else:
+            uso = habil.usar(char, ab, GANCHOS.recursos(char))
+            if not uso.ok:
+                coletor.avisar(uso.erro)
+            else:
+                if uso.rolagem is not None:
+                    db.log_roll(
+                        user_id=str(self.dono_id), username=self.jogador,
+                        guild_id=str(interaction.guild_id) if interaction.guild_id else None,
+                        notation=ab["roll_dice"], rolls=uso.rolagem.rolls, total=uso.total,
+                        purpose=f"habilidade: {ab['name']}", character_id=char["id"], character_name=char["name"],
+                    )
+                coletor.mensagens.append((None, {"embed": vitrine.cartao_uso_habilidade(char["name"], ab, uso, self.jogador).embed}))
+        await self._redesenhar(interaction, coletor)
+
+
+class ModalHabilidade(discord.ui.Modal):
+    """O formulário da habilidade: nome, descrição e o efeito que o jogador quer."""
+
+    def __init__(self, painel: PainelHabilidades, habilidade=None):
+        super().__init__(title="Editar habilidade" if habilidade else "Nova habilidade", timeout=TEMPO_DO_PAINEL)
+        self.painel = painel
+        self.ability_id = habilidade["id"] if habilidade else None
+        self.nome = discord.ui.TextInput(
+            label="Nome da habilidade", required=True, max_length=habil.TAMANHO_NOME, placeholder="ex: Bola de Fogo",
+            default=habilidade["name"] if habilidade else None,
+        )
+        self.descricao = discord.ui.TextInput(
+            label="Descrição (o que é e como funciona)", style=discord.TextStyle.paragraph, required=True,
+            max_length=habil.TAMANHO_DESCRICAO, placeholder="Conta como a habilidade é, na história.",
+            default=habilidade["description"] if habilidade else None,
+        )
+        self.efeito = discord.ui.TextInput(
+            label="O que você quer que ela faça", style=discord.TextStyle.paragraph, required=True,
+            max_length=habil.TAMANHO_EFEITO, placeholder="ex: causa 2d8 de dano e gasta 15 de Mana",
+            default=habilidade["effect_text"] if habilidade else None,
+        )
+        for campo in (self.nome, self.descricao, self.efeito):
+            self.add_item(campo)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.painel.aplicar_formulario(interaction, self.nome.value, self.descricao.value, self.efeito.value, self.ability_id)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
         await _avisar_erro(interaction, error)

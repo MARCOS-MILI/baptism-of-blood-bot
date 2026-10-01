@@ -311,4 +311,17 @@ assert rules.vital_current(100, rules.vital_lost_for_value(100, 37)) == 37
 assert rules.vital_current(120, 30) == 90 and rules.vital_current(100, 30) == 70
 print("10. vitais OK")
 
+# ---------- 11. perícias ----------
+assert len(rules.SKILLS) == 18 == len(set(rules.SKILLS)) and rules.SKILLS[0] == "Acrobacia" and rules.SKILLS[-1] == "Ocultismo" and "Luta" in rules.SKILLS
+assert (rules.SKILL_POINTS_CREATION, rules.SKILL_MAX_POINTS, rules.SKILL_BONUS_CREATION) == (25, 7, {"Mundano": 5})
+assert [rules.skill_points_total(n, "Caçador") for n in (1, 2, 3, 10)] == [25, 27, 29, 43]
+assert [rules.skill_points_total(n, "Sábio") for n in (1, 2, 10)] == [25, 29, 61] and [rules.skill_points_total(n, "Mundano") for n in (1, 3)] == [30, 34]   # Sábio +4 por nível, Mundano +5 na criação
+assert rules.skill_points_total(11, "Caçador") == 43 and rules.skill_points_total(0, "Caçador") == 25 and rules.skill_points_total(1, None) == 25 and rules.skill_points_total(2, "Nenhuma") == 27
+assert rules.skill_points_free(2, "Caçador", {"Luta": 7, "Pontaria": 5}) == 15 and rules.skill_points_free(1, "Sábio", {}) == 25 and rules.skill_points_free(1, None, {"Luta": 7, "Fortitude": 7, "Reflexos": 7, "Atletismo": 7}) == -3
+assert rules.class_skill_hints("Caçador") == ["Pontaria", "Luta", "Religião"] and rules.class_skill_hints("Clérigo") == ["Medicina", "Religião"]
+assert rules.class_skill_hints("Mercenário") == ["Pontaria", "Luta", "Tática"] and rules.class_skill_hints("Mestre de Forja") == ["Tática", "Ocultismo"] and rules.class_skill_hints("Sábio") == ["Ciências", "Investigação"]
+assert rules.class_skill_hints("Mundano") == [] and rules.class_skill_hints(None) == [] and rules.class_skill_hints("Paladino") == []                 # "duas à sua escolha": nenhuma marcada
+assert rules.ABILITY_STATUS == ("pendente", "ajuste", "aprovada", "recusada") and rules.MAX_CUSTOM_ABILITIES == 8 and rules.ABILITY_ROLL_KINDS == ("dano", "cura")
+print("11. perícias OK")
+
 print("\nTODOS OS TESTES DAS REGRAS PASSARAM")

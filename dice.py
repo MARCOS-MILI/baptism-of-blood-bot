@@ -100,6 +100,7 @@ class EfeitoDeSorte(NamedTuple):
     valor: int | None
     usos: int          # quantas rolagens ainda pode afetar
     discreto: bool     # se sim, o cartão da rolagem não mostra a marca de sorte
+    origem: str = "mestre"   # 'jogador' quando é o modo vantagem/desvantagem que o próprio jogador escolheu
 
 
 def descrever_efeito(tipo: str, valor: int | None) -> str:
@@ -146,7 +147,7 @@ def aplicar_sorte(r: "RollResult", efeitos: list[EfeitoDeSorte],
         e = vant or desv
         outro = roll("1d20").rolls[0]
         novo = max(natural, outro) if vant else min(natural, outro)
-        gastar(e, f"{EFEITO_NOME[e.tipo]} ({natural} e {outro})")
+        gastar(e, f"{'modo ' if e.origem == 'jogador' else ''}{EFEITO_NOME[e.tipo]} ({natural} e {outro})")
         natural = novo
 
     fixo = ativo("fixo")

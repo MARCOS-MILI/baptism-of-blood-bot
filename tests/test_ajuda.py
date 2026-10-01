@@ -175,19 +175,19 @@ print("8. resultado especial OK")
 for chave in ("habilidade", "mestre sorte"):
     e = ajuda.AJUDA[chave]; assert e["resumo"] and e["uso"].startswith("/") and 0 < len(e["detalhes"]) <= 600 and "—" not in e["detalhes"], chave
 assert ajuda.AJUDA["habilidade"]["grupo"] == "personagem" and ajuda.AJUDA["mestre sorte"]["grupo"] == "mestre" and ajuda.AJUDA["mestre sorte"]["requisito"] == "Só mestres."
-assert ("Dados", ["sorte"]) in ajuda.MESTRE_SUBGRUPOS and "habilidade" in ajuda.ORDEM_SUGESTAO and len(ajuda.ORDEM_SUGESTAO) == 22
+assert ("Dados", ["sorte"]) in ajuda.MESTRE_SUBGRUPOS and "habilidade" in ajuda.ORDEM_SUGESTAO and len(ajuda.ORDEM_SUGESTAO) == 24
 assert "3#d20+5" in ajuda.AJUDA["rolar"]["detalhes"] and "🍀" in ajuda.AJUDA["rolar"]["detalhes"] and "botões" in ajuda.AJUDA["classe"]["detalhes"] and "`habilidade:`" in ajuda.AJUDA["classe"]["detalhes"] and "botões" in ajuda.AJUDA["habilidade"]["detalhes"] and "+4" in ajuda.AJUDA["niveis"]["detalhes"]
 assert "discreto" in ajuda.AJUDA["mestre sorte"]["detalhes"] and "não mexe nos sorteios da criação nem na iniciativa" in ajuda.AJUDA["mestre sorte"]["detalhes"]   # o que o comando NÃO faz está dito
 print("9. comandos novos OK")
 
 # ---------- 10. a ajuda de mestre é separada ----------
 vm = ajuda.visao_mestre(); assert vm["titulo"] == "🛡️ Ajuda do mestre" and "/mestre ajuda comando:dar_xp" in vm["descricao"]
-assert [c[0] for c in vm["campos"]] == [r for r, _ in ajuda.MESTRE_SUBGRUPOS] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Ajuda", "Jogadores"]
+assert [c[0] for c in vm["campos"]] == [r for r, _ in ajuda.MESTRE_SUBGRUPOS] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Habilidades e perícias", "Ajuda", "Jogadores"]
 todos_mestre = [k.split(" ", 1)[1] for k in ajuda.AJUDA if k.startswith("mestre ")]
-assert sorted(c for _, cmds in ajuda.MESTRE_SUBGRUPOS for c in cmds) == sorted(todos_mestre) and len(todos_mestre) == 20            # nenhum comando de mestre fica de fora
-linhas = [l for _, v in vm["campos"] for l in v.split("\n")]; assert len(linhas) == 20 and all(l.startswith("`/mestre ") for l in linhas) and all(len(v) <= 1024 for _, v in vm["campos"])
+assert sorted(c for _, cmds in ajuda.MESTRE_SUBGRUPOS for c in cmds) == sorted(todos_mestre) and len(todos_mestre) == 22            # nenhum comando de mestre fica de fora
+linhas = [l for _, v in vm["campos"] for l in v.split("\n")]; assert len(linhas) == 22 and all(l.startswith("`/mestre ") for l in linhas) and all(len(v) <= 1024 for _, v in vm["campos"])
 assert "`/mestre dar_xp` " + ajuda.AJUDA["mestre dar_xp"]["resumo"] in linhas and "`/mestre ajuda` a ajuda só dos comandos de mestre" in linhas
-assert ajuda.sugestoes_mestre("")[:4] == ["dar_xp", "upar", "corrigir_nivel", "escudo"] and len(ajuda.sugestoes_mestre("")) == 20
+assert ajuda.sugestoes_mestre("")[:4] == ["dar_xp", "upar", "corrigir_nivel", "escudo"] and len(ajuda.sugestoes_mestre("")) == 22
 assert ajuda.sugestoes_mestre("xp") == ["dar_xp", "exportar"] and ajuda.sugestoes_mestre(" /ESCUDO ") == ["escudo"] and ajuda.sugestoes_mestre("zzz") == []
 assert ajuda.sugestoes_mestre("corrigir") == ["corrigir_nivel", "corrigir_magia", "corrigir_raca", "corrigir_estado", "corrigir_classe"]
 assert ajuda.achar_mestre("dar_xp") == ("mestre dar_xp", []) and ajuda.achar_mestre("mestre escudo") == ("mestre escudo", []) and ajuda.achar_mestre("/Mestre Sorte") == ("mestre sorte", [])

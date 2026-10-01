@@ -21,7 +21,7 @@ import dice
 import rules
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -248,6 +248,35 @@ def init_db(path: str | None = None) -> None:
         """)
         # O 'atributo da época': os atributos que o personagem tinha em cada nível que ficou pra trás.
         # O nível atual não tem linha e usa sempre os atributos atuais.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS character_skills (
+                character_id INTEGER NOT NULL,
+                skill TEXT NOT NULL,
+                points INTEGER NOT NULL,
+                PRIMARY KEY (character_id, skill)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS custom_abilities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                effect_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pendente',
+                cost_resource TEXT,
+                cost_amount INTEGER NOT NULL DEFAULT 0,
+                roll_kind TEXT,
+                roll_dice TEXT,
+                roll_attribute TEXT,
+                master_note TEXT,
+                decided_by TEXT,
+                decided_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_abilities_character ON custom_abilities (character_id)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS character_vitals (
                 character_id INTEGER PRIMARY KEY,
@@ -577,6 +606,8 @@ def delete_character(character_id: int, deleted_by_id: str, deleted_by_name: str
         conn.execute("DELETE FROM character_disciplines WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM dice_effects WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM character_vitals WHERE character_id = ?", (character_id,))
+        conn.execute("DELETE FROM character_skills WHERE character_id = ?", (character_id,))
+        conn.execute("DELETE FROM custom_abilities WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM character_ranks WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM level_attributes WHERE character_id = ?", (character_id,))
         conn.execute("DELETE FROM xp_log WHERE character_id = ?", (character_id,))
@@ -767,6 +798,122 @@ def set_discipline_grade(character_id: int, discipline: str, grade: int, path: s
             """,
             (character_id, discipline, grade, _now()),
         )
+
+
+# ---------------------------------------------------------------------------
+# Perícias comuns: os pontos de cada uma
+# ---------------------------------------------------------------------------
+def get_skills(character_id: int, path: str | None = None) -> dict[str, int]:
+    """Os pontos de cada perícia que o personagem tem (as que estão em 0 não aparecem)."""
+    with _connect(path) as conn:
+        linhas = conn.execute("SELECT skill, points FROM character_skills WHERE character_id = ?", (character_id,)).fetchall()
+    return {l["skill"]: l["points"] for l in linhas}
+
+
+def set_skill_points(character_id: int, skill: str, points: int, path: str | None = None) -> None:
+    if skill not in rules.SKILLS:
+        raise ValueError(f"Perícia desconhecida: {skill}")
+    if not isinstance(points, int) or not 0 <= points <= 20:
+        raise ValueError("Os pontos precisam ser de 0 a 20.")
+    with _connect(path) as conn:
+        if points == 0:
+            conn.execute("DELETE FROM character_skills WHERE character_id = ? AND skill = ?", (character_id, skill))
+        else:
+            conn.execute(
+                "INSERT INTO character_skills (character_id, skill, points) VALUES (?, ?, ?)"
+                " ON CONFLICT (character_id, skill) DO UPDATE SET points = excluded.points",
+                (character_id, skill, points),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Habilidades criadas pelos jogadores
+# ---------------------------------------------------------------------------
+def create_ability(character_id: int, name: str, description: str, effect_text: str, path: str | None = None) -> int:
+    agora = _now()
+    with _connect(path) as conn:
+        cur = conn.execute(
+            "INSERT INTO custom_abilities (character_id, name, description, effect_text, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (character_id, name, description, effect_text, agora, agora),
+        )
+        return cur.lastrowid
+
+
+def get_ability(ability_id: int, path: str | None = None) -> sqlite3.Row | None:
+    with _connect(path) as conn:
+        return conn.execute("SELECT * FROM custom_abilities WHERE id = ?", (ability_id,)).fetchone()
+
+
+def list_abilities(character_id: int, path: str | None = None) -> list[sqlite3.Row]:
+    with _connect(path) as conn:
+        return conn.execute("SELECT * FROM custom_abilities WHERE character_id = ? ORDER BY id", (character_id,)).fetchall()
+
+
+def count_active_abilities(character_id: int, path: str | None = None) -> int:
+    """As habilidades que contam no limite: todas menos as recusadas."""
+    with _connect(path) as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM custom_abilities WHERE character_id = ? AND status != 'recusada'", (character_id,)
+        ).fetchone()[0]
+
+
+def list_ability_queue(limit: int = 25, path: str | None = None) -> list[sqlite3.Row]:
+    """A fila dos mestres: o que espera resposta primeiro (pendentes e pedidos de ajuste), depois as aprovadas, da mais
+    nova pra mais velha. Cada linha traz o nome do personagem e o dono."""
+    with _connect(path) as conn:
+        return conn.execute(
+            "SELECT a.*, c.name AS character_name, c.user_id AS user_id FROM custom_abilities a"
+            " JOIN characters c ON c.id = a.character_id WHERE a.status != 'recusada'"
+            " ORDER BY CASE a.status WHEN 'pendente' THEN 0 WHEN 'ajuste' THEN 1 ELSE 2 END, a.id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+
+def update_ability_text(ability_id: int, name: str, description: str, effect_text: str, back_to_pending: bool,
+                        path: str | None = None) -> None:
+    """Muda o texto. Quando é o jogador mexendo, volta pra fila (pendente) e some a nota do mestre."""
+    with _connect(path) as conn:
+        if back_to_pending:
+            conn.execute(
+                "UPDATE custom_abilities SET name = ?, description = ?, effect_text = ?, status = 'pendente',"
+                " master_note = NULL, updated_at = ? WHERE id = ?",
+                (name, description, effect_text, _now(), ability_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE custom_abilities SET name = ?, description = ?, effect_text = ?, updated_at = ? WHERE id = ?",
+                (name, description, effect_text, _now(), ability_id),
+            )
+
+
+def save_ability_decision(ability_id: int, status: str, cost_resource: str | None, cost_amount: int,
+                          roll_kind: str | None, roll_dice: str | None, roll_attribute: str | None,
+                          master_note: str | None, decided_by: str, path: str | None = None) -> None:
+    """O mestre decide: o status e o que a habilidade custa e rola."""
+    if status not in rules.ABILITY_STATUS:
+        raise ValueError(f"Status desconhecido: {status}")
+    if cost_resource is not None and cost_resource not in rules.VITAL_KEYS:
+        raise ValueError(f"Recurso desconhecido: {cost_resource}")
+    if roll_kind is not None and roll_kind not in rules.ABILITY_ROLL_KINDS:
+        raise ValueError(f"Tipo de rolagem desconhecido: {roll_kind}")
+    if roll_attribute is not None and roll_attribute not in rules.ATTRIBUTES:
+        raise ValueError(f"Atributo desconhecido: {roll_attribute}")
+    if not isinstance(cost_amount, int) or not 0 <= cost_amount <= 999:
+        raise ValueError("O custo precisa ser de 0 a 999.")
+    agora = _now()
+    with _connect(path) as conn:
+        conn.execute(
+            "UPDATE custom_abilities SET status = ?, cost_resource = ?, cost_amount = ?, roll_kind = ?, roll_dice = ?,"
+            " roll_attribute = ?, master_note = ?, decided_by = ?, decided_at = ?, updated_at = ? WHERE id = ?",
+            (status, cost_resource if cost_amount else None, cost_amount if cost_resource else 0, roll_kind, roll_dice,
+             roll_attribute, master_note, decided_by, agora, agora, ability_id),
+        )
+
+
+def delete_ability(ability_id: int, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM custom_abilities WHERE id = ?", (ability_id,))
 
 
 # ---------------------------------------------------------------------------

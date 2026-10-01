@@ -426,4 +426,55 @@ assert cores == [discord.Color.green(), discord.Color.green(), discord.Color.ora
 zero = vitrine.embed_vitais("K", rec, {"vida": 100}); assert zero.description.endswith("💀 **Vida em 0.** Hora de falar com o mestre.") and "▶️ ❤️ **Vida** · 0/100" in zero.description
 print("16. barras OK")
 
+# ---------- 17. perícias ----------
+import habil
+e = vitrine.embed_pericias("Kairon", {"Luta": 5, "Religião": 3}, 25, "Luta", "Força", "normal", "Caçador", "Marcos"); confere_limites(e)
+assert e.title == "🎯 Perícias de Kairon" and e.color == discord.Color.blurple() and e.footer.text == "Teste: Luta + Força · modo normal · jogador: Marcos"
+assert "🎯 Pontos livres: **17** de 25 (máximo 7 em cada perícia)" in e.description and "▫️ Acrobacia · **0** " + "▱" * 7 + "\n" in e.description
+assert "▶️ Luta · **5** ▰▰▰▰▰▱▱ ⭐\n" in e.description and "▫️ Religião · **3** ▰▰▰▱▱▱▱ ⭐\n" in e.description and "▫️ Pontaria · **0** " + "▱" * 7 + " ⭐\n" in e.description and "▫️ Medicina · **0** " + "▱" * 7 + "\n" in e.description
+assert e.description.endswith("⭐ Vantagem da sua classe: Religião e Luta ou Pontaria. No teste, usa o modo **Vantagem**.") and e.description.startswith("**Distribuir:** escolhe a perícia e aperta **+1** ou **-1**.")
+assert [l for l in e.description.split("\n") if l.startswith(("▶️", "▫️"))].__len__() == 18 and e.description.count("▶️") == 1
+tudo = vitrine.embed_pericias("K", {"Luta": 7, "Fortitude": 7, "Reflexos": 7, "Atletismo": 4}, 25, "Luta", None, "vantagem", "Mundano")
+assert "✅ Todos os 25 pontos distribuídos" in tudo.description and tudo.color == discord.Color.green() and tudo.footer.text == "Teste: Luta + atributo (falta escolher) · modo vantagem" and "⭐" not in tudo.description     # Mundano: sem estrela
+a_mais = vitrine.embed_pericias("K", {"Luta": 7, "Fortitude": 7, "Reflexos": 7, "Atletismo": 7}, 25, "Luta", "Alma", "desvantagem", None)
+assert "⚠️ **3** pontos a mais do que o permitido (25). Fala com um mestre." in a_mais.description and a_mais.color == discord.Color.blurple() and a_mais.footer.text.endswith("modo desvantagem")
+assert vitrine.MODOS_DE_TESTE == {"normal": ("🎲", "Normal"), "vantagem": ("⬆️", "Vantagem"), "desvantagem": ("⬇️", "Desvantagem")}
+# o modo escolhido pelo jogador não é a sorte do mestre
+assert vitrine.cartao_rolagem("K", "1d20", R("1d20", [15], 0, 20), None, "M", True, ["modo vantagem (4 e 15)"]).embed.description == "**15 = 15**\n🎲 modo vantagem (4 e 15)"
+assert vitrine.cartao_rolagem("K", "1d20", R("1d20", [15], 0, 20), None, "M", True, ["modo vantagem (4 e 15)", "+2"]).embed.description == "**15 = 15**\n🍀 modo vantagem (4 e 15) · +2"
+print("17. perícias OK")
+
+# ---------- 18. habilidades criadas: a aba do jogador, o uso e a fila do mestre ----------
+def H(id_, nome, status, **x):
+    base = dict(id=id_, name=nome, description=f"Descrição de {nome}.", effect_text=f"Efeito de {nome}.", status=status, master_note=None, cost_resource=None, cost_amount=0,
+                roll_kind=None, roll_dice=None, roll_attribute=None, character_name="Kairon", user_id="7"); base.update(x); return base
+vazio = vitrine.embed_habilidades("Kairon", [], None, "Marcos"); confere_limites(vazio)
+assert vazio.title == "✨ Habilidades de Kairon" and vazio.color == discord.Color.purple() and vazio.fields == [] and vazio.footer.text == "jogador: Marcos"
+assert vazio.description == "**1.** Cria a sua habilidade · **2.** O mestre ajusta e aprova · **3.** Usa com um clique\n\nVocê ainda não criou nenhuma habilidade. Aperta **➕ Criar habilidade** pra começar."
+lista = [H(1, "Bola de Fogo", "aprovada", cost_resource="mana", cost_amount=15, roll_kind="dano", roll_dice="2d8", roll_attribute="forca"), H(2, "Cura", "pendente"), H(3, "Escudo", "ajuste", master_note="Menos forte"), H(4, "Raio", "recusada", master_note="Não cabe")]
+e = vitrine.embed_habilidades("Kairon", lista, 1); confere_limites(e)
+assert e.description.endswith("▶️ ✅ **Bola de Fogo** · aprovada, pode usar\n▫️ ⏳ **Cura** · aguardando o mestre\n▫️ 🔧 **Escudo** · o mestre pediu ajuste\n▫️ ❌ **Raio** · recusada") and e.footer.text is None
+assert [(f.name, f.value) for f in e.fields] == [("Descrição", "Descrição de Bola de Fogo."), ("Efeito que você pediu", "Efeito de Bola de Fogo."), ("Custo e rolagem", "🔷 15 de Mana · dano 2d8 + Força")]
+assert [(f.name, f.value) for f in vitrine.embed_habilidades("K", lista, 3).fields][-1] == ("Nota do mestre", "Menos forte") and [f.name for f in vitrine.embed_habilidades("K", lista, 2).fields] == ["Descrição", "Efeito que você pediu"]      # pendente: sem custo nem nota
+assert [f.name for f in vitrine.embed_habilidades("K", lista, 4).fields][-1] == "Nota do mestre" and vitrine.embed_habilidades("K", lista, None).fields == [] and vitrine.embed_habilidades("K", lista, 99).fields == []
+uso = habil.Uso(True, None, ("mana", 15, 9, 14), R("2d8", [5, 3], 0, 8), ("Força", 3), 11); cu = vitrine.cartao_uso_habilidade("Kairon", lista[0], uso, "Marcos"); e = cu.embed; confere_limites(e)
+assert e.title == "✨ Bola de Fogo" and e.author.name == "Kairon usou uma habilidade" and e.color == discord.Color.red() and e.footer.text == "jogador: Marcos" and nomes(cu) == [] and e.description == "> *Descrição de Bola de Fogo.*"
+assert [(f.name, f.value) for f in e.fields] == [("Custo", "🔷 -15 de Mana (sobram 9/14)"), ("Dano", "🎲 2d8: 5 + 3 + Força 3 = **11**"), ("O que ela faz", "Efeito de Bola de Fogo.")]
+cura = H(5, "Cura Leve", "aprovada", roll_kind="cura", roll_dice="1d6"); e = vitrine.cartao_uso_habilidade("K", cura, habil.Uso(True, None, None, R("1d6", [4], 2, 6), None, 6)).embed
+assert e.color == discord.Color.green() and [(f.name, f.value) for f in e.fields] == [("Cura", "🎲 1d6: 4 + 2 = **6**"), ("O que ela faz", "Efeito de Cura Leve.")] and e.footer.text is None
+e = vitrine.cartao_uso_habilidade("K", H(6, "Aviso", "aprovada"), habil.Uso(True)).embed; assert e.color == discord.Color.blurple() and [f.name for f in e.fields] == ["O que ela faz"]       # só narrativa
+fila = [H(1, "Bola de Fogo", "pendente"), H(2, "Escudo", "ajuste", master_note="Menos"), H(3, "Cura", "aprovada")]
+e = vitrine.embed_fila(fila, None, {}); confere_limites(e)
+assert e.title == "🛡️ Habilidades dos jogadores" and e.color == discord.Color.dark_gold() and e.description == "⏳ **1** aguardando · 🔧 **1** em ajuste · ✅ 1 aprovadas (as mais recentes)\n\nEscolhe uma no primeiro menu." and e.fields == []
+rasc = {"recurso": "mana", "valor": 15, "tipo": "dano", "dado": "2d8", "atributo": "forca"}
+e = vitrine.embed_fila(fila, fila[1], rasc); confere_limites(e)
+assert "Escolhe uma no primeiro menu" not in e.description and [(f.name, f.value) for f in e.fields] == [
+    ("🔧 Escudo", "**Kairon** · <@7> · o mestre pediu ajuste"), ("Descrição", "Descrição de Escudo."), ("Efeito que o jogador pediu", "Efeito de Escudo."),
+    ("Como vai ficar (nos menus)", "**Custo:** 🔷 15 de Mana\n**Rolagem:** dano 2d8 + Força"), ("Última nota", "Menos")]
+assert e.footer.text == "Ajusta o custo e a rolagem nos menus. Depois: Aprovar, Pedir ajuste ou Recusar."
+assert vitrine.texto_do_rascunho({}) == "**Custo:** sem custo\n**Rolagem:** sem rolagem" and vitrine.texto_do_rascunho({"tipo": "cura", "dado": "1d6"}) == "**Custo:** sem custo\n**Rolagem:** cura 1d6"
+assert vitrine.texto_do_rascunho({"recurso": "estamina", "valor": 0, "dado": "1d4"}) == "**Custo:** sem custo\n**Rolagem:** dano 1d4" and vitrine.texto_do_rascunho({"recurso": "vida", "valor": 5}) == "**Custo:** ❤️ 5 de Vida\n**Rolagem:** sem rolagem"
+sem_dono = vitrine.embed_fila([H(1, "X", "pendente", user_id=None)], H(1, "X", "pendente", user_id=None), {}); assert sem_dono.fields[0].value == "**Kairon** · aguardando o mestre"
+print("18. habilidades criadas OK")
+
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

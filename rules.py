@@ -287,6 +287,44 @@ def calculate_resources_by_level(attributes_per_level: list[dict[str, int]],
 
 
 # ---------------------------------------------------------------------------
+# Perícias comuns (capítulo IV do site): 25 pontos na criação, no máximo 7 em cada uma. O atributo do teste não é
+# fixo por perícia: quem testa escolhe o atributo que combina com a ação.
+# ---------------------------------------------------------------------------
+SKILLS = (
+    "Acrobacia", "Atletismo", "Furtividade", "Reflexos", "Fortitude", "Pontaria", "Luta", "Política", "Medicina",
+    "Ciências", "Investigação", "Tática", "Religião", "Percepção", "Enganação", "Intuição", "Intimidação", "Ocultismo",
+)
+SKILL_POINTS_CREATION = 25
+SKILL_BONUS_CREATION = {"Mundano": 5}      # o Mundano começa com 30 pontos (Aprimoração)
+SKILL_MAX_POINTS = 7                       # o site só fala do máximo na criação; aqui vale sempre
+
+
+def skill_points_total(level: int, classe: str | None = None) -> int:
+    """Os pontos de perícia que o personagem já ganhou: os da criação mais os de cada nível depois do 1."""
+    nivel = max(1, min(level, MAX_LEVEL))
+    return SKILL_POINTS_CREATION + SKILL_BONUS_CREATION.get(classe or "", 0) + (nivel - 1) * skill_points_per_level(classe)
+
+
+def skill_points_free(level: int, classe: str | None, pontos: dict[str, int]) -> int:
+    return skill_points_total(level, classe) - sum(pontos.values())
+
+
+def class_skill_hints(classe: str | None) -> list[str]:
+    """As perícias em que a classe tem vantagem (as que aparecem escritas no texto da classe). 'Luta ou Pontaria'
+    traz as duas: o jogador escolhe uma. O Mundano ('duas à sua escolha') não traz nenhuma."""
+    texto = CLASS_SKILLS.get(classe or "", "")
+    return [p for p in SKILLS if p in texto]
+
+
+# ---------------------------------------------------------------------------
+# Habilidades criadas pelos jogadores (o mestre ajusta, aprova e define custo e dano)
+# ---------------------------------------------------------------------------
+ABILITY_STATUS = ("pendente", "ajuste", "aprovada", "recusada")
+MAX_CUSTOM_ABILITIES = 8      # quantas (sem contar as recusadas) um personagem pode ter
+ABILITY_ROLL_KINDS = ("dano", "cura")
+
+
+# ---------------------------------------------------------------------------
 # Vitais: o quanto o personagem tem AGORA de Vida, Sanidade, Mana e Estamina
 # O bot guarda quanto ele PERDEU (não o valor atual): assim, se o máximo sobe (subiu de nível), o atual sobe
 # junto, e o atual nunca passa do máximo.
@@ -479,9 +517,6 @@ def creation_next_step(status: dict) -> str | None:
 # ---------------------------------------------------------------------------
 _COLUNA_DE_TENTATIVAS = {"race": "race_attempts", "social_class": "social_class_attempts"}
 _PASSO_DO_CAMPO = {"race": "raca", "social_class": "estado"}
-CAMPOS_COM_CHANCES = tuple(_COLUNA_DE_TENTATIVAS)
-
-
 def attempts_used(personagem, campo: str) -> int:
     """Quantas vezes o personagem já rolou esse campo ('race' ou 'social_class')."""
     return personagem[_COLUNA_DE_TENTATIVAS[campo]]

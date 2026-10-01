@@ -22,6 +22,7 @@ from discord import app_commands
 
 import bot
 import db
+import habil
 import dice
 import lore
 import paineis
@@ -94,12 +95,12 @@ def novo(uid, nome, personagem, quantos=1):
 
 # ============================ A. o que o Discord vai receber ============================
 raiz = {c.name: c for c in bot.bot.tree.get_commands()}
-assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","dados","disciplinas","iniciativa","intencao","habilidade","personagem","mestre"}, sorted(raiz)
+assert set(raiz) == {"rolar","historico","magia_inicial","raca_inicial","classe_social","classe","atributos","minha_ficha","niveis","extrato_xp","rank","calcular_recursos","ajuda","help","dados","disciplinas","iniciativa","intencao","habilidade","pericias","habilidades","personagem","mestre"}, sorted(raiz)
 pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
 assert sorted(o["name"] for o in pay["personagem"]["options"]) == ["criar","excluir","listar","usar"]
-assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","sorte","ajuda","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
+assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","sorte","ajuda","habilidades","pericia","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
 req = lambda opts: {o["name"] for o in opts if o.get("required")}
 assert req(pay["rolar"]["options"]) == {"dado"} and req(pay["raca_inicial"].get("options", [])) == set()
 assert req(sub_("mestre", "dar_xp")["options"]) == {"usuario", "quantidade"}
@@ -185,7 +186,7 @@ print("B. fluxo básico OK")
 # ============================ C. mestre: permissão e correções ============================
 assert bot._eh_mestre(inter(2,"Zé", admin=True)) and bot._eh_mestre(inter(2,"Zé", manage=True))
 assert bot._eh_mestre(inter(2,"Zé", roles=["mestre"])) and not bot._eh_mestre(inter(2,"Zé", roles=["Jogador"])) and not bot._eh_mestre(inter(2,"Zé"))
-todos = list(bot.mestre_grupo.commands); assert len(todos) == 20
+todos = list(bot.mestre_grupo.commands); assert len(todos) == 22
 for c in todos:                                                     # TODOS os comandos de mestre barram quem não é mestre
     p = inter(3, "Intruso")
     assert run(c._check_can_run(p)) is False, c.name
@@ -891,8 +892,8 @@ for arg in (None, "atributos", "rolar", "xyz"):
 # autocomplete do /ajuda: os comandos de mestre não aparecem pra ninguém (ficam no /mestre ajuda)
 ch = run(bot._autocomplete_comando(inter(212, "J"), "atrib")); assert [(c.name, c.value) for c in ch] == [("/atributos", "atributos")]
 ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "atrib")); assert [c.value for c in ch] == ["atributos"]
-ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 22 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
-ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "")); assert len(ch) == 22 and not any(c.value.startswith("mestre ") for c in ch) and all(len(c.name) <= 100 for c in ch)
+ch = run(bot._autocomplete_comando(inter(212, "J"), "")); assert len(ch) == 24 and ch[0].value == "personagem criar" and not any(c.value.startswith("mestre ") for c in ch)
+ch = run(bot._autocomplete_comando(inter(4, "M", roles=["Mestre"]), "")); assert len(ch) == 24 and not any(c.value.startswith("mestre ") for c in ch) and all(len(c.name) <= 100 for c in ch)
 print("M. /ajuda OK")
 
 # ============================ N. reabrir a ficha e a chavinha ORDEM_DA_CRIACAO ============================
@@ -1283,7 +1284,7 @@ def botao(view, rotulo, emoji=None):
     return achados[0]
 def estado(view):
     """Rótulo -> (emoji, desligado) dos botões. Nas telas com abas (ficha e vitais) a linha das abas fica de fora: ela tem testes próprios."""
-    abas = isinstance(view, (paineis.PainelFicha, paineis.PainelVitais))
+    abas = isinstance(view, (paineis.PainelFicha, paineis.PainelVitais, paineis.PainelPericias, paineis.PainelHabilidades))
     return {b.label: (str(b.emoji), b.disabled) for b in view.children if isinstance(b, discord.ui.Button) and not (abas and b.row == 0)}
 def estado_completo(view): return {b.label: (str(b.emoji), b.disabled) for b in view.children if isinstance(b, discord.ui.Button)}
 def seletor(view):
@@ -2265,7 +2266,7 @@ escolher_no_menu(esc, "Clérigo", 1300, "Ana"); c = marcar(esc, "Mãos que Curam
 assert runp(esc.interaction_check(inter(999, "Intruso"))) is False and runp(esc.interaction_check(inter(1300, "Ana"))) is True
 c = clique(esc, "Confirmar classe e habilidade", 1300, "Ana"); nova = editada(c)["view"]
 r = row(1300, "Ana Dupla"); assert (r["class_name"], r["class_ability"]) == ("Clérigo", "Mãos que Curam") and esc.is_finished()
-assert isinstance(nova, paineis.PainelFicha) and estado(nova)["Classe"] == ("✅", True) and "Habilidade" not in estado(nova)
+assert isinstance(nova, paineis.PainelFicha) and estado(nova)["Classe"] == ("✅", True) and "Habilidade de classe" not in estado(nova)
 e, kw = cartao_do_followup(c); assert kw["ephemeral"] and e.fields[3].value == "Você levou **Mãos que Curam**." and [f.name for f in e.fields][4:6] == ["✨ Mãos que Curam ✅", "✨ Bênção"] and "Escolhe a sua habilidade" not in e.fields[-1].value
 assert campos_da_ficha(editada(c)["embed"])["Classe"] == "Clérigo\n(vantagem em Religião e Medicina)\n✨ Mãos que Curam"
 # uma classe de uma habilidade só não tem botão de habilidade
@@ -2311,19 +2312,19 @@ c = clique(vb3, "Confirmar habilidade", 1322, "Bot3"); assert editada(c)["view"]
 
 # --- quem já tinha classe (Ladrão antigo) e falta a habilidade: botão Habilidade na ficha ---
 o1 = novo(1330, "Vel", "Velho Ladrao"); preparar(1330, "Velho Ladrao", "Humano", "Ladrão")
-pf = painel_de(1330, "Velho Ladrao", "Vel"); assert estado(pf)["Habilidade"] == ("✨", False) and "Classe" not in estado(pf); confere_componentes(pf)
-assert botao(pf, "Habilidade").style == discord.ButtonStyle.primary
-c = clique(pf, "Habilidade", 1330, "Vel"); hv = editada(c)["view"]; e = editada(c)["embed"]
+pf = painel_de(1330, "Velho Ladrao", "Vel"); assert estado(pf)["Habilidade de classe"] == ("✨", False) and "Classe" not in estado(pf); confere_componentes(pf)
+assert botao(pf, "Habilidade de classe").style == discord.ButtonStyle.primary
+c = clique(pf, "Habilidade de classe", 1330, "Vel"); hv = editada(c)["view"]; e = editada(c)["embed"]
 assert isinstance(hv, paineis.EscolhaDeHabilidade) and hv.com_voltar and pf.is_finished() and estado(hv) == {"Mão Leve": ("✨", False), "Língua de Prata": ("✨", False), "Confirmar habilidade": ("✅", True), "Voltar": ("⬅️", False)}
 assert e.fields[0].value == "Escolha uma das duas: **Mão Leve** ou **Língua de Prata**. Aperta um dos botões abaixo." and e.author.name == "✨ Habilidade de Velho Ladrao"; confere_componentes(hv)
-c = clique(hv, "Voltar", 1330, "Vel"); pf = editada(c)["view"]; assert isinstance(pf, paineis.PainelFicha) and estado(pf)["Habilidade"] == ("✨", False) and row(1330, "Velho Ladrao")["class_ability"] is None
-hv = editada(clique(pf, "Habilidade", 1330, "Vel"))["view"]; marcar(hv, "Mão Leve", 1330, "Vel"); c = clique(hv, "Confirmar habilidade", 1330, "Vel")
-pf = editada(c)["view"]; assert isinstance(pf, paineis.PainelFicha) and estado(pf)["Classe"] == ("✅", True) and "Habilidade" not in estado(pf) and row(1330, "Velho Ladrao")["class_ability"] == "Mão Leve"
+c = clique(hv, "Voltar", 1330, "Vel"); pf = editada(c)["view"]; assert isinstance(pf, paineis.PainelFicha) and estado(pf)["Habilidade de classe"] == ("✨", False) and row(1330, "Velho Ladrao")["class_ability"] is None
+hv = editada(clique(pf, "Habilidade de classe", 1330, "Vel"))["view"]; marcar(hv, "Mão Leve", 1330, "Vel"); c = clique(hv, "Confirmar habilidade", 1330, "Vel")
+pf = editada(c)["view"]; assert isinstance(pf, paineis.PainelFicha) and estado(pf)["Classe"] == ("✅", True) and "Habilidade de classe" not in estado(pf) and row(1330, "Velho Ladrao")["class_ability"] == "Mão Leve"
 e, kw = cartao_do_followup(c); assert kw["ephemeral"] and e.fields[0].value == "Você levou **Mão Leve**." and campos_da_ficha(editada(c)["embed"])["Classe"].endswith("✨ Mão Leve")
 # o mestre refaz a classe: a escolha volta a ficar aberta e o botão reaparece
-run(bot.mestre_corrigir_classe.callback(gm, alvo(1330, "Vel"), "Ladrão", None)); assert estado(painel_de(1330, "Velho Ladrao", "Vel"))["Habilidade"] == ("✨", False)
+run(bot.mestre_corrigir_classe.callback(gm, alvo(1330, "Vel"), "Ladrão", None)); assert estado(painel_de(1330, "Velho Ladrao", "Vel"))["Habilidade de classe"] == ("✨", False)
 # classe de uma habilidade só nunca mostra o botão
-assert "Habilidade" not in estado(painel_de(1301, "Beto Um", "Beto")) and estado(painel_de(1301, "Beto Um", "Beto"))["Classe"] == ("✅", True)
+assert "Habilidade de classe" not in estado(painel_de(1301, "Beto Um", "Beto")) and estado(painel_de(1301, "Beto Um", "Beto"))["Classe"] == ("✅", True)
 print("X4. classe e habilidade por botão OK")
 
 # ============================ Y. as abas e as barras de Vida, Sanidade, Mana e Estamina ============================
@@ -2334,10 +2335,10 @@ db.set_attributes(YC, {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "
 # --- as abas ---
 pf = painel_de(1400, "Vital Vit", "Vit")
 assert estado_completo(pf)["Ficha"] == ("📋", True) and estado_completo(pf)["Vitais"] == ("❤️", False) and botao(pf, "Ficha").style == discord.ButtonStyle.primary and botao(pf, "Vitais").style == discord.ButtonStyle.secondary
-assert botao(pf, "Ficha").row == 0 and botao(pf, "Vitais").row == 0 and all(b.row >= 1 for b in pf.children if b.label not in ("Ficha", "Vitais")); confere_componentes(pf)
+assert botao(pf, "Ficha").row == 0 and botao(pf, "Vitais").row == 0 and all(b.row >= 1 for b in pf.children if b.label not in ("Ficha", "Vitais", "Perícias", "Habilidades")); confere_componentes(pf)
 c = clique(pf, "Vitais", 1400, "Vit"); pv = editada(c)["view"]
 assert isinstance(pv, paineis.PainelVitais) and pf.is_finished() and pv.selecionado == "vida" and editada(c)["embed"].title == "❤️ Vitais de Vital Vit"; confere_componentes(pv)
-assert estado_completo(pv) == {"Ficha": ("📋", False), "Vitais": ("❤️", True), "-10": ("None", False), "-5": ("None", False), "-1": ("None", False), "+1": ("None", False), "+5": ("None", False), "+10": ("None", False), "Valor exato": ("✏️", False), "Restaurar tudo": ("♻️", False)}
+assert estado_completo(pv) == {"Ficha": ("📋", False), "Vitais": ("❤️", True), "Perícias": ("🎯", False), "Habilidades": ("✨", False), "-10": ("None", False), "-5": ("None", False), "-1": ("None", False), "+1": ("None", False), "+5": ("None", False), "+10": ("None", False), "Valor exato": ("✏️", False), "Restaurar tudo": ("♻️", False)}
 assert [b.label for b in pv.children if isinstance(b, discord.ui.Button) and b.row == 2] == ["-10", "-5", "-1", "+1", "+5"] and [b.label for b in pv.children if isinstance(b, discord.ui.Button) and b.row == 3] == ["+10", "Valor exato", "Restaurar tudo"]
 assert botao(pv, "-5").style == discord.ButtonStyle.danger and botao(pv, "+5").style == discord.ButtonStyle.success
 sel = seletor(pv); assert sel.placeholder == "1. Escolhe a barra" and [(o.label, o.value, o.description, o.default) for o in sel.options] == [("Vida", "vida", "50/50", True), ("Sanidade", "sanidade", "25/25", False), ("Mana", "mana", "14/14", False), ("Estamina", "estamina", "35/35", False)]
@@ -2379,7 +2380,7 @@ c = clique(pv, "Ficha", 1400, "Vit"); pf2 = editada(c)["view"]; assert isinstanc
 c = clique(pf2, "Vitais", 1400, "Vit"); assert "Vida** · 30/50" in desc_de(c)                                # os números continuam lá
 # --- sem classe não tem máximo: a aba avisa em vez de quebrar ---
 sc = novo(1401, "Sem", "Sem Classe"); psc = painel_de(1401, "Sem Classe", "Sem"); c = clique(psc, "Vitais", 1401, "Sem"); pvs = editada(c)["view"]
-assert "ainda não tem" in desc_de(c) and "aba **Ficha**" in desc_de(c) and set(estado_completo(pvs)) == {"Ficha", "Vitais"} and seletor(pvs) is None
+assert "ainda não tem" in desc_de(c) and "aba **Ficha**" in desc_de(c) and set(estado_completo(pvs)) == {"Ficha", "Vitais", "Perícias", "Habilidades"} and seletor(pvs) is None
 c = inter(1401, "Sem"); runp(pvs._mudar(5, c)); runp(pvs.aplicar_valor(c, 3)); assert vitais_de(1401, "Sem Classe") == {k: 0 for k in rules.VITAL_KEYS}    # sem classe, nada é gravado
 print("Y. abas e vitais OK")
 
@@ -2388,8 +2389,8 @@ gm_ = inter(4, "Mestre Belmont", roles=["Mestre"]); jog = inter(1500, "Jogador")
 # --- /mestre ajuda: só mestre ---
 assert bot._eh_mestre in bot.mestre_ajuda.checks and bot._eh_mestre(jog) is False
 run(bot.mestre_ajuda.callback(gm_, None)); e = sent(gm_)[1]["embed"]
-assert sent(gm_)[1]["ephemeral"] and e.title == "🛡️ Ajuda do mestre" and [f.name for f in e.fields] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Ajuda", "Jogadores"] and len(e) <= 6000
-assert sum(f.value.count("`/mestre ") for f in e.fields) == 20 and "`/mestre sorte` mexe na sorte dos d20 de um personagem" in e.fields[2].value
+assert sent(gm_)[1]["ephemeral"] and e.title == "🛡️ Ajuda do mestre" and [f.name for f in e.fields] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Habilidades e perícias", "Ajuda", "Jogadores"] and len(e) <= 6000
+assert sum(f.value.count("`/mestre ") for f in e.fields) == 22 and "`/mestre sorte` mexe na sorte dos d20 de um personagem" in e.fields[2].value
 run(bot.mestre_ajuda.callback(gm_, "dar_xp")); e = sent(gm_)[1]["embed"]; assert e.title == "📖 /mestre dar_xp" and sent(gm_)[1]["ephemeral"]
 run(bot.mestre_ajuda.callback(gm_, "mestre sorte")); assert sent(gm_)[1]["embed"].title == "📖 /mestre sorte"
 run(bot.mestre_ajuda.callback(gm_, "corrigir")); assert txt(gm_) == "Não achei nenhum comando de mestre com \"corrigir\". Quis dizer: `/mestre corrigir_nivel`, `/mestre corrigir_magia`, `/mestre corrigir_raca`, `/mestre corrigir_estado`, `/mestre corrigir_classe`?"
@@ -2433,5 +2434,189 @@ zc = com_cargos(novo(1515, "Zé", "Zé Cem"), todos_, r_mestre, r_dono)         
 with dados(100): run(bot.classe_social.callback(zc, None))
 assert sent(zc)[1]["content"] == "<@&555>" and sent(zc)[1]["allowed_mentions"].roles == [r_mestre]
 print("Z. mestre separado e 66/77 OK")
+
+# ============================ AA. perícias, habilidades criadas pelos jogadores e a fila do mestre ============================
+def selects(view): return [x for x in view.children if isinstance(x, discord.ui.Select)]
+def escolher(view, indice, valor, uid, nome, **extras):
+    sel = selects(view)[indice]; sel._values = [valor]; c = inter(uid, nome, **extras); runp(sel.callback(c)); return c
+def pontos_de(uid, nome): return db.get_skills(row(uid, nome)["id"])
+def card_publico(c): return followups(c)[0][1]["embed"]
+MESTRE_ = dict(roles=["Mestre"])
+pe = pronto(1600, "Per", "Perito", classe="Caçador"); PC = row(1600, "Perito")["id"]
+db.set_attributes(PC, {"forca": 3, "destreza": 2, "vitalidade": 3, "razao": 0, "vontade": 2, "alma": 1})          # Caçador: Mana (1+2)x3+5 = 14
+
+# --- a aba Perícias: distribuir ---
+c = clique(painel_de(1600, "Perito", "Per"), "Perícias", 1600, "Per"); pp = editada(c)["view"]
+assert isinstance(pp, paineis.PainelPericias) and editada(c)["embed"].title == "🎯 Perícias de Perito"; confere_componentes(pp)
+assert estado_completo(pp) == {"Ficha": ("📋", False), "Vitais": ("❤️", False), "Perícias": ("🎯", True), "Habilidades": ("✨", False), "-1": ("None", True), "+1": ("None", False), "Testar": ("🎲", True), "Modo: Normal": ("🎲", False)}
+sk, at = selects(pp); assert sk.placeholder == "1. Escolhe a perícia" and at.placeholder == "2. Atributo do teste (só pra rolar)" and len(sk.options) == 18 and len(at.options) == 6
+assert [o.label for o in sk.options][:3] == ["Acrobacia", "Atletismo", "Furtividade"] and sk.options[0].default and sk.options[0].description == "0 pontos" and [o.description for o in sk.options if "⭐" in o.description] == ["0 pontos · ⭐ vantagem da classe"] * 3
+assert [(o.label, o.description) for o in at.options][:2] == [("Força", "valor 3"), ("Destreza", "valor 2")] and not any(o.default for o in at.options)
+assert "🎯 Pontos livres: **25** de 25" in editada(c)["embed"].description
+for _ in range(7): c = clique(pp, "+1", 1600, "Per")
+assert pontos_de(1600, "Perito") == {"Acrobacia": 7} and estado_completo(pp)["+1"] == ("None", True) and "Pontos livres: **18** de 25" in editada(c)["embed"].description      # chegou no máximo: o +1 desliga
+c = inter(1600, "Per"); runp(pp._mudar(1, c)); assert pontos_de(1600, "Perito") == {"Acrobacia": 7}                                          # nem forçando passa de 7
+escolher(pp, 0, "Luta", 1600, "Per")
+for _ in range(5): c = clique(pp, "+1", 1600, "Per")
+c = clique(pp, "-1", 1600, "Per"); assert pontos_de(1600, "Perito") == {"Acrobacia": 7, "Luta": 4} and "Pontos livres: **14** de 25" in editada(c)["embed"].description and pp.selecionada == "Luta"
+assert [o.description for o in selects(pp)[0].options if o.label == "Luta"] == ["4 pontos · ⭐ vantagem da classe"]
+for _ in range(4): clique(pp, "-1", 1600, "Per")
+assert pontos_de(1600, "Perito") == {"Acrobacia": 7} and estado_completo(pp)["-1"] == ("None", True); c = inter(1600, "Per"); runp(pp._mudar(-1, c)); assert pontos_de(1600, "Perito") == {"Acrobacia": 7}    # em 0, nada negativo
+for pericia, n in (("Luta", 4), ("Fortitude", 7), ("Reflexos", 7)): db.set_skill_points(PC, pericia, n)
+escolher(pp, 0, "Atletismo", 1600, "Per"); c = inter(1600, "Per"); runp(pp._redesenhar(c))
+assert "✅ Todos os 25 pontos distribuídos" in editada(c)["embed"].description and estado_completo(pp)["+1"] == ("None", True) and editada(c)["embed"].color == discord.Color.green()     # tudo gasto: o +1 desliga mesmo com 0 na perícia
+db.set_skill_points(PC, "Reflexos", 0); db.set_skill_points(PC, "Fortitude", 3); c = inter(1600, "Per"); runp(pp._redesenhar(c))
+assert pontos_de(1600, "Perito") == {"Acrobacia": 7, "Luta": 4, "Fortitude": 3} and "Pontos livres: **11** de 25" in editada(c)["embed"].description
+# --- a aba Perícias: testar ---
+escolher(pp, 0, "Luta", 1600, "Per"); assert estado_completo(pp)["Testar"] == ("🎲", True) and estado_completo(pp)["-1"] == ("None", False)
+c = escolher(pp, 1, "forca", 1600, "Per"); assert pp.atributo == "forca" and estado_completo(pp)["Testar"] == ("🎲", False) and editada(c)["embed"].footer.text == "Teste: Luta + Força · modo normal · jogador: Per" and [o.default for o in selects(pp)[1].options][0]
+with d20s(14): c = clique(pp, "Testar", 1600, "Per")                                                                    # 1d20 + Força 3 + Luta 4
+e = card_publico(c); assert e.title == "🎲 Perito rolou 1d20+7" and e.description == "**14 + 7 = 21**" and e.footer.text == "Luta (Força) · jogador: Per" and "ephemeral" not in followups(c)[0][1]
+assert editada(c)["view"] is pp and [(h["purpose"], h["notation"], h["total"], h["character_name"]) for h in historico_de(1600)][0] == ("Luta (Força)", "1d20+7", 21, "Perito")
+c = clique(pp, "Modo: Normal", 1600, "Per"); assert estado_completo(pp)["Modo: Vantagem"] == ("⬆️", False) and "Modo: Normal" not in estado_completo(pp) and pp.modo == "vantagem" and editada(c)["embed"].footer.text == "Teste: Luta + Força · modo vantagem · jogador: Per"
+with d20s(4, 15): c = clique(pp, "Testar", 1600, "Per")
+assert card_publico(c).description == "**15 + 7 = 22**\n🎲 modo vantagem (4 e 15)"                                               # o modo do jogador não vira "sorte do mestre" (🍀)
+c = clique(pp, "Modo: Vantagem", 1600, "Per"); assert "Modo: Desvantagem" in estado_completo(pp) and estado_completo(pp)["Modo: Desvantagem"][0] == "⬇️"
+with d20s(12, 3): c = clique(pp, "Testar", 1600, "Per")
+assert card_publico(c).description == "**3 + 7 = 10**\n🎲 modo desvantagem (12 e 3)"
+db.add_dice_effect(PC, "bonus", 2, 1, False, None, "4")                                                                 # sorte do mestre + modo do jogador, juntos
+with d20s(12, 3): c = clique(pp, "Testar", 1600, "Per")
+assert card_publico(c).description == "**3 + 9 = 12**\n🍀 modo desvantagem (12 e 3) · +2" and db.get_dice_effects(PC) == []
+c = clique(pp, "Modo: Desvantagem", 1600, "Per"); assert pp.modo == "normal"
+escolher(pp, 0, "Furtividade", 1600, "Per"); escolher(pp, 1, "alma", 1600, "Per")                                      # 0 pontos e Alma 1: +1
+with d20s(9): c = clique(pp, "Testar", 1600, "Per"); assert card_publico(c).description == "**9 + 1 = 10**" and card_publico(c).title == "🎲 Perito rolou 1d20+1"
+escolher(pp, 1, "razao", 1600, "Per")                                                                                 # 0 pontos e Razão 0: sem modificador
+with d20s(9): c = clique(pp, "Testar", 1600, "Per"); assert card_publico(c).title == "🎲 Perito rolou 1d20" and card_publico(c).description == "**9 = 9**"
+c = inter(1600, "Per"); pp.atributo = None; runp(pp._testar(c)); assert followups(c)[0] == ("Escolhe o atributo do teste no segundo menu.", {"ephemeral": True}); pp.atributo = "razao"      # sem atributo, nem rola
+assert runp(pp.interaction_check(inter(999, "Intruso"))) is False and runp(pp.interaction_check(inter(1600, "Per"))) is True
+c = clique(pp, "Ficha", 1600, "Per"); assert isinstance(editada(c)["view"], paineis.PainelFicha) and pp.is_finished()
+# --- Mundano começa com 30; Sábio ganha mais por nível ---
+mu = pronto(1601, "Mun", "Mundana", classe="Mundano"); assert "de 30" in editada(clique(painel_de(1601, "Mundana", "Mun"), "Perícias", 1601, "Mun"))["embed"].description
+sa = pronto(1602, "Sab", "Sabia", classe="Sábio"); db.set_level(row(1602, "Sabia")["id"], 3)
+assert "de 33" in editada(clique(painel_de(1602, "Sabia", "Sab"), "Perícias", 1602, "Sab"))["embed"].description          # Sábio nível 3: 25 + 2 níveis x 4
+# --- /pericias abre a aba direto; /mestre pericia conserta ---
+i = inter(1600, "Per"); runp(bot.pericias_comando.callback(i, None)); v = enviada(i)
+assert isinstance(v, paineis.PainelPericias) and sent(i)[1]["ephemeral"] and v.origem is i and sent(i)[1]["embed"].title == "🎯 Perícias de Perito"
+i = inter(1600, "Per"); runp(bot.pericias_comando.callback(i, "Fantasma")); assert "Não achei nenhum personagem seu chamado **Fantasma**" in txt(i)
+assert bot._eh_mestre in bot.mestre_pericia.checks
+for pericia, n in (("Fortitude", 0), ("Luta", 4)): db.set_skill_points(PC, pericia, n)
+run(bot.mestre_pericia.callback(gm, alvo(1600, "Per"), "Luta", 6, None)); assert txt(gm) == "🎯 **Perito**: Luta foi de 4 pra **6**. Pontos livres agora: **12**." and pontos_de(1600, "Perito")["Luta"] == 6 and sent(gm)[1]["ephemeral"]
+run(bot.mestre_pericia.callback(gm, alvo(1600, "Per"), "Luta", 20, None)); assert pontos_de(1600, "Perito")["Luta"] == 20 and "Pontos livres agora: **-2**" in txt(gm)             # o mestre passa do limite
+run(bot.mestre_pericia.callback(gm, alvo(1600, "Per"), "Luta", 0, None)); assert "Luta" not in pontos_de(1600, "Perito")
+run(bot.mestre_pericia.callback(gm, alvo(9990, "Fantasma"), "Luta", 3, None)); assert txt(gm) == "Fantasma ainda não tem personagem criado."
+with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT detail FROM master_actions WHERE action = 'pericia' ORDER BY id").fetchall() == [("Luta: 4 -> 6",), ("Luta: 6 -> 20",), ("Luta: 20 -> 0",)]
+print("AA1. perícias OK")
+# --- a aba Habilidades: criar, editar ---
+def enviar_form(m, nome, desc, ef, uid=1600, jog="Per"):
+    m.nome._value, m.descricao._value, m.efeito._value = nome, desc, ef; c = inter(uid, jog); runp(m.on_submit(c)); return c
+GM = lambda: inter(4, "Mestre Belmont", **MESTRE_)
+c = clique(painel_de(1600, "Perito", "Per"), "Habilidades", 1600, "Per"); ph = editada(c)["view"]
+assert isinstance(ph, paineis.PainelHabilidades) and editada(c)["embed"].title == "✨ Habilidades de Perito" and "Você ainda não criou nenhuma habilidade" in editada(c)["embed"].description
+assert estado_completo(ph) == {"Ficha": ("📋", False), "Vitais": ("❤️", False), "Perícias": ("🎯", False), "Habilidades": ("✨", True), "Criar habilidade": ("➕", False), "Usar": ("⚡", True), "Editar": ("✏️", True), "Apagar": ("🗑", True)} and selects(ph) == []; confere_componentes(ph)
+c = clique(ph, "Criar habilidade", 1600, "Per"); m = c.response.send_modal.call_args.args[0]
+assert isinstance(m, paineis.ModalHabilidade) and m.title == "Nova habilidade" and [x.label for x in m.children] == ["Nome da habilidade", "Descrição (o que é e como funciona)", "O que você quer que ela faça"]
+assert [x.max_length for x in m.children] == [40, 400, 300] and all(x.required for x in m.children) and all(x.default is None for x in m.children)
+c = enviar_form(m, "", "Fogo.", "dano"); assert followups(c)[0] == ("Dá um nome pra habilidade.", {"ephemeral": True}) and db.list_abilities(PC) == []                  # erro: nada é criado
+c = enviar_form(m, "Bola de Fogo", "Uma bola de fogo.", "causa 2d8 de dano e gasta 15 de Mana"); AID = db.list_abilities(PC)[0]["id"]
+assert followups(c)[0][0].startswith("⏳ **Bola de Fogo** foi pra fila do mestre.") and followups(c)[0][1] == {"ephemeral": True} and ph.selecionada == AID and editada(c)["view"] is ph
+assert [(o.label, o.value, o.description, str(o.emoji), o.default) for o in selects(ph)[0].options] == [("Bola de Fogo", str(AID), "aguardando o mestre", "⏳", True)] and selects(ph)[0].placeholder == "Escolhe uma habilidade"
+assert estado_completo(ph)["Usar"] == ("⚡", True) and estado_completo(ph)["Editar"] == ("✏️", False) and estado_completo(ph)["Apagar"] == ("🗑", False) and [f.name for f in editada(c)["embed"].fields] == ["Descrição", "Efeito que você pediu"]
+c = clique(ph, "Editar", 1600, "Per"); m = c.response.send_modal.call_args.args[0]
+assert m.title == "Editar habilidade" and [x.default for x in m.children] == ["Bola de Fogo", "Uma bola de fogo.", "causa 2d8 de dano e gasta 15 de Mana"]
+c = enviar_form(m, "Bola de Fogo", "Uma bola de fogo.", "causa 2d8 de dano e gasta 5 de Mana"); assert followups(c)[0][0] == "⏳ **Bola de Fogo** voltou pra fila do mestre." and db.get_ability(AID)["effect_text"] == "causa 2d8 de dano e gasta 5 de Mana"
+
+# --- a fila do mestre ---
+m_ = GM(); runp(bot.mestre_habilidades.callback(m_)); fila = enviada(m_)
+assert bot._eh_mestre in bot.mestre_habilidades.checks and isinstance(fila, escudo.FilaDeHabilidades) and fila.origem is m_ and sent(m_)[1]["ephemeral"] and sent(m_)[1]["embed"].title == "🛡️ Habilidades dos jogadores"
+assert sent(m_)[1]["embed"].description == "⏳ **1** aguardando · 🔧 **0** em ajuste · ✅ 0 aprovadas (as mais recentes)\n\nEscolhe uma no primeiro menu."
+assert len(selects(fila)) == 1 and not [b for b in fila.children if isinstance(b, discord.ui.Button)]; q = selects(fila)[0]
+assert q.placeholder == "1. Escolhe a habilidade" and [(o.label, o.value, str(o.emoji)) for o in q.options] == [("Bola de Fogo · Perito", str(AID), "⏳")]
+assert runp(fila.interaction_check(inter(999, "Intruso", **MESTRE_))) is False and runp(fila.interaction_check(inter(4, "Mestre Belmont"))) is False and runp(fila.interaction_check(GM())) is True      # só o dono, e só enquanto for mestre
+c = escolher(fila, 0, str(AID), 4, "Mestre Belmont", **MESTRE_)
+assert [x.placeholder for x in selects(fila)] == ["1. Escolhe a habilidade", "2. Dado de dano ou cura", "3. O que custa pra usar", "4. Somar um atributo ao dano ou à cura (opcional)"] and [len(x.options) for x in selects(fila)] == [1, 25, 21, 7]
+assert [b.label for b in fila.children if isinstance(b, discord.ui.Button)] == ["Aprovar", "Pedir ajuste", "Recusar", "Corrigir texto", "Valores exatos"] and all(b.row == 4 for b in fila.children if isinstance(b, discord.ui.Button)); confere_componentes(fila)
+e = editada(c)["embed"]; assert [f.name for f in e.fields] == ["⏳ Bola de Fogo", "Descrição", "Efeito que o jogador pediu", "Como vai ficar (nos menus)"] and e.fields[0].value == "**Perito** · <@1600> · aguardando o mestre"
+assert e.fields[3].value == "**Custo:** sem custo\n**Rolagem:** sem rolagem" and [[o.value for o in x.options if o.default] for x in selects(fila)[1:]] == [["nenhuma"], ["nenhum"], ["nenhum"]]
+escolher(fila, 1, "dano:2d8", 4, "Mestre Belmont", **MESTRE_); escolher(fila, 2, "mana:5", 4, "Mestre Belmont", **MESTRE_); c = escolher(fila, 3, "forca", 4, "Mestre Belmont", **MESTRE_)
+assert editada(c)["embed"].fields[3].value == "**Custo:** 🔷 5 de Mana\n**Rolagem:** dano 2d8 + Força" and [[o.value for o in x.options if o.default] for x in selects(fila)[1:]] == [["dano:2d8"], ["mana:5"], ["forca"]]
+assert (db.get_ability(AID)["status"], db.get_ability(AID)["cost_resource"], db.get_ability(AID)["roll_dice"]) == ("pendente", None, None)               # os menus ainda não gravam: só o botão
+escolher(fila, 1, "cura:1d6", 4, "Mestre Belmont", **MESTRE_); assert fila.rascunho["tipo"] == "cura" and fila.rascunho["dado"] == "1d6"
+escolher(fila, 1, "nenhuma", 4, "Mestre Belmont", **MESTRE_); assert (fila.rascunho["tipo"], fila.rascunho["dado"]) == (None, None)
+escolher(fila, 2, "nenhum", 4, "Mestre Belmont", **MESTRE_); assert (fila.rascunho["recurso"], fila.rascunho["valor"]) == (None, 0)
+escolher(fila, 3, "nenhum", 4, "Mestre Belmont", **MESTRE_); assert fila.rascunho["atributo"] is None
+# valores exatos (o que não está nos menus)
+c = clique(fila, "Valores exatos", 4, "Mestre Belmont", **MESTRE_); mv = c.response.send_modal.call_args.args[0]
+assert mv.title == "Valores exatos" and [x.default for x in mv.children] == [None, "dano", None, None] and not any(x.required for x in mv.children)
+def enviar_valores(dado, tipo, custo, atributo):
+    mv.dado._value, mv.tipo._value, mv.custo._value, mv.atributo._value = dado, tipo, custo, atributo; c = GM(); runp(mv.on_submit(c)); return c
+assert followups(enviar_valores("abc", "dano", "", ""))[0][0].startswith("Dado inválido: escreve tipo 2d8 ou 1d6+2.") and fila.rascunho["dado"] is None
+assert followups(enviar_valores("2d8", "veneno", "", ""))[0][0] == "Escreve **dano** ou **cura** no tipo." and followups(enviar_valores("2d8", "dano", "mana x", ""))[0][0].startswith("Custo inválido")
+assert followups(enviar_valores("2d8", "dano", "", "agilidade"))[0][0].startswith("Atributo inválido") and fila.rascunho["dado"] is None                    # um erro não muda nada
+c = enviar_valores("1d6+2", "cura", "estamina 10", "destreza"); assert followups(c)[0] == ("🔢 Valores marcados. Falta só apertar **Aprovar** (ou pedir ajuste).", {"ephemeral": True})
+assert editada(c)["embed"].fields[3].value == "**Custo:** ⚡ 10 de Estamina\n**Rolagem:** cura 1d6+2 + Destreza" and db.get_ability(AID)["status"] == "pendente"
+c = enviar_valores("2d8", "dano", "mana 5", "força"); assert editada(c)["embed"].fields[3].value == "**Custo:** 🔷 5 de Mana\n**Rolagem:** dano 2d8 + Força"
+c = clique(fila, "Valores exatos", 4, "Mestre Belmont", **MESTRE_); assert [x.default for x in c.response.send_modal.call_args.args[0].children] == ["2d8", "dano", "mana 5", "Força"]      # o formulário já vem com o que está marcado
+# corrigir o texto
+c = clique(fila, "Corrigir texto", 4, "Mestre Belmont", **MESTRE_); mt = c.response.send_modal.call_args.args[0]; assert mt.title == "Corrigir a habilidade" and [x.default for x in mt.children][0] == "Bola de Fogo"
+mt.nome._value, mt.descricao._value, mt.efeito._value = "", "d", "e"; c = GM(); runp(mt.on_submit(c)); assert followups(c)[0][0] == "Dá um nome pra habilidade." and db.get_ability(AID)["name"] == "Bola de Fogo"
+mt.nome._value = "Bola de Fogo Maior"; mt.descricao._value = "Uma bola enorme."; mt.efeito._value = "causa 2d8 de dano"; c = GM(); runp(mt.on_submit(c))
+assert followups(c)[0][0] == "✏️ Texto de **Bola de Fogo Maior** corrigido." and db.get_ability(AID)["status"] == "pendente" and selects(fila)[0].options[0].label == "Bola de Fogo Maior · Perito"
+# aprovar
+c = clique(fila, "Aprovar", 4, "Mestre Belmont", **MESTRE_)
+assert followups(c)[0] == ("✅ **Bola de Fogo Maior** aprovada: o jogador já pode usar.", {"ephemeral": True}) and editada(c)["embed"].description.startswith("⏳ **0** aguardando · 🔧 **0** em ajuste · ✅ 1 aprovadas")
+ab = db.get_ability(AID); assert (ab["status"], ab["cost_resource"], ab["cost_amount"], ab["roll_kind"], ab["roll_dice"], ab["roll_attribute"], ab["decided_by"]) == ("aprovada", "mana", 5, "dano", "2d8", "forca", "4") and fila.selecionada == AID
+with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT master_name, action, detail FROM master_actions WHERE action = 'habilidade' ORDER BY id").fetchall() == [("Mestre Belmont", "habilidade", f"aprovada: habilidade #{AID} (🔷 5 de Mana, dano 2d8 + Força)")]
+
+# --- o jogador usa a habilidade aprovada ---
+ph = criar(paineis.PainelHabilidades, 1600, PC, "Per", AID); e = ph.embed(); assert len(e) <= 6000 and all(len(f.value) <= 1024 for f in e.fields)
+assert [(f.name, f.value) for f in e.fields] == [("Descrição", "Uma bola enorme."), ("Efeito que você pediu", "causa 2d8 de dano"), ("Custo e rolagem", "🔷 5 de Mana · dano 2d8 + Força")]
+assert estado_completo(ph)["Usar"] == ("⚡", False) and estado_completo(ph)["Editar"] == ("✏️", True) and estado_completo(ph)["Apagar"] == ("🗑", True)             # aprovada: usa, mas não edita nem apaga
+ROLL_REAL = dice.roll
+dice.roll = lambda n: dice.RollResult(n, [5, 3], 0, 8)
+try: c = clique(ph, "Usar", 1600, "Per")
+finally: dice.roll = ROLL_REAL
+e = card_publico(c); assert "ephemeral" not in followups(c)[0][1] and e.title == "✨ Bola de Fogo Maior" and e.author.name == "Perito usou uma habilidade" and e.color == discord.Color.red() and e.footer.text == "jogador: Per"
+assert [(f.name, f.value) for f in e.fields] == [("Custo", "🔷 -5 de Mana (sobram 9/14)"), ("Dano", "🎲 2d8: 5 + 3 + Força 3 = **11**"), ("O que ela faz", "causa 2d8 de dano")]
+assert vitais_de(1600, "Perito")["mana"] == 5 and editada(c)["view"] is ph and [(h["purpose"], h["notation"], h["total"], h["rolls_json"]) for h in historico_de(1600)][0] == ("habilidade: Bola de Fogo Maior", "2d8", 11, "[5, 3]")
+db.set_vital_lost(PC, "mana", 12)                                                                                       # sobra 2 de Mana, e a habilidade custa 5
+def nao_pode_rolar(_): raise AssertionError("não pode rolar sem poder pagar")
+dice.roll = nao_pode_rolar
+try: c = clique(ph, "Usar", 1600, "Per")
+finally: dice.roll = ROLL_REAL
+assert followups(c) == [("Mana insuficiente: você tem 2 e a habilidade custa 5.", {"ephemeral": True})] and vitais_de(1600, "Perito")["mana"] == 12                 # nada de carta pública, nada gasto
+db.reset_vitals(PC)
+# aprovada: o jogador não edita nem apaga
+mf = criar(paineis.ModalHabilidade, ph, db.get_ability(AID)); c = enviar_form(mf, "Outro Nome", "d", "e")
+assert followups(c)[0] == ("Habilidade aprovada: só o mestre muda. Fala com ele se quiser ajustar.", {"ephemeral": True}) and db.get_ability(AID)["name"] == "Bola de Fogo Maior"
+c = inter(1600, "Per"); runp(ph._apagar(c)); assert followups(c)[0] == ("Habilidade aprovada: só o mestre tira. Fala com ele.", {"ephemeral": True}) and db.get_ability(AID) is not None
+# pedir ajuste
+c = clique(fila, "Pedir ajuste", 4, "Mestre Belmont", **MESTRE_); mn = c.response.send_modal.call_args.args[0]
+assert mn.title == "Pedir ajuste" and mn.campo.label == "O que o jogador precisa ajustar?" and mn.campo.required and mn.campo.max_length == 200
+mn.campo._value = "  "; c = GM(); runp(mn.on_submit(c)); assert followups(c)[0][0] == "Escreve o que o jogador precisa ajustar." and db.get_ability(AID)["status"] == "aprovada"
+mn.campo._value = "Menos dano"; c = GM(); runp(mn.on_submit(c))
+assert followups(c)[0][0] == "🔧 Pedi ajuste em **Bola de Fogo Maior**: o jogador vê a sua nota." and (db.get_ability(AID)["status"], db.get_ability(AID)["master_note"]) == ("ajuste", "Menos dano") and "🔧 **1** em ajuste" in editada(c)["embed"].description
+ph = criar(paineis.PainelHabilidades, 1600, PC, "Per", AID); assert ("Nota do mestre", "Menos dano") in [(f.name, f.value) for f in ph.embed().fields] and estado_completo(ph)["Usar"] == ("⚡", True) and estado_completo(ph)["Editar"] == ("✏️", False)
+assert "🔧 **Bola de Fogo Maior** · o mestre pediu ajuste" in ph.embed().description
+mf = criar(paineis.ModalHabilidade, ph, db.get_ability(AID)); c = enviar_form(mf, "Bola de Fogo Maior", "Uma bola enorme.", "causa 2d6 de dano")                  # o jogador ajusta e volta pra fila
+assert db.get_ability(AID)["status"] == "pendente" and db.get_ability(AID)["master_note"] is None
+c = escolher(fila, 0, str(AID), 4, "Mestre Belmont", **MESTRE_); assert editada(c)["embed"].description.startswith("⏳ **1** aguardando") and fila.rascunho["recurso"] == "mana" and fila.rascunho["dado"] == "2d8"      # o que o mestre tinha marcado continua gravado
+# recusar
+c = clique(fila, "Recusar", 4, "Mestre Belmont", **MESTRE_); mr = c.response.send_modal.call_args.args[0]
+assert mr.title == "Recusar habilidade" and mr.campo.label == "Motivo (opcional, o jogador vê)" and not mr.campo.required
+mr.campo._value = "Não cabe na campanha"; c = GM(); runp(mr.on_submit(c))
+assert followups(c)[0][0] == "❌ **Bola de Fogo Maior** recusada." and db.get_ability(AID)["status"] == "recusada" and db.get_ability(AID)["master_note"] == "Não cabe na campanha" and fila.selecionada is None and fila.children == []
+assert editada(c)["embed"].description == "Nenhuma habilidade na fila por enquanto. Quando um jogador criar uma, ela aparece aqui."
+ph = criar(paineis.PainelHabilidades, 1600, PC, "Per", AID); assert "❌ **Bola de Fogo Maior** · recusada" in ph.embed().description and ("Nota do mestre", "Não cabe na campanha") in [(f.name, f.value) for f in ph.embed().fields]
+assert estado_completo(ph)["Editar"] == ("✏️", False) and estado_completo(ph)["Apagar"] == ("🗑", False) and estado_completo(ph)["Usar"] == ("⚡", True)
+c = clique(ph, "Apagar", 1600, "Per"); assert followups(c)[0] == ("🗑 **Bola de Fogo Maior** foi apagada.", {"ephemeral": True}) and db.get_ability(AID) is None and ph.selecionada is None and selects(ph) == []
+# o limite de 8
+for k in range(8): db.create_ability(PC, f"Hab {k}", "d", "e")
+ph8 = criar(paineis.PainelHabilidades, 1600, PC, "Per"); assert estado_completo(ph8)["Criar habilidade"] == ("➕", True) and len(selects(ph8)[0].options) == 8 and habil.criar(PC, "Nona", "d", "e").ok is False
+db.save_ability_decision(db.list_abilities(PC)[0]["id"], "recusada", None, 0, None, None, None, None, "4"); assert estado_completo(criar(paineis.PainelHabilidades, 1600, PC, "Per"))["Criar habilidade"] == ("➕", False)
+# /habilidades abre a aba direto
+i = inter(1600, "Per"); runp(bot.habilidades_comando.callback(i, None)); v = enviada(i)
+assert isinstance(v, paineis.PainelHabilidades) and sent(i)[1]["ephemeral"] and v.origem is i and sent(i)[1]["embed"].title == "✨ Habilidades de Perito"
+i = inter(1600, "Per"); runp(bot.habilidades_comando.callback(i, "Fantasma")); assert "Não achei nenhum personagem seu chamado **Fantasma**" in txt(i)
+print("AA2. habilidades criadas e fila do mestre OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")
