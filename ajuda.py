@@ -81,8 +81,8 @@ AJUDA = {
         "detalhes": (
             "Toda classe tem uma habilidade inicial, e o comando mostra o texto dela. Só o Clérigo (Mãos que Curam ou "
             "Bênção) e o Ladrão (Mão Leve ou Língua de Prata) oferecem duas. Normalmente você escolhe junto com a "
-            "classe; se faltou, o comando mostra botões pra escolher (ou o botão Habilidade da ficha). A escolha vale "
-            "uma vez e fica na ficha; só um mestre muda. A habilidade se soma à Habilidade Própria que você cria com o mestre. O bot mostra o "
+            "classe; se faltou, o comando mostra botões pra escolher (ou o botão Habilidade de classe da ficha). A escolha vale "
+            "uma vez e fica na ficha; só um mestre muda. Ela é diferente das habilidades que você cria na aba Habilidades da ficha. O bot mostra o "
             "texto; quem usa e cobra o custo (Estamina ou Mana) é a mesa."
         ),
         "requisito": "Precisa ter escolhido a classe.",

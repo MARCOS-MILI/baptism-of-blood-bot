@@ -68,9 +68,9 @@ RACAS = {
         "cor": 0x8B0000,
         "texto": (
             "Essas criaturas estiveram na terra por anos, se escondendo, presentes em cada momento da história. "
-            "O primeiro vampiro que temos conhecimento é o Conde Drácula, ou Vlad, e precisa ser derrotado a cada "
+            "O primeiro vampiro de que temos conhecimento é o Conde Drácula, ou Vlad, e precisa ser derrotado a cada "
             "100 anos. Quando você é transformado num vampiro, apesar das vantagens como imortalidade, poderes "
-            "mágicos ou feitiçaria e status sobrehumanos, coisas como água corrente, sol e decapitação, além da "
+            "mágicos ou feitiçaria e status sobre-humanos, coisas como água corrente, sol e decapitação, além da "
             "sede incessante por sangue, então não se afunde muito nas suas vitórias, aqueles que os fazem são os "
             "primeiros a morrer."
         ),
@@ -84,12 +84,12 @@ RACAS = {
         "cor": 0x6A3D9A,
         "texto": (
             "Trata-se de seres amaldiçoados pela imortalidade desde o seu nascimento, devido à junção antinatural "
-            "entre um humano e um vampiro, possuindo todas as forças e habilidades de um vampiro, mas sendo a "
-            "algumas ou até mesmo todas as fraquezas de um vampiro comum, dependendo da sua linhagem. Dhampirs "
+            "entre um humano e um vampiro, possuindo todas as forças e habilidades de um vampiro, mas sendo "
+            "sujeitos a algumas ou até mesmo a todas as fraquezas de um vampiro comum, dependendo da sua linhagem. Dhampirs "
             "podem viver entre os humanos normalmente, mas ainda assim são um risco à população, já que o sangue "
             "ainda é a sua fonte principal de alimentação e poder."
         ),
-        "fraquezas": "Prata, Estaca, Decapitação, Armas Sagradas e Água Sagrada (algumas mais fracas que no vampiro). Sem Sol e sem Fome",
+        "fraquezas": "Algumas ou até todas as de um vampiro comum, conforme a linhagem (Sol, Prata, Fome, Estaca, Decapitação, Água Sagrada e Armas Sagradas)",
     },
 }
 

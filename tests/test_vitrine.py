@@ -124,7 +124,7 @@ vf = v.embed.fields[0].value
 assert "4 pontos de Disciplina na criação (grau máximo 3)" in vf and "Força, Destreza e Vitalidade até 5" in vf and "Fraquezas: Sol, Prata, Fome" in vf
 assert "Tem magia inicial (`/magia_inicial`)" in vf and "Sem magia inicial" not in vf
 df = d.embed.fields[0].value
-assert "3 pontos de Disciplina na criação (grau máximo 3), pode usar as dez" in df and "Limites de atributo ainda a definir" in df and "Sem Sol e sem Fome" in df
+assert "3 pontos de Disciplina na criação (grau máximo 3), pode usar as dez" in df and "Limites de atributo ainda a definir" in df and "Fraquezas: Algumas ou até todas as de um vampiro comum, conforme a linhagem" in df and "Sem Sol" not in df
 assert "Tem magia inicial (`/magia_inicial`)" in df and "Sem magia inicial" not in df                   # o Dhampir tem magia inicial
 
 for estado, arq, rot in (("3º Estado", "estado-3.png", "3° Estado —  Camponeses"), ("2º Estado", "estado-2.png", "2° Estado —  Nobreza"), ("1º Estado", "estado-1.jpg", "1° Estado —  Clero")):
@@ -492,5 +492,36 @@ assert vitrine.texto_do_rascunho({}) == "**Custo:** sem custo\n**Rolagem:** sem 
 assert vitrine.texto_do_rascunho({"recurso": "estamina", "valor": 0, "dado": "1d4"}) == "**Custo:** sem custo\n**Rolagem:** dano 1d4" and vitrine.texto_do_rascunho({"recurso": "vida", "valor": 5}) == "**Custo:** ❤️ 5 de Vida\n**Rolagem:** sem rolagem"
 sem_dono = vitrine.embed_fila([H(1, "X", "pendente", user_id=None)], H(1, "X", "pendente", user_id=None), {}); assert sem_dono.fields[0].value == "**Kairon** · aguardando o mestre"
 print("18. habilidades criadas OK")
+
+# ---------- 19. as habilidades de classe batem com a tabela do site (01/10/2026) e o português dos cards ----------
+def blob(classe, nome=None):
+    h = lore.HABILIDADES[classe]
+    return [(o["nome"], o["marcas"], " ".join([o["frase"]] + [t + " " + x for t, x in o["efeitos"]])) for o in h["opcoes"] if nome in (None, o["nome"])]
+def op(classe, nome): return blob(classe, nome)[0]
+assert {c: lore.HABILIDADES[c]["escolha"] for c in lore.HABILIDADES} == {"Caçador": False, "Clérigo": True, "Feiticeiros": False, "Ladrão": True, "Mercenário": False, "Mestre de Forja": False, "Mundano": False, "Sábio": False}      # só Clérigo e Ladrão escolhem entre duas
+assert {c: [o["nome"] for o in lore.HABILIDADES[c]["opcoes"]] for c in lore.HABILIDADES} == {"Caçador": ["Sem Dúvidas"], "Clérigo": ["Mãos que Curam", "Bênção"], "Feiticeiros": ["Dom Nato"], "Ladrão": ["Mão Leve", "Língua de Prata"], "Mercenário": ["Ombro a Ombro"], "Mestre de Forja": ["Forja de Almas"], "Mundano": ["Aprimoração"], "Sábio": ["Saber e Poder"]}
+def confere(classe, nome, marcas, trechos):
+    n, m, t = op(classe, nome)
+    assert m == marcas, (nome, m); assert all(x.casefold() in t.casefold() for x in trechos), (nome, [x for x in trechos if x.casefold() not in t.casefold()])
+confere("Caçador", "Sem Dúvidas", ["Inicial", "Passiva", "Físico", "Custo: 10 Estamina no Efeito²"], ["Ao iniciar uma cena de investigação, recebe vantagem", "profano", "Presa Marcada", "10 de Estamina", "vantagem nos ataques e em Percepção", "até o fim da cena", "uma marca por vez"])
+confere("Clérigo", "Mãos que Curam", ["Inicial", "Ativa", "Fé", "Custo: 15 Mana"], ["15 de Mana", "teste de Fé (DT 15)", "Vida igual a Alma × 5", "20 de Mana"])
+confere("Clérigo", "Bênção", ["Inicial", "Ativa", "Fé", "Custo: 10 Mana"], ["10 de Mana", "um aliado ou o próprio clérigo", "teste de Fé, DT 15", "até o fim da cena", "sagrado", "Armas Sagradas"])
+confere("Feiticeiros", "Dom Nato", ["Inicial", "Passiva", "Magia"], ["+1 dado de efeito", "Razão × 5 de Mana a menos", "custo mínimo de 1"])
+confere("Ladrão", "Mão Leve", ["Inicial", "Ativa", "Físico", "Custo: 10 Estamina"], ["10 de Estamina", "Furtividade com vantagem contra a Percepção do alvo", "item pequeno ou médio", "dê certo ou não"])
+confere("Ladrão", "Língua de Prata", ["Inicial", "Ativa", "Social", "Custo: 10 Estamina"], ["10 de Estamina", "Enganação com vantagem", "distrair"])
+confere("Mercenário", "Ombro a Ombro", ["Inicial", "Ativa", "Físico", "Custo: 10 Estamina"], ["aliado ao alcance", "sua reação e 10 de Estamina", "receber o ataque no lugar dele", "vantagem no teste de defesa"])
+confere("Mestre de Forja", "Forja de Almas", ["Inicial", "Ativa", "Ritual", "Custo: Mana por Rank"], ["instrumento", "corpo já morto", "criatura da noite", "arma, ferramenta ou peça", "Quanto mais forte foi a alma", "Rank", "custo definido pelo mestre", "teste de Ritualismo", "falhar gasta a Mana", "1 natural faz a alma reagir"])
+confere("Mundano", "Aprimoração", ["Inicial", "Passiva"], ["+5 pontos de perícia na criação", "30 no total", "uma das classes existentes", "só acontece por RP, em conversa com o mestre"])
+confere("Sábio", "Saber e Poder", ["Inicial", "Passiva", "Ativa", "Saber", "Custo: 10 Mana no Efeito²"], ["+4 em vez de +2", "10 de Mana", "teste de Razão", "O custo vale por teste"])
+tudo_hab = " ".join(t for c in lore.HABILIDADES for _, _, t in blob(c)).casefold()
+assert not any(x in tudo_hab for x in ("por cena", "por turno", "uma vez por", "1 vez por", "sanguessugia"))              # sem limite por cena ou turno, e o combo secreto não aparece
+assert "sanguessugia" not in " ".join(str(v) for v in lore.CLASSES.values()).casefold()
+# o português dos cards
+assert "sobrehumanos" not in lore.RACAS["Vampiro"]["texto"] and "status sobre-humanos" in lore.RACAS["Vampiro"]["texto"] and "O primeiro vampiro de que temos conhecimento" in lore.RACAS["Vampiro"]["texto"]
+dh = lore.RACAS["Dhampir"]
+assert "mas sendo sujeitos a algumas ou até mesmo a todas as fraquezas de um vampiro comum, dependendo da sua linhagem." in dh["texto"] and "sendo a algumas" not in dh["texto"]
+assert dh["fraquezas"].startswith("Algumas ou até todas as de um vampiro comum, conforme a linhagem") and "Sem Sol" not in dh["fraquezas"] and "Sol" in dh["fraquezas"] and "Fome" in dh["fraquezas"]      # vale o que está no card
+assert "Fraquezas: " + dh["fraquezas"] in vitrine._em_jogo_da_raca("Dhampir")
+print("19. tabela do site e português dos cards OK")
 
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")
