@@ -49,7 +49,7 @@ for tipo, nome in ENVIADAS:
     with Image.open(ref[1]) as im:
         assert im.width >= 400 and im.height >= 200 and im.format in ("PNG", "JPEG", "GIF", "WEBP"), ref[1]
     assert os.path.getsize(ref[1]) < 8 * 1024 * 1024                       # cabe folgado no limite de upload do Discord
-assert vitrine.achar_imagem("raca", "Dhampir") is None and vitrine.achar_imagem("classe", "Caçador") is None    # ainda sem arte
+assert vitrine.achar_imagem("raca", "Dhampir")[0] == "arquivo" and vitrine.achar_imagem("raca", "Dhampir")[1].endswith("raca-dhampir.webp") and vitrine.achar_imagem("classe", "Caçador") is None    # o Dhampir já tem arte; as classes ainda não
 # nenhum arquivo em assets/ com nome fora da convenção (um nome errado nunca apareceria no cartão)
 convencao = ("raca-", "estado-", "clero-", "classe-", "magia-")
 for arq in os.listdir(vitrine.PASTA_IMAGENS):
@@ -109,12 +109,15 @@ for raca in dice.RACES:
     c = vitrine.cartao_raca("Kairon Flagon", raca, "Marcos", (1, 3)); todos.append(c); e = c.embed
     assert e.title is None and rotulo_do_cartao(e) == {"Humano": "Humanos", "Vampiro": "Vampiros", "Dhampir": "Dhampirs"}[raca]
     assert e.author.name.endswith("Raça de Kairon Flagon") and e.footer.text == "jogador: Marcos · tentativa 1 de 3"
-    assert e.description == esperado_decorado("<:cruz2:1467276532916686899>", "<:cruz6:1472548114291364023>", lore.RACAS[raca]["rotulo"], lore.RACAS[raca]["texto"])
+    assert e.description == esperado_decorado(lore.RACAS[raca]["emoji_titulo"], "<:cruz6:1472548114291364023>", lore.RACAS[raca]["rotulo"], lore.RACAS[raca]["texto"])
     assert "🎲" not in e.description and "1d100" not in e.description and lore.DIVISOR not in e.description      # sem o dado e sem o divisor antigo
     assert e.color.value == lore.RACAS[raca]["cor"] and [f.name for f in e.fields] == ["Em jogo"]
 h, v, d = (vitrine.cartao_raca("X", r, "J") for r in dice.RACES)
 assert nomes(h) == ["raca-humano.webp"] and h.embed.image.url == "attachment://raca-humano.webp"
-assert nomes(v) == ["raca-vampiro.jpg"] and nomes(d) == [] and d.embed.image.url is None
+assert nomes(v) == ["raca-vampiro.jpg"] and nomes(d) == ["raca-dhampir.webp"] and d.embed.image.url == "attachment://raca-dhampir.webp"
+assert [lore.RACAS[r]["emoji_titulo"] for r in ("Humano", "Vampiro", "Dhampir")] == ["<:cruz2:1467276532916686899>", "<:cruz2:1467276532916686899>", "<:cruz3:1467277925857366066>"]      # o Dhampir abre o cabeçalho com a cruz3
+assert lore.RACAS["Dhampir"]["texto"].startswith("Trata-se de seres amaldiçoados pela imortalidade desde o seu nascimento") and lore.RACAS["Dhampir"]["texto"].endswith("fonte principal de alimentação e poder.") and "Alucard" not in lore.RACAS["Dhampir"]["texto"]
+assert d.embed.description.startswith("<:cruz3:1467277925857366066>") and "𝐃hampirs" in d.embed.description.split("\n")[0]                          # o cabeçalho decorado do Dhampir
 assert "Sem Disciplinas" in h.embed.fields[0].value and "Razão até 6" in h.embed.fields[0].value and "Fraquezas" not in h.embed.fields[0].value
 assert "Sem magia inicial, só as classes Feiticeiros e Mestre de Forja têm" in h.embed.fields[0].value and "Tem magia inicial" not in h.embed.fields[0].value
 vf = v.embed.fields[0].value

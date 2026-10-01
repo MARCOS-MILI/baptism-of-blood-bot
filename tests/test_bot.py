@@ -1120,7 +1120,7 @@ with dados(90): run(bot.raca_inicial.callback(k2, None))
 assert titulo(k2) == "Vampiros" and nomes_de_arquivo(k2) == ["raca-vampiro.jpg"] and "Conde Drácula" in desc(k2)
 k3 = novo(602, "Caio", "Caio Dhampir")
 with dados(97): run(bot.raca_inicial.callback(k3, None))
-assert titulo(k3) == "Dhampirs" and "files" not in sent(k3)[1] and sent(k3)[1]["embed"].image.url is None and "Alucard" in desc(k3)   # ainda sem arte: cartão sem imagem
+assert titulo(k3) == "Dhampirs" and nomes_de_arquivo(k3) == ["raca-dhampir.webp"] and sent(k3)[1]["embed"].image.url == "attachment://raca-dhampir.webp" and "amaldiçoados pela imortalidade" in desc(k3)
 assert row(602, "Caio Dhampir")["race"] == "Dhampir" and [h["purpose"] for h in historico_de(602)] == ["raca_inicial"]
 for n, esperado_titulo, arquivo in [(50, "3° Estado —  Camponeses", "estado-3.png"), (85, "2° Estado —  Nobreza", "estado-2.png")]:
     u = novo(610 + n, f"E{n}", f"Estado {n}")

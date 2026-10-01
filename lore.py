@@ -25,6 +25,7 @@ IMAGENS_URL: dict[str, str] = {}
 # ---------------------------------------------------------------------------
 EMOJI_TITULO = "<:cruz2:1467276532916686899>"          # abre o cabeçalho das raças
 EMOJI_TEXTO = "<:cruz6:1472548114291364023>"           # abre o texto das raças
+EMOJI_TITULO_DHAMPIR = "<:cruz3:1467277925857366066>"  # abre o cabeçalho do Dhampir (o das outras raças é a cruz2)
 EMOJI_TITULO_ESTADO = "<:cruz1:1467276278418636953>"   # abre o cabeçalho dos Estados
 EMOJI_TEXTO_ESTADO = "<:calicesang:1467277986876358656>"  # abre o texto dos Estados
 TEXTO_PEQUENO = True   # o texto sai em letra pequena (-#). Se aparecer o "-#" escrito, troca pra False
@@ -78,13 +79,15 @@ RACAS = {
     "Dhampir": {
         "emoji": "🌒",
         "rotulo": "Dhampirs",
-        "emoji_titulo": EMOJI_TITULO,
+        "emoji_titulo": EMOJI_TITULO_DHAMPIR,
         "emoji_texto": EMOJI_TEXTO,
         "cor": 0x6A3D9A,
         "texto": (
-            "A junção de humano com vampiro. Alucard é um Dhampir. É um meio termo: perde algumas fraquezas do "
-            "vampiro, mas nasce com menos poder sobrenatural. É uma raça forte e difícil de conseguir, e por isso "
-            "rara."
+            "Trata-se de seres amaldiçoados pela imortalidade desde o seu nascimento, devido à junção antinatural "
+            "entre um humano e um vampiro, possuindo todas as forças e habilidades de um vampiro, mas sendo a "
+            "algumas ou até mesmo todas as fraquezas de um vampiro comum, dependendo da sua linhagem. Dhampirs "
+            "podem viver entre os humanos normalmente, mas ainda assim são um risco à população, já que o sangue "
+            "ainda é a sua fonte principal de alimentação e poder."
         ),
         "fraquezas": "Prata, Estaca, Decapitação, Armas Sagradas e Água Sagrada (algumas mais fracas que no vampiro). Sem Sol e sem Fome",
     },
