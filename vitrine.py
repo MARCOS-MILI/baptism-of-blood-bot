@@ -180,6 +180,24 @@ def _citar_decorado(texto: str, emoji: str) -> str:
     return "\n".join(saida)
 
 
+def embed_decorado(rotulo: str, frase: str | None, corpo: str | None, cor, *, autor: str | None = None,
+                   rodape: str | None = None, emoji_titulo: str = lore.EMOJI_TITULO,
+                   emoji_texto: str = lore.EMOJI_TEXTO) -> discord.Embed:
+    """Uma tela no estilo das raças e dos Estados: sem título de embed. O rótulo enfeitado abre a descrição, a frase vem
+    em citação pequena e em negrito, e o corpo (o conteúdo da tela) vem depois."""
+    partes = [_cabecalho(rotulo, emoji_titulo)]
+    if frase:
+        partes.append(_citar_decorado(frase, emoji_texto))
+    if corpo:
+        partes.append(corpo)
+    embed = discord.Embed(description="\n\n".join(partes), color=cor)
+    if autor:
+        embed.set_author(name=autor)
+    if rodape:
+        embed.set_footer(text=rodape)
+    return embed
+
+
 def _montar(*, autor: str, titulo: str, cor: int, topo: str | None = None, texto: str | None = None,
             italico: bool = False, campos: list[tuple[str, str, bool]] = (), imagem=None, miniatura=None,
             rodape: str | None = None, decorado: tuple[str, str, str] | None = None) -> Cartao:
@@ -319,7 +337,7 @@ def barra(atual: int, maximo: int, tamanho: int = TAMANHO_DA_BARRA) -> str:
 
 
 def embed_vitais(nome: str, recursos: dict, perdidos: dict, jogador: str | None = None,
-                 selecionado: str = "vida") -> discord.Embed:
+                selecionado: str = "vida") -> discord.Embed:
     """As quatro barras do personagem. 'recursos' vem do cálculo por nível; 'perdidos' é o que ele perdeu."""
     linhas = []
     for chave in rules.VITAL_KEYS:
@@ -336,17 +354,10 @@ def embed_vitais(nome: str, recursos: dict, perdidos: dict, jogador: str | None 
         else discord.Color.green()
     )
     aviso = "\n\n💀 **Vida em 0.** Hora de falar com o mestre." if vida == 0 else ""
-    embed = discord.Embed(
-        title=f"❤️ Vitais de {nome}",
-        description=(
-            "Levou dano ou gastou mana? **1.** Escolhe a barra no menu. **2.** Aperta os botões pra descer (**-**) ou "
-            "subir (**+**).\n\n" + "\n\n".join(linhas) + aviso
-        ),
-        color=cor,
+    return embed_decorado(
+        "Vitais", "Levou dano ou gastou mana? Escolhe a barra no menu e aperta os botões pra descer ou subir.",
+        "\n\n".join(linhas) + aviso, cor, autor=nome, rodape=f"jogador: {jogador}" if jogador else None,
     )
-    if jogador:
-        embed.set_footer(text=f"jogador: {jogador}")
-    return embed
 
 
 # ---------------------------------------------------------------------------
@@ -378,19 +389,19 @@ def embed_rolar_pericias(nome: str, pontos: dict, atributos: dict, classe: str |
             f"{rules.SKILL_ICONS[pericia]} **{pericia}** {valor + pts:+d} · {rules.ATTRIBUTE_LABELS[atributo]} {valor} + {pts}"
             + (" ⭐" if pericia in vantagens else "")
         )
-    descricao = "Toca no ícone da perícia e o bot rola **1d20 + atributo + perícia** sozinho, no nome do seu personagem.\n\n" + "\n".join(linhas)
+    corpo = "\n".join(linhas)
     if vantagens:
-        descricao += "\n\n⭐ Vantagem da sua classe: entra sozinha na rolagem."
+        corpo += "\n\n⭐ Vantagem da sua classe: entra sozinha na rolagem."
     aviso = _aviso_de_vantagem(classe, escolhidas)
     if aviso:
-        descricao += f"\n\n{aviso}"
-    embed = discord.Embed(title=f"🎲 Perícias de {nome}", description=descricao, color=discord.Color.blurple())
+        corpo += f"\n\n{aviso}"
     _, rotulo = MODOS_DE_TESTE[modo]
-    embed.set_footer(
-        text=f"Modo: {rotulo.lower()} · Atributo: {rules.ATTRIBUTE_LABELS[forcado] if forcado else 'automático (o padrão de cada perícia)'}"
-        + (f" · jogador: {jogador}" if jogador else "")
+    return embed_decorado(
+        "Perícias", "Toca no ícone da perícia e o bot rola 1d20 + atributo + perícia sozinho, no nome do seu personagem.",
+        corpo, discord.Color.blurple(), autor=nome,
+        rodape=f"Modo: {rotulo.lower()} · Atributo: {rules.ATTRIBUTE_LABELS[forcado] if forcado else 'automático (o padrão de cada perícia)'}"
+        + (f" · jogador: {jogador}" if jogador else ""),
     )
-    return embed
 
 
 def embed_pericias(nome: str, pontos: dict, total: int, selecionada: str, classe: str | None, escolhidas,
@@ -409,22 +420,17 @@ def embed_pericias(nome: str, pontos: dict, total: int, selecionada: str, classe
         situacao = f"✅ Todos os {total} pontos distribuídos"
     else:
         situacao = f"⚠️ **{-livres}** pontos a mais do que o permitido ({total}). Fala com um mestre."
-    descricao = (
-        "**Distribuir:** escolhe a perícia no menu e aperta **+1** ou **-1**. Pra rolar, aperta **Rolar perícias**.\n\n"
-        f"{situacao}\n\n" + "\n".join(linhas)
-    )
+    corpo = f"{situacao}\n\n" + "\n".join(linhas)
     if vantagens:
-        descricao += "\n\n⭐ Vantagem da sua classe (entra sozinha na rolagem)."
+        corpo += "\n\n⭐ Vantagem da sua classe (entra sozinha na rolagem)."
     aviso = _aviso_de_vantagem(classe, escolhidas)
     if aviso:
-        descricao += f"\n\n{aviso}"
-    embed = discord.Embed(
-        title=f"🎯 Pontos de perícia de {nome}", description=descricao,
-        color=discord.Color.green() if livres == 0 else discord.Color.blurple(),
+        corpo += f"\n\n{aviso}"
+    return embed_decorado(
+        "Pontos de perícia", "Escolhe a perícia no menu e aperta +1 ou -1. Pra rolar, aperta Rolar perícias.",
+        corpo, discord.Color.green() if livres == 0 else discord.Color.blurple(), autor=nome,
+        rodape=f"jogador: {jogador}" if jogador else None,
     )
-    if jogador:
-        embed.set_footer(text=f"jogador: {jogador}")
-    return embed
 
 
 # ---------------------------------------------------------------------------
@@ -441,22 +447,21 @@ def _linhas_da_habilidade(ab) -> list[tuple[str, str]]:
 
 def embed_habilidades(nome: str, habilidades: list, selecionada: int | None, jogador: str | None = None) -> discord.Embed:
     """A aba Habilidades do jogador: o caminho (criar, o mestre aprova, usar) e a lista com o status de cada uma."""
-    topo = "**1.** Cria a sua habilidade · **2.** O mestre ajusta e aprova · **3.** Usa com um clique"
     if habilidades:
-        linhas = [
+        corpo = "\n".join(
             f"{'▶️' if a['id'] == selecionada else '▫️'} {habil.MARCA[a['status']]} **{a['name']}** · {habil.FRASE[a['status']]}"
             for a in habilidades
-        ]
-        corpo = "\n".join(linhas)
+        )
     else:
         corpo = "Você ainda não criou nenhuma habilidade. Aperta **➕ Criar habilidade** pra começar."
-    embed = discord.Embed(title=f"✨ Habilidades de {nome}", description=f"{topo}\n\n{corpo}", color=discord.Color.purple())
+    embed = embed_decorado(
+        "Habilidades", "1. Cria a sua habilidade · 2. O mestre ajusta e aprova · 3. Usa com um clique", corpo,
+        discord.Color.purple(), autor=nome, rodape=f"jogador: {jogador}" if jogador else None,
+    )
     escolhida = next((a for a in habilidades if a["id"] == selecionada), None)
     if escolhida is not None:
         for titulo, valor in _linhas_da_habilidade(escolhida):
             embed.add_field(name=titulo, value=valor[:1024], inline=False)
-    if jogador:
-        embed.set_footer(text=f"jogador: {jogador}")
     return embed
 
 

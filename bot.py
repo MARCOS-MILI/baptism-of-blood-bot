@@ -484,14 +484,15 @@ def _embed_atributos(personagem, titulo: str) -> discord.Embed:
 def _embed_ficha(personagem, jogador: str, para_mestre: bool = False) -> discord.Embed:
     nivel, xp = personagem["level"], personagem["xp"]
     _, dentro, precisa = rules.xp_progress(xp)
-    embed = discord.Embed(title=f"📖 Ficha de {personagem['name']}", color=vitrine.cor_da_ficha(personagem))
-    embed.set_author(name=vitrine.resumo_da_ficha(personagem))
+    status = rules.creation_status(personagem)
+    aviso = (
+        f"⚠️ **Ficha incompleta.** {ajuda.proximo_passo(status)} Veja o passo a passo em `/ajuda`."
+        if ORDEM_DA_CRIACAO and not status["pronta"] else None
+    )
+    embed = vitrine.embed_decorado("Ficha", personagem["name"], aviso, vitrine.cor_da_ficha(personagem), autor=vitrine.resumo_da_ficha(personagem))
     miniatura = vitrine.miniatura_da_ficha(personagem)
     if miniatura:
         embed.set_thumbnail(url=miniatura)
-    status = rules.creation_status(personagem)
-    if ORDEM_DA_CRIACAO and not status["pronta"]:
-        embed.description = f"⚠️ **Ficha incompleta.** {ajuda.proximo_passo(status)} Veja o passo a passo em `/ajuda`."
     nivel_txt = f"{nivel}/{rules.MAX_LEVEL}\n{rules.bar(nivel, rules.MAX_LEVEL)}\nXP total: {rules.fmt_xp(xp)}"
     if precisa is not None:
         nivel_txt += f"\nFaltam {rules.fmt_xp(precisa - dentro)} pro nível {nivel + 1}"
@@ -862,16 +863,16 @@ async def _criar_personagem(interaction: discord.Interaction, nome: str) -> None
             ephemeral=True,
         )
         return
-    embed = discord.Embed(
-        title="🎭 Personagem criado",
-        description=(
+    embed = vitrine.embed_decorado(
+        "Personagem criado", None,
+        (
             f"**{novo['name']}** agora é o personagem que você está usando ({usadas + 1} de {permitidas} vagas).\n"
             "Próximo passo: sortear a raça e a classe social (`/raca_inicial` e `/classe_social`, em qualquer ordem). "
             "Depois vêm `/classe`, o Rank de magia (`/magia_inicial`, só pra quem tem magia) e `/atributos`. "
             "O passo a passo completo está em `/ajuda`.\n\n"
             "**Ou é só clicar nos botões aqui embaixo.**"
         ),
-        color=discord.Color.dark_purple(),
+        discord.Color.dark_purple(),
     )
     painel = paineis.PainelFicha(interaction.user.id, novo["id"], str(interaction.user.display_name))
     await interaction.response.send_message(embed=embed, view=painel, ephemeral=True)
@@ -914,12 +915,10 @@ async def personagem_listar(interaction: discord.Interaction):
             f" · estado: {_resumo_estado(c) or 'sem estado'}"
         )
     _, permitidas, _ = _vagas(uid)
-    embed = discord.Embed(
-        title="🎭 Seus personagens",
-        description="\n".join(linhas),
-        color=discord.Color.dark_purple(),
+    embed = vitrine.embed_decorado(
+        "Seus personagens", None, "\n".join(linhas), discord.Color.dark_purple(),
+        rodape=f"▶️ = o que você está usando agora · vagas usadas: {len(chars)} de {permitidas}",
     )
-    embed.set_footer(text=f"▶️ = o que você está usando agora · vagas usadas: {len(chars)} de {permitidas}")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -1445,16 +1444,13 @@ _SEM_PERSONAGEM_NO_BOTAO = "Você ainda não tem personagem. Aperta **🆕 Criar
 
 
 def _embed_comeco() -> discord.Embed:
-    return discord.Embed(
-        title="🩸 Baptism of Blood",
-        description=(
-            "Aqui o seu personagem é criado e jogado por botões, sem decorar comando.\n\n"
-            "🆕 **Criar personagem**: começa por aqui. É só dizer o nome.\n"
-            "📋 **Minha ficha**: abre a sua ficha, com as abas Vitais, Perícias e Habilidades.\n"
-            "🎲 **Dados**: abre a bandeja de dados.\n"
-            "❓ **Como funciona**: o passo a passo em poucas linhas."
-        ),
-        color=discord.Color.dark_red(),
+    return vitrine.embed_decorado(
+        "Baptism of Blood", "Aqui o seu personagem é criado e jogado por botões, sem decorar comando.",
+        "🆕 **Criar personagem**: começa por aqui. É só dizer o nome.\n"
+        "📋 **Minha ficha**: abre a sua ficha, com as abas Vitais, Perícias e Habilidades.\n"
+        "🎲 **Dados**: abre a bandeja de dados.\n"
+        "❓ **Como funciona**: o passo a passo em poucas linhas.",
+        discord.Color.dark_red(),
     )
 
 
@@ -1504,9 +1500,9 @@ class ComecoAqui(discord.ui.View):
 
     @discord.ui.button(label="Como funciona", emoji="❓", style=discord.ButtonStyle.secondary, custom_id="inicio:como")
     async def como(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="❓ Como funciona",
-            description=(
+        embed = vitrine.embed_decorado(
+            "Como funciona", "O passo a passo, em poucas linhas.",
+            (
                 "**1.** Aperta **🆕 Criar personagem** e diz o nome.\n"
                 "**2.** A ficha abre com botões: **Raça**, **Classe social**, **Classe** e **Atributos**. Segue na ordem: 🔒 ainda "
                 "não abriu, ✅ já foi feito.\n"
@@ -1515,7 +1511,7 @@ class ComecoAqui(discord.ui.View):
                 "**4.** Pra rolar dado, aperta **🎲 Dados** ou escreve `d20+5` no chat.\n\n"
                 "Se ficar perdido, `/ajuda` mostra o seu passo a passo."
             ),
-            color=discord.Color.dark_red(),
+            discord.Color.dark_red(),
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

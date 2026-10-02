@@ -153,6 +153,10 @@ A ficha (`/minha_ficha`) agora tem uma linha de **abas** no topo: **📋 Ficha**
 
 Na aba **Vitais** a pessoa vê quatro barras (▰▰▰▱▱) com o atual e o máximo de cada vital. Escolhe a barra no menu e usa os botões **-10 -5 -1 +1 +5 +10** pra descer ou subir; **Valor exato** abre um formulário e **Restaurar tudo** é o descanso. A vida ficando em 0 pinta o cartão de cinza e avisa. O máximo vem do cálculo por nível (precisa ter escolhido a classe). O bot guarda quanto o personagem **perdeu**, não o valor atual (tabela `character_vitals`): assim, se o máximo sobe com o nível, o atual sobe junto, e o atual nunca passa do máximo.
 
+## O visual das telas
+
+As raças, os Estados e as telas principais usam o mesmo desenho do servidor: **sem título de embed**. O cabeçalho enfeitado (emoji da cruz, ornamento e a inicial em negrito matemático) abre a descrição, a frase vem em citação pequena e em negrito, e o conteúdo da tela vem depois; o nome do personagem vai na linha do autor. Tudo isso sai de `vitrine.embed_decorado(rotulo, frase, corpo, cor, autor=..., rodape=...)`. Usam: Comece aqui, Como funciona, Ficha, Vitais, Perícias, Pontos de perícia, Habilidades, Personagem criado e Seus personagens. Os emojis (`cruz2`, `cruz6`...) só aparecem em servidores onde o bot tem acesso a eles; nos outros viram `:cruz2:`.
+
 ## Imagens por link (gifs do Tenor)
 
 `IMAGENS_URL` no `lore.py` guarda links diretos de imagem (o que termina em `.gif`; a página `/view/` do Tenor não serve). Quando o bot liga, ele **baixa** cada link em segundo plano, confere nos primeiros bytes que é mesmo uma imagem (até 8 MB) e anexa o arquivo no cartão, porque o Discord às vezes não mostra imagem de link. A ordem no cartão é: o que foi baixado, depois a imagem parada de `assets/`, depois o link. O que aconteceu com cada link vai pro log (`[imagens] raca-humano: ok (...)` ou `falhou: ...`). `BAIXAR_IMAGENS=0` desliga o download.

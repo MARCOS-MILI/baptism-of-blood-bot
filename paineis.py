@@ -669,13 +669,11 @@ class PainelVitais(_Painel):
     def embed(self) -> discord.Embed:
         char, recursos, perdidos = self._dados()
         if recursos is None:
-            return discord.Embed(
-                title=f"❤️ Vitais de {char['name']}",
-                description=(
-                    "As barras de Vida, Sanidade, Mana e Estamina dependem da classe, e **{nome}** ainda não tem. "
-                    "Vai na aba **Ficha** e aperta **Classe**."
-                ).format(nome=char["name"]),
-                color=discord.Color.dark_grey(),
+            return vitrine.embed_decorado(
+                "Vitais", None,
+                f"As barras de Vida, Sanidade, Mana e Estamina dependem da classe, e **{char['name']}** ainda não tem. "
+                "Vai na aba **Ficha** e aperta **Classe**.",
+                discord.Color.dark_grey(), autor=char["name"],
             )
         return vitrine.embed_vitais(char["name"], recursos, perdidos, self.jogador, self.selecionado)
 
