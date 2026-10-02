@@ -155,7 +155,13 @@ Na aba **Vitais** a pessoa vê quatro barras (▰▰▰▱▱) com o atual e o m
 
 ## O visual das telas
 
-As raças, os Estados e as telas principais usam o mesmo desenho do servidor: **sem título de embed**. O cabeçalho enfeitado (emoji da cruz, ornamento e a inicial em negrito matemático) abre a descrição, a frase vem em citação pequena e em negrito, e o conteúdo da tela vem depois; o nome do personagem vai na linha do autor. Tudo isso sai de `vitrine.embed_decorado(rotulo, frase, corpo, cor, autor=..., rodape=...)`. Usam: Comece aqui, Como funciona, Ficha, Vitais, Perícias, Pontos de perícia, Habilidades, Personagem criado e Seus personagens. Os emojis (`cruz2`, `cruz6`...) só aparecem em servidores onde o bot tem acesso a eles; nos outros viram `:cruz2:`.
+**Todas** as telas do bot usam o desenho do servidor, o mesmo das raças e dos Estados: **sem título de embed**. O cabeçalho enfeitado (emoji da cruz, ornamento e a inicial em negrito matemático) abre a descrição, a frase de época vem em citação pequena e em negrito, e o conteúdo da tela vem depois; quando faz sentido, o nome do personagem vai na linha do autor.
+
+Como funciona: `vitrine.tela(title=..., description=..., color=...)` recebe o título como o `discord.Embed` recebia ("🎲 Bandeja de dados"), tira o emoji, enfeita o resto e acrescenta a frase. Todo embed novo com título deve usar `tela` (e não `discord.Embed(title=...)`). Quem monta a tela inteira à mão usa `vitrine.embed_decorado(rotulo, frase, corpo, cor, autor=..., rodape=...)`.
+
+**As frases de época** (a linguagem de 1790, com "vós" e "vosso") ficam num lugar só: `FRASES_DA_EPOCA` e `PREFIXOS_DA_EPOCA` no `vitrine.py`. Dá pra editar à vontade; tela sem frase mostra só o cabeçalho. As instruções de uso e as mensagens de erro continuam em português claro, de propósito.
+
+**Ficam de fora, de propósito:** os cartões de rolagem de dado (saem dezenas de vezes por cena e o cabeçalho empurraria o chat), o resultado especial dos sorteios (66, 77 e o 100, que são cartões cifrados) e os formulários e botões, que o Discord não deixa enfeitar. Os emojis (`cruz2`, `cruz6`...) só aparecem em servidores onde o bot tem acesso a eles; nos outros viram `:cruz2:`.
 
 ## Imagens por link (gifs do Tenor)
 

@@ -43,6 +43,14 @@ def personagem(uid, nome, destreza=0, celeridade=0):
 def nomes(cena_id): return [(p["name"], p["initiative"]) for p in db.get_participants(cena_id)]
 
 
+import re as _re, unicodedata as _ud
+import lore
+def rotulo(e):
+    """O rótulo do cabeçalho enfeitado de uma tela sem título de embed ('𝐀ssalto' vira 'Assalto')."""
+    linha = _re.sub(r"<a?:\w+:\d+>", "", e.description.split("\n")[0])
+    for enfeite in (lore.PREENCHE, lore.ORNAMENTO_L, lore.NULO, lore.HIEROGLIFO): linha = linha.replace(enfeite, "")
+    return _ud.normalize("NFKC", linha).strip()
+
 # ---------- 1. abrir e fechar cena ----------
 c1 = db.create_scene("g", "100", "Motim na praça", "9")
 assert c1 is not None and c1["round"] == 1 and c1["active"] == 1 and c1["turn_participant_id"] is None and c1["board_message_id"] is None
@@ -211,7 +219,7 @@ print("7. intenções OK")
 
 # ---------- 8. os quadros: o público nunca mostra o texto da intenção ----------
 q = db.create_scene("g", "600", "Assalto ao palácio", "9")["id"]; Q = lambda: db.get_scene(q)
-assert cena.embed_quadro(q).description == "**Rodada 1**\n\nNinguém entrou na iniciativa ainda.\n\n" + cena.LEGENDA
+assert cena.embed_quadro(q).description.endswith("**Rodada 1**\n\nNinguém entrou na iniciativa ainda.\n\n" + cena.LEGENDA)
 k = personagem(31, "Kai", destreza=2); l = personagem(32, "Lia"); n = personagem(33, "Nino")
 with Dados(10): cena.entrar_na_cena(Q(), k, "31", "K", "g")                                # 12
 with Dados(15): cena.entrar_na_cena(Q(), l, "32", "L", "g")                                # 15
@@ -223,11 +231,11 @@ db.decide_intention(db.get_intention(db.find_participant_by_character(q, l["id"]
 cena.proximo_turno(q)
 e = cena.embed_quadro(q); tudo = " ".join([e.title or "", e.description or "", e.footer.text or ""] + [f.name + f.value for f in e.fields])
 assert SEGREDO not in tudo and "Esfaquear" not in tudo and "Distrair" not in tudo and "“" not in tudo                             # o texto da intenção NUNCA vai pro quadro público
-assert e.title == "⚔️ Assalto ao palácio" and e.color.value == cena.COR_QUADRO and e.footer.text == "🎲 entra na iniciativa · 📝 manda a sua intenção pro mestre (só ele lê)"
-assert e.description == ("**Rodada 1**\n\n▶️ **1. Lia** · 15 ✅\n2. Guarda (NPC) · 13\n3. Kai · 12 📝\n4. Nino · 1 ⏳\n\n" + cena.LEGENDA)
+assert rotulo(e) == "Assalto ao palácio" and e.color.value == cena.COR_QUADRO and e.footer.text == "🎲 entra na iniciativa · 📝 manda a sua intenção pro mestre (só ele lê)"
+assert e.description.endswith("**Rodada 1**\n\n▶️ **1. Lia** · 15 ✅\n2. Guarda (NPC) · 13\n3. Kai · 12 📝\n4. Nino · 1 ⏳\n\n" + cena.LEGENDA)
 # o do mestre mostra o texto (cortado), quem tem a vez e quantas esperam
 ee = cena.embed_escudo(q)
-assert ee.title == "🛡️ Escudo do Mestre · Assalto ao palácio" and SEGREDO in ee.description and "Distrair a guarda muito muito" in ee.description and "…" in ee.description
+assert rotulo(ee) == "Escudo do Mestre · Assalto ao palácio" and SEGREDO in ee.description and "Distrair a guarda muito muito" in ee.description and "…" in ee.description
 assert "vez de **Lia**" in ee.description and "▶️ **1. Lia** · 15 ✅" in ee.description and "    ↳ “" in ee.description and ee.footer.text.startswith("1 aguardando você")
 kid = db.get_intention(db.find_participant_by_character(q, k["id"])["id"], 1)["id"]
 ee = cena.embed_escudo(q, kid); assert [(f.name, f.value) for f in ee.fields] == [("📝 Kai", f"“{SEGREDO}”\nPermitir ou negar?")]
@@ -235,10 +243,10 @@ assert cena.embed_escudo(q, 99999).fields == [] and cena.embed_escudo(q, db.get_
 assert cena.opcoes_de_intencoes(q) == [(("Kai (12)"), str(kid), SEGREDO)]                   # só as pendentes, na ordem da iniciativa
 for e2 in (cena.embed_quadro(q), cena.embed_escudo(q), cena.embed_sem_cena()):
     assert len(e2) <= 6000 and len(e2.description) <= 4096
-assert cena.embed_sem_cena().title == "🛡️ Escudo do Mestre" and "Iniciar cena" in cena.embed_sem_cena().description
+assert rotulo(cena.embed_sem_cena()) == "Escudo do Mestre" and "Iniciar cena" in cena.embed_sem_cena().description
 # encerrada: o quadro fica só com o registro, sem legenda nem botões
 db.end_scene(q); e = cena.embed_quadro(q)
-assert e.title == "⚔️ Assalto ao palácio (encerrada)" and cena.LEGENDA not in e.description and e.footer.text is None and e.color == discord.Color.dark_grey()
+assert rotulo(e) == "Assalto ao palácio (encerrada)" and cena.LEGENDA not in e.description and e.footer.text is None and e.color == discord.Color.dark_grey()
 # uma cena cheia (25) cabe no embed
 cheia = db.get_scene(lotada); assert len(cena.embed_quadro(lotada).description) < 4096 and len(cena.embed_escudo(lotada)) < 6000
 # a opção do menu respeita os 100 caracteres do Discord

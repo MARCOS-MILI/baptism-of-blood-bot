@@ -536,7 +536,7 @@ class ConfirmarEncerrar(_SoMestre):
     def embed(self) -> discord.Embed:
         c = db.get_active_scene(self.channel_id)
         nome = c["name"] if c else "a cena"
-        return discord.Embed(
+        return vitrine.tela(
             title=f"⛔ Encerrar {nome}?",
             description=(
                 "O quadro do canal fica só como registro (sem os botões) e os jogadores não conseguem mais mandar "

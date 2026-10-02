@@ -198,16 +198,78 @@ def embed_decorado(rotulo: str, frase: str | None, corpo: str | None, cor, *, au
     return embed
 
 
+# ---------------------------------------------------------------------------
+# O estilo do servidor em TODAS as telas: tela() faz o que o embed_decorado faz, mas recebe o título como o
+# discord.Embed recebia ("🎲 Bandeja de dados"): o emoji sai, o resto vira o cabeçalho enfeitado, e a frase de época
+# (se houver) vem em citação pequena, em negrito. As frases ficam aqui, num lugar só.
+# ---------------------------------------------------------------------------
+FRASES_DA_EPOCA = {
+    "Ajuda do bot": "Quem se perde entre as sombras há de precisar de um guia. Eis os comandos ao vosso dispor.",
+    "Ajuda do mestre": "Estas linhas são só para os mestres. Eis as ferramentas da mesa.",
+    "XP e vantagens de cada nível": "Cada nível custa mais sangue que o anterior. Eis o preço da glória e o que ela concede.",
+    "Disciplinas": "Os dons sombrios do sangue, para quem os carrega.",
+    "Habilidades dos jogadores": "As obras dos jogadores aguardam o vosso selo.",
+    "Vagas de personagem": "Quantos viajantes cada jogador pode conduzir.",
+    "Personagem excluído": "Mais um nome some dos registros da França.",
+    "Bandeja de dados": "Lançai os dados: a sorte, ou a desgraça, é vossa.",
+    "Definição apagada": "O livro de registros foi emendado, como mandou o mestre.",
+    "Definição corrigida": "O livro de registros foi emendado, como mandou o mestre.",
+    "Atributos corrigidos": "O livro de registros foi emendado, como mandou o mestre.",
+    "Histórico apagado": "O livro de registros foi emendado, como mandou o mestre.",
+}
+PREFIXOS_DA_EPOCA = (
+    ("Disciplinas de", FRASES_DA_EPOCA["Disciplinas"]),
+    ("Extrato de XP de", "O livro de contas de tudo o que vos rendeu experiência."),
+    ("Rank de XP", "Os mais calejados da França, segundo o livro de registros."),
+    ("Recursos (", "Quanto de vida, mente, magia e fôlego vos resta, e o que cada nível acrescenta."),
+    ("Escolha a classe de", "Que ofício abraçareis? Ele define o que sabeis fazer."),
+    ("Rolar a ", "A sorte pode vos favorecer, ou não. Quereis tentá-la outra vez?"),
+    ("Excluir ", "Esta ação não tem volta. Pensai bem."),
+    ("Apagar o histórico de", "Esta ação não tem volta. Pensai bem."),
+    ("Encerrar ", "Fechar a cena é definitivo. Quereis mesmo encerrá-la?"),
+)
+_AUTO = object()
+
+
+def _sem_emoji(texto: str) -> str:
+    """Tira os emojis do começo de um título ('🎲 Bandeja de dados' vira 'Bandeja de dados')."""
+    i = 0
+    while i < len(texto) and (unicodedata.category(texto[i]) in ("So", "Sk", "Mn", "Cf", "Zs", "Cn") or texto[i] in "\ufe0f\u200d"):
+        i += 1
+    return texto[i:].strip()
+
+
+def frase_da_epoca(rotulo: str) -> str | None:
+    if rotulo in FRASES_DA_EPOCA:
+        return FRASES_DA_EPOCA[rotulo]
+    if rotulo in rules.CLASS_SKILLS:
+        return "O ofício que vos define, e o que ele vos concede."
+    return next((f for prefixo, f in PREFIXOS_DA_EPOCA if rotulo.startswith(prefixo)), None)
+
+
+def tela(*, title: str | None = None, description: str | None = None, color=None, frase=_AUTO,
+         emoji_titulo: str = lore.EMOJI_TITULO, emoji_texto: str = lore.EMOJI_TEXTO) -> discord.Embed:
+    """Um embed no estilo do servidor a partir de um título comum. Sem título, é um embed normal."""
+    if not title:
+        return discord.Embed(description=description, color=color)
+    rotulo = _sem_emoji(title)
+    return embed_decorado(
+        rotulo, frase_da_epoca(rotulo) if frase is _AUTO else frase, description, color,
+        emoji_titulo=emoji_titulo, emoji_texto=emoji_texto,
+    )
+
+
 def _montar(*, autor: str, titulo: str, cor: int, topo: str | None = None, texto: str | None = None,
             italico: bool = False, campos: list[tuple[str, str, bool]] = (), imagem=None, miniatura=None,
-            rodape: str | None = None, decorado: tuple[str, str, str] | None = None) -> Cartao:
+            rodape: str | None = None, decorado: tuple[str, str, str] | None = None, enfeitar: bool = True) -> Cartao:
     """decorado = (rótulo, emoji do cabeçalho, emoji do texto) usa o estilo do servidor: sem título do embed
     (o rótulo enfeitado abre a descrição) e o texto em citação pequena e em negrito."""
-    embed = discord.Embed(title=None if decorado else titulo, color=cor)
+    novo_estilo = decorado or ((_sem_emoji(titulo), lore.EMOJI_TITULO, lore.EMOJI_TEXTO) if enfeitar else None)
+    embed = discord.Embed(title=None if novo_estilo else titulo, color=cor)
     embed.set_author(name=autor)
-    if decorado:
-        rotulo, emoji_titulo, emoji_texto = decorado
-        partes = [_cabecalho(rotulo, emoji_titulo), _citar_decorado(texto, emoji_texto) if texto else None]
+    if novo_estilo:
+        rotulo, emoji_titulo, emoji_texto = novo_estilo
+        partes = [_cabecalho(rotulo, emoji_titulo), None if decorado else topo, _citar_decorado(texto, emoji_texto) if texto else None]
         partes = [p for p in partes if p]
     else:
         partes = [p for p in (topo, _citar(texto, italico) if texto else None) if p]
@@ -300,6 +362,7 @@ def cartao_estado(personagem: str, estado: str, jogador: str, clero: str | None 
     if estado == dice.SOCIAL_CLASS_MASTER:
         info = lore.ESTADO_MESTRE
         return _montar(
+            enfeitar=False,
             autor=autor, titulo=f"{info['emoji']} {info['titulo']}", cor=info["cor"], topo=lore.DIVISOR,
             texto=info["texto"], italico=True, imagem=achar_imagem("estado", "mestre"),
             rodape=_rodape(jogador, tentativa),
@@ -355,7 +418,7 @@ def embed_vitais(nome: str, recursos: dict, perdidos: dict, jogador: str | None 
     )
     aviso = "\n\n💀 **Vida em 0.** Hora de falar com o mestre." if vida == 0 else ""
     return embed_decorado(
-        "Vitais", "Levou dano ou gastou mana? Escolhe a barra no menu e aperta os botões pra descer ou subir.",
+        "Vitais", "Fostes ferido ou esgotastes a vossa mana? Escolhei a barra no menu e apertai os botões para descer ou subir.",
         "\n\n".join(linhas) + aviso, cor, autor=nome, rodape=f"jogador: {jogador}" if jogador else None,
     )
 
@@ -397,7 +460,7 @@ def embed_rolar_pericias(nome: str, pontos: dict, atributos: dict, classe: str |
         corpo += f"\n\n{aviso}"
     _, rotulo = MODOS_DE_TESTE[modo]
     return embed_decorado(
-        "Perícias", "Toca no ícone da perícia e o bot rola 1d20 + atributo + perícia sozinho, no nome do seu personagem.",
+        "Perícias", "Tocai no emblema da perícia e o dado rola sozinho: 1d20 + atributo + perícia, em nome do vosso personagem.",
         corpo, discord.Color.blurple(), autor=nome,
         rodape=f"Modo: {rotulo.lower()} · Atributo: {rules.ATTRIBUTE_LABELS[forcado] if forcado else 'automático (o padrão de cada perícia)'}"
         + (f" · jogador: {jogador}" if jogador else ""),
@@ -427,7 +490,7 @@ def embed_pericias(nome: str, pontos: dict, total: int, selecionada: str, classe
     if aviso:
         corpo += f"\n\n{aviso}"
     return embed_decorado(
-        "Pontos de perícia", "Escolhe a perícia no menu e aperta +1 ou -1. Pra rolar, aperta Rolar perícias.",
+        "Pontos de perícia", "Escolhei a perícia no menu e apertai +1 ou -1. Para lançar os dados, apertai Rolar perícias.",
         corpo, discord.Color.green() if livres == 0 else discord.Color.blurple(), autor=nome,
         rodape=f"jogador: {jogador}" if jogador else None,
     )
@@ -455,7 +518,7 @@ def embed_habilidades(nome: str, habilidades: list, selecionada: int | None, jog
     else:
         corpo = "Você ainda não criou nenhuma habilidade. Aperta **➕ Criar habilidade** pra começar."
     embed = embed_decorado(
-        "Habilidades", "1. Cria a sua habilidade · 2. O mestre ajusta e aprova · 3. Usa com um clique", corpo,
+        "Habilidades", "1. Criai a vossa habilidade · 2. O mestre a ajusta e aprova · 3. Usai com um toque", corpo,
         discord.Color.purple(), autor=nome, rodape=f"jogador: {jogador}" if jogador else None,
     )
     escolhida = next((a for a in habilidades if a["id"] == selecionada), None)
@@ -470,7 +533,7 @@ def cartao_uso_habilidade(personagem: str, ab, uso, jogador: str | None = None) 
     cor = discord.Color.blurple()
     if uso.rolagem is not None:
         cor = discord.Color.red() if ab["roll_kind"] != "cura" else discord.Color.green()
-    embed = discord.Embed(title=f"✨ {ab['name']}", description=_citar(ab["description"], True), color=cor)
+    embed = tela(title=f"✨ {ab['name']}", description=_citar(ab["description"], True), color=cor)
     embed.set_author(name=f"{personagem} usou uma habilidade")
     if uso.custo:
         recurso, valor, resta, maximo = uso.custo
@@ -495,7 +558,7 @@ def embed_fila(itens: list, selecionada, rascunho: dict) -> discord.Embed:
     topo = f"⏳ **{esperando}** aguardando · 🔧 **{ajuste}** em ajuste · ✅ {len(itens) - esperando - ajuste} aprovadas (as mais recentes)"
     if not itens:
         topo = "Nenhuma habilidade na fila por enquanto. Quando um jogador criar uma, ela aparece aqui."
-    embed = discord.Embed(
+    embed = tela(
         title="🛡️ Habilidades dos jogadores",
         description=topo + ("\n\nEscolhe uma no primeiro menu." if selecionada is None and itens else ""),
         color=discord.Color.dark_gold(),
@@ -534,6 +597,7 @@ def cartao_especial(valor: int) -> Cartao:
     info = lore.ESPECIAL[valor]
     nome_campo, texto_campo = lore.ESPECIAL_CAMPO
     return _montar(
+        enfeitar=False,
         autor=lore.ESPECIAL_AUTOR, titulo=lore.ESPECIAL_TITULO, cor=info["cor"], topo=lore.ESPECIAL_DIVISOR,
         texto=lore.ESPECIAL_TEXTO, italico=True, campos=[(nome_campo, texto_campo, False)],
         imagem=achar_imagem("especial", str(valor)), rodape=lore.ESPECIAL_RODAPE,
@@ -657,7 +721,7 @@ def previa_classe(personagem: str, classe: str, habilidade: str | None = None) -
         rodape = "Escolhe a habilidade nos botões e depois confirma. Vale uma vez só, a classe e a habilidade juntas."
     else:
         rodape = "Se for essa, aperta **Confirmar classe e habilidade**. Vale uma vez só."
-    embed = discord.Embed(
+    embed = tela(
         title=f"🎓 {classe}",
         description=f"{_descricao_da_classe(classe)}\n\n{rodape}",
         color=lore.COR_CLASSE,
@@ -711,16 +775,16 @@ def texto_disciplinas_da_ficha(personagem, graus: dict[str, int]) -> str:
 def embed_disciplinas(nome: str | None, raca: str | None, nivel: int, graus: dict[str, int]) -> discord.Embed:
     """A lista das dez Disciplinas. Quem tem Disciplinas vê o grau de cada uma; quem não tem só lê o tema."""
     tem = rules.has_disciplines(raca)
-    embed = discord.Embed(
+    embed = tela(
         title="🩸 Disciplinas" + (f" de {nome}" if nome and tem else ""), color=COR_DISCIPLINA,
     )
     if tem:
-        embed.description = (
+        embed.description += "\n\n" + (
             f"{lore.DIVISOR_CURTO}\n\n{linha_de_pontos(nivel, raca, graus)}\n"
             "Escolhe uma no menu pra ler o texto de cada grau e subir."
         )
     else:
-        embed.description = (
+        embed.description += "\n\n" + (
             f"{lore.DIVISOR_CURTO}\n\nSó **Vampiros e Dhampirs** têm Disciplinas. "
             "Aqui você pode ler o que cada uma faz."
         )
@@ -741,7 +805,7 @@ def embed_disciplina(disciplina: str, grau_atual: int | None = None, pontos: str
                      aviso: str | None = None) -> discord.Embed:
     """O texto de cada grau de uma Disciplina. Com grau_atual, marca ✅ os graus que o personagem já tem."""
     info = lore.DISCIPLINAS[disciplina]
-    embed = discord.Embed(
+    embed = tela(
         title=f"🩸 {disciplina}",
         description=f"{lore.DIVISOR_CURTO}\n\n{_citar(_maiuscula(info['tema']), True)}",
         color=COR_DISCIPLINA,

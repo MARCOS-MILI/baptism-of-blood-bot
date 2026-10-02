@@ -470,7 +470,7 @@ _SEM_CLASSE = "escolha a classe com `/classe` pra ver Vida, Sanidade, Mana e Est
 
 
 def _embed_atributos(personagem, titulo: str) -> discord.Embed:
-    embed = discord.Embed(title=titulo, color=discord.Color.dark_green())
+    embed = vitrine.tela(title=titulo, color=discord.Color.dark_green())
     embed.add_field(
         name="Atributos",
         value=rules.describe_attributes(db.attributes_of(personagem)) + "\n" + _texto_pontos(personagem),
@@ -718,7 +718,7 @@ async def historico(
         return
 
     titulo = f"📜 Histórico de {char['name']}" if char else f"📜 Histórico de {alvo.display_name}"
-    embed = discord.Embed(title=titulo, color=discord.Color.dark_gold())
+    embed = vitrine.tela(title=titulo, color=discord.Color.dark_gold())
     for linha in linhas:
         quando = _quando(linha["created_at"])
         motivo = f" ({linha['purpose'][:80]})" if linha["purpose"] else ""
@@ -785,7 +785,7 @@ class ConfirmarExclusao(discord.ui.View):
         )
         if self.por_mestre:
             dono = discord.Object(id=int(self.dono_id))
-            aviso = discord.Embed(
+            aviso = vitrine.tela(
                 title="🗑️ Personagem excluído",
                 description=(
                     f"{self.executor.display_name} excluiu **{self.char_nome}** ({_resumo_excluido(snap)}). "
@@ -813,7 +813,7 @@ class ConfirmarExclusao(discord.ui.View):
 
 
 def _embed_aviso_exclusao(personagem, quem_e_dono: str) -> discord.Embed:
-    return discord.Embed(
+    return vitrine.tela(
         title=f"🗑️ Excluir {personagem['name']}?",
         description=(
             f"Isso apaga **{personagem['name']}** de {quem_e_dono} (nível {personagem['level']}, "
@@ -864,7 +864,7 @@ async def _criar_personagem(interaction: discord.Interaction, nome: str) -> None
         )
         return
     embed = vitrine.embed_decorado(
-        "Personagem criado", None,
+        "Personagem criado", "Um novo viajante pisa as terras da França. Que o destino lhe seja justo.",
         (
             f"**{novo['name']}** agora é o personagem que você está usando ({usadas + 1} de {permitidas} vagas).\n"
             "Próximo passo: sortear a raça e a classe social (`/raca_inicial` e `/classe_social`, em qualquer ordem). "
@@ -916,7 +916,7 @@ async def personagem_listar(interaction: discord.Interaction):
         )
     _, permitidas, _ = _vagas(uid)
     embed = vitrine.embed_decorado(
-        "Seus personagens", None, "\n".join(linhas), discord.Color.dark_purple(),
+        "Seus personagens", "Os viajantes que vos pertencem.", "\n".join(linhas), discord.Color.dark_purple(),
         rodape=f"▶️ = o que você está usando agora · vagas usadas: {len(chars)} de {permitidas}",
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -1445,11 +1445,14 @@ _SEM_PERSONAGEM_NO_BOTAO = "Você ainda não tem personagem. Aperta **🆕 Criar
 
 def _embed_comeco() -> discord.Embed:
     return vitrine.embed_decorado(
-        "Baptism of Blood", "Aqui o seu personagem é criado e jogado por botões, sem decorar comando.",
-        "🆕 **Criar personagem**: começa por aqui. É só dizer o nome.\n"
-        "📋 **Minha ficha**: abre a sua ficha, com as abas Vitais, Perícias e Habilidades.\n"
-        "🎲 **Dados**: abre a bandeja de dados.\n"
-        "❓ **Como funciona**: o passo a passo em poucas linhas.",
+        "Baptism of Blood",
+        "França, 1790. A fé do povo vacila, a lua se veste de sangue e algo antigo desperta nas trevas.\n"
+        "Aqui, o vosso personagem nasce e anda pelo mundo à força de botões, sem que precisais decorar comando algum.\n"
+        "Escolhei um botão abaixo, e que a noite vos seja clemente.",
+        "🆕 **Criar personagem**: começai por aqui. Basta dizer o nome.\n"
+        "📋 **Minha ficha**: abre o vosso registro, com as abas Vitais, Perícias e Habilidades.\n"
+        "🎲 **Dados**: abre a bandeja dos dados.\n"
+        "❓ **Como funciona**: o caminho a seguir, em poucas linhas.",
         discord.Color.dark_red(),
     )
 
@@ -1501,15 +1504,15 @@ class ComecoAqui(discord.ui.View):
     @discord.ui.button(label="Como funciona", emoji="❓", style=discord.ButtonStyle.secondary, custom_id="inicio:como")
     async def como(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = vitrine.embed_decorado(
-            "Como funciona", "O passo a passo, em poucas linhas.",
+            "Como funciona", "Todo viajante precisa de um mapa. Eis o caminho, em poucas linhas.",
             (
-                "**1.** Aperta **🆕 Criar personagem** e diz o nome.\n"
-                "**2.** A ficha abre com botões: **Raça**, **Classe social**, **Classe** e **Atributos**. Segue na ordem: 🔒 ainda "
-                "não abriu, ✅ já foi feito.\n"
-                "**3.** Com a ficha pronta, ela ganha abas: **Vitais** (vida, mana...), **Perícias** (toca no ícone e o dado rola "
-                "sozinho) e **Habilidades** (você cria, o mestre aprova, e depois é só usar).\n"
-                "**4.** Pra rolar dado, aperta **🎲 Dados** ou escreve `d20+5` no chat.\n\n"
-                "Se ficar perdido, `/ajuda` mostra o seu passo a passo."
+                "**1.** Apertai **🆕 Criar personagem** e dizei o nome.\n"
+                "**2.** A ficha abre com botões: **Raça**, **Classe social**, **Classe** e **Atributos**. Segui na ordem: 🔒 ainda "
+                "não se abriu, ✅ já está feito.\n"
+                "**3.** Com a ficha pronta, ela ganha abas: **Vitais** (vida, mana...), **Perícias** (tocai no ícone e o dado rola "
+                "sozinho) e **Habilidades** (vós as criais, o mestre as aprova, e depois é só usá-las).\n"
+                "**4.** Para rolar dados, apertai **🎲 Dados** ou escrevei `d20+5` no chat.\n\n"
+                "Se vos perderdes, `/ajuda` mostra o vosso passo a passo."
             ),
             discord.Color.dark_red(),
         )
@@ -1542,7 +1545,7 @@ async def niveis(interaction: discord.Interaction, personagem: str | None = None
     )
     if raca not in rules.VAMPIRIC_RACES:
         descricao += "\nVampiros e Dhampirs ganham também +1 ponto de Disciplina a cada 2 níveis."
-    embed = discord.Embed(title="📈 XP e vantagens de cada nível", description=descricao, color=discord.Color.dark_teal())
+    embed = vitrine.tela(title="📈 XP e vantagens de cada nível", description=descricao, color=discord.Color.dark_teal())
     if char:
         xp = char["xp"]
         _, dentro, precisa = rules.xp_progress(xp)
@@ -1589,7 +1592,7 @@ async def extrato_xp(interaction: discord.Interaction, personagem: str | None = 
         f" · {_quando(e['created_at'])}"
         for e in entradas
     ]
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title=f"📒 Extrato de XP de {char['name']}",
         description="\n".join(linhas),
         color=discord.Color.dark_gold(),
@@ -1637,7 +1640,7 @@ async def rank(interaction: discord.Interaction, tipo: str = "personagens", limi
         else:
             linhas.append(f"{_posicao(i)} **{r['name']}** ({dono}) · nível {r['level']} · {rules.fmt_xp(r['xp'])} XP")
 
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title=f"🏆 Rank de XP: {'jogadores' if tipo == 'jogadores' else 'personagens'}",
         description="\n".join(linhas),
         color=discord.Color.gold(),
@@ -1684,7 +1687,7 @@ async def calcular_recursos(
         extra = "" if sem_classe else f", mais {r['bonus']} da classe"
         return f"{emoji} **{nome}: {r['total']}**\n　{conta}{por} = {r['base']}{extra}"
 
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title=f"🧮 Recursos ({'sem classe' if sem_classe else classe}{'' if nivel == 1 else f', nível {nivel}'})",
         description="\n".join([
             linha("❤️", "Vida", "vida", f"Vitalidade {vitalidade} × 5"),
@@ -1740,7 +1743,7 @@ async def _responder_ajuda(interaction: discord.Interaction, comando: str | None
         dados = ajuda.visao_geral(
             rules.creation_status(char) if char else None, char is not None, _eh_mestre(interaction)
         )
-    embed = discord.Embed(title=dados["titulo"], description=dados["descricao"], color=discord.Color.blurple())
+    embed = vitrine.tela(title=dados["titulo"], description=dados["descricao"], color=discord.Color.blurple())
     for nome, valor in dados["campos"]:
         embed.add_field(name=nome, value=valor, inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -1786,7 +1789,7 @@ async def mestre_ajuda(interaction: discord.Interaction, comando: str | None = N
         dados = ajuda.detalhe(chave)
     else:
         dados = ajuda.visao_mestre()
-    embed = discord.Embed(title=dados["titulo"], description=dados["descricao"], color=discord.Color.dark_gold())
+    embed = vitrine.tela(title=dados["titulo"], description=dados["descricao"], color=discord.Color.dark_gold())
     for nome, valor in dados["campos"]:
         embed.add_field(name=nome, value=valor, inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -1864,7 +1867,7 @@ async def mestre_apagar(
     db.clear_definition(char["id"], definicao)
     _auditar(interaction, usuario, char, "apagar", "; ".join(antes))
 
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title="🧹 Definição apagada",
         description=(
             f"{interaction.user.display_name} apagou {_juntar([_ROTULO_COM_ARTIGO[c] for c in apagados])} "
@@ -1893,7 +1896,7 @@ async def _corrigir(interaction: discord.Interaction, usuario: discord.Member, p
     _auditar(interaction, usuario, char, f"corrigir_{campo}", f"{antes} -> {novo_valor}")
     nota = _nota_magia(char, db.get_character_by_id(char["id"]))
 
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title="🛠️ Definição corrigida",
         description=(
             f"{interaction.user.display_name} definiu {_ROTULO_COM_ARTIGO[campo]} de **{char['name']}** "
@@ -1966,7 +1969,7 @@ async def mestre_corrigir_estado(
     depois = rules.ESTADO_LABELS[novo_estado] + (f", {novo_clero}" if novo_clero else "")
     _auditar(interaction, usuario, char, "corrigir_social_class", f"{antes} -> {depois}")
 
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title="🛠️ Definição corrigida",
         description=(
             f"{interaction.user.display_name} definiu a Classe Social de **{char['name']}** "
@@ -2011,7 +2014,7 @@ def _embed_xp(char, res: dict, motivo: str | None, mestre: str) -> discord.Embed
         cor = discord.Color.orange()
     if motivo:
         linhas.append(f"Motivo: {motivo[:100]}")
-    embed = discord.Embed(title=titulo, description="\n".join(linhas), color=cor)
+    embed = vitrine.tela(title=titulo, description="\n".join(linhas), color=cor)
     embed.set_footer(text=f"por {mestre}")
     return embed
 
@@ -2161,7 +2164,7 @@ async def mestre_rank_pericia(
     _auditar(interaction, usuario, char, "rank_pericia", f"{pericia}: {antes} -> {rank}")
 
     subiu = rank > antes
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title=f"{'⬆️' if subiu else '🛠️'} {pericia}: Rank {rank}/{rules.MAX_SKILL_RANK}",
         description=(
             f"{interaction.user.display_name} definiu o Rank de **{pericia}** de **{char['name']}** "
@@ -2222,7 +2225,7 @@ async def mestre_disciplina(
     ]
     if grau > rules.PLAYER_MAX_DISCIPLINE_GRADE:
         linhas.append("Grau concedido pelo mestre: os graus 4 e 5 não gastam ponto.")
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title=f"{'⬆️' if subiu else '🛠️'} {disciplina}: grau {grau}/{rules.MAX_DISCIPLINE_GRADE}",
         description="\n".join(linhas),
         color=discord.Color.dark_red() if subiu else discord.Color.orange(),
@@ -2399,7 +2402,7 @@ async def mestre_jogador(interaction: discord.Interaction, usuario: discord.Memb
             )
     else:
         linhas.append("\nAinda não criou nenhum personagem.")
-    embed = discord.Embed(title=f"👤 {usuario.display_name}", description="\n".join(linhas), color=discord.Color.blurple())
+    embed = vitrine.tela(title=f"👤 {usuario.display_name}", description="\n".join(linhas), color=discord.Color.blurple())
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -2425,7 +2428,7 @@ async def mestre_vagas(
         action="vagas",
         detail=f"extras {antes} -> {extras}",
     )
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title="🎟️ Vagas de personagem",
         description=(
             f"{interaction.user.display_name} definiu as vagas extras de {usuario.display_name}: "
@@ -2500,7 +2503,7 @@ class ConfirmarApagarHistorico(discord.ui.View):
         await interaction.response.edit_message(
             content=f"🧹 O histórico de **{self.alvo_nome}** foi apagado ({_rolagens(apagadas)}).", embed=None, view=None
         )
-        aviso = discord.Embed(
+        aviso = vitrine.tela(
             title="🧹 Histórico apagado",
             description=(
                 f"{self.executor.display_name} apagou o histórico de rolagens de <@{self.alvo_id}> "
@@ -2535,7 +2538,7 @@ async def mestre_apagar_historico(interaction: discord.Interaction, usuario: dis
             f"{usuario.display_name} não tem nenhuma rolagem no histórico.", ephemeral=True
         )
         return
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title=f"🧹 Apagar o histórico de {usuario.display_name}?",
         description=(
             f"Isso apaga **{_rolagens(total)}** do `/historico` de {usuario.display_name}, de todos os personagens "
@@ -2595,7 +2598,7 @@ async def mestre_atributos(
 
     novo = db.get_character_by_id(char["id"])
     linhas = [f"{rules.ATTRIBUTE_LABELS[n]}: **{antes[n]}** → **{v}**" for n, v in mudancas.items()]
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title="🛠️ Atributos corrigidos",
         description=(
             f"{interaction.user.display_name} mexeu nos atributos de **{char['name']}** ({usuario.display_name}).\n"
@@ -2627,7 +2630,7 @@ async def mestre_corrigir_classe(
     db.set_class(char["id"], classe)
     _auditar(interaction, usuario, char, "corrigir_class", f"{antes} -> {classe}")
     nota = _nota_magia(char, db.get_character_by_id(char["id"]))
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title="🛠️ Definição corrigida",
         description=(
             f"{interaction.user.display_name} definiu a classe de **{char['name']}** ({usuario.display_name}).\n"

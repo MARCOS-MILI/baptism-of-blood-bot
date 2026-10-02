@@ -434,7 +434,7 @@ class ConfirmarRepeticao(_Painel):
         char = self.personagem()
         rotulo, campo = self._ROTULO[self.passo]
         usadas = rules.attempts_used(char, campo)
-        return discord.Embed(
+        return vitrine.tela(
             title=f"🔄 Rolar a {rotulo} de novo?",
             description=(
                 f"**{char['name']}** está com **{vitrine.resultado_atual(char, campo)}**.\n"
@@ -502,7 +502,7 @@ class EscolhaDeClasse(_Painel):
     def embed(self) -> discord.Embed:
         nome = self.personagem()["name"]
         if self.escolhida is None:
-            embed = discord.Embed(
+            embed = vitrine.tela(
                 title=f"🎓 Escolha a classe de {nome}",
                 description=(
                 "Vale **uma vez só**: depois de confirmar, só um mestre muda. Escolhe no menu pra ver a classe antes. "
@@ -1239,7 +1239,7 @@ class BandejaDados(_Painel):
 
     def embed(self) -> discord.Embed:
         char = db.get_active_character(str(self.dono_id))
-        embed = discord.Embed(
+        embed = vitrine.tela(
             title="🎲 Bandeja de dados",
             description=f"## {self.notacao()}\nEscolhe o dado e aperta **Rolar**. O resultado sai pra todo mundo ver.",
             color=discord.Color.dark_red(),

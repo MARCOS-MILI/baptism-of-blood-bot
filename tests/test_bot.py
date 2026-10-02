@@ -57,11 +57,19 @@ def sent(i):
     a, kw = i.response.send_message.call_args
     return (a[0] if a else kw.get("content")), kw
 
-def txt(i):
+def _txt_bruto(i):
     c, kw = sent(i); e = kw.get("embed")
     return (c or "") + ((" | " + (e.author.name or "") + " | " + (e.title or "") + " | " + (e.description or "") + " | " + " ; ".join(f"{f.name}={f.value}" for f in e.fields)) if e else "")
 
+def txt(i):
+    """O texto da resposta. O negrito matemático do cabeçalho enfeitado ('𝐇istórico') vira letra comum."""
+    return "".join(unicodedata.normalize("NFKC", c) if "\U0001D400" <= c <= "\U0001D7FF" else c for c in _txt_bruto(i))
 def desc(i): return sent(i)[1]["embed"].description
+def corpo_de(i):
+    """A descrição sem o cabeçalho enfeitado e sem a frase de época: só o conteúdo da tela."""
+    partes = desc(i).split("\n\n")[1:]
+    if partes and partes[0].startswith("> -#"): partes = partes[1:]
+    return "\n\n".join(partes)
 def nome_do_cartao(e):
     """O título do cartão: o embed.title, ou (nos cartões decorados, que não têm título) o rótulo do cabeçalho."""
     if e.title: return e.title
@@ -157,7 +165,7 @@ run(bot.magia_inicial.callback(marcos, None)); assert "Ainda não dá pra usar `
 with dados(96): run(bot.raca_inicial.callback(marcos, None))                                                # 96 é Dhampir
 assert "Raça de Kairon Flagon" in txt(marcos) and titulo(marcos) == "Dhampirs" and row(1, "Kairon Flagon")["race"] == "Dhampir"
 run(bot.raca_inicial.callback(marcos, None))                                                                 # já tem raça: pergunta antes de trocar, e não rola nada
-assert titulo(marcos) == "🔄 Rolar a raça de novo?" and isinstance(sent(marcos)[1]["view"], paineis.ConfirmarRepeticao) and sent(marcos)[1]["ephemeral"]
+assert titulo(marcos) == "Rolar a raça de novo?" and isinstance(sent(marcos)[1]["view"], paineis.ConfirmarRepeticao) and sent(marcos)[1]["ephemeral"]
 assert "**Dhampir**" in desc(marcos) and "troca esse resultado" in desc(marcos) and "sobram 1" in desc(marcos) and row(1, "Kairon Flagon")["race_attempts"] == 1
 with dados(50): run(bot.raca_inicial.callback(marcos, "Akari Amaya"))
 assert "Raça de Akari Amaya" in txt(marcos) and titulo(marcos) == "Humanos"
@@ -224,7 +232,7 @@ p1 = novo(10, "Ana", "Ana Camponesa")
 with dados(50): run(bot.classe_social.callback(p1, None))
 assert titulo(p1) == "3° Estado —  Camponeses" and "Classe Social de" in txt(p1) and "🎲" not in desc(p1) and rodape(p1) == "jogador: Ana · tentativa 1 de 3" and "content" not in sent(p1)[1] and [h["purpose"] for h in historico_de(10)] == ["classe_social"]
 with dados(): run(bot.classe_social.callback(p1, None))
-assert titulo(p1) == "🔄 Rolar a classe social de novo?" and sent(p1)[1]["ephemeral"] and "3º Estado · Camponeses" in desc(p1) and row(10, "Ana Camponesa")["social_class_attempts"] == 1
+assert titulo(p1) == "Rolar a classe social de novo?" and sent(p1)[1]["ephemeral"] and "3º Estado · Camponeses" in desc(p1) and row(10, "Ana Camponesa")["social_class_attempts"] == 1
 for n, esperado in [(80, "3° Estado —  Camponeses"), (81, "2° Estado —  Nobreza"), (91, "2° Estado —  Nobreza")]:
     u = novo(20 + n, f"J{n}", f"Fulano {n}")
     with dados(n): run(bot.classe_social.callback(u, None))
@@ -279,14 +287,14 @@ run(bot.niveis.callback(xp, "Fantasma")); assert "Não achei" in txt(xp)
 
 # dar XP sem subir de nível
 run(bot.mestre_dar_xp.callback(gm, a60, 250, "RP marcante", None)); kw = sent(gm)[1]
-assert titulo(gm) == "✨ +250 XP para Nívea Nível" and "XP total: **250**" in desc(gm) and "Nível 1: 250/1.000 XP" in desc(gm) and "▰▰▱▱▱▱▱▱▱▱" in desc(gm)
+assert titulo(gm) == "+250 XP para Nívea Nível" and "XP total: **250**" in desc(gm) and "Nível 1: 250/1.000 XP" in desc(gm) and "▰▰▱▱▱▱▱▱▱▱" in desc(gm)
 assert "Motivo: RP marcante" in desc(gm) and rodape(gm) == "por Mestre Belmont" and kw["content"] == "<@60>" and kw["allowed_mentions"].users == [a60]
 assert (row(60, "Nívea Nível")["xp"], row(60, "Nívea Nível")["level"]) == (250, 1)
 run(bot.minha_ficha.callback(xp, None)); v = sent(xp)[1]["embed"].fields[0].value
 assert v.startswith("1/10") and "XP total: 250" in v and "Faltam 750 pro nível 2" in v
 # chegar em 1.000 sobe pro nível 2, com os ganhos
 run(bot.mestre_dar_xp.callback(gm, a60, 750, None, None))
-assert titulo(gm) == "⬆️ Nívea Nível subiu de nível! (+750 XP)" and "Nível **1** → **2**" in desc(gm)
+assert titulo(gm) == "Nívea Nível subiu de nível! (+750 XP)" and "Nível **1** → **2**" in desc(gm)
 assert "Ganhos: +2 pontos de Perícia · +1 ponto de Atributo · 1 habilidade nova ou melhorada" in desc(gm)
 assert (row(60, "Nívea Nível")["level"], row(60, "Nívea Nível")["xp"]) == (2, 1000)
 # 1.999 e 2.000 ainda são nível 2 (o 3 só vem aos 3.000)
@@ -298,15 +306,15 @@ run(bot.mestre_dar_xp.callback(gm, a60, 45000, "evento grande", None)); print(" 
 assert "Nível **3** → **10**" in desc(gm) and "+14 pontos de Perícia · +4 pontos de Atributo · 4 habilidades novas ou melhoradas" in desc(gm)   # níveis 4..10: 7x2 perícia, 4 pares
 assert (row(60, "Nívea Nível")["level"], row(60, "Nívea Nível")["xp"]) == (10, 48000) and "Nível 10: máximo" in desc(gm)
 # no nível 10 o XP continua contando, sem subir
-run(bot.mestre_dar_xp.callback(gm, a60, 1000, None, None)); assert titulo(gm) == "✨ +1.000 XP para Nívea Nível" and row(60, "Nívea Nível")["xp"] == 49000 and row(60, "Nívea Nível")["level"] == 10
+run(bot.mestre_dar_xp.callback(gm, a60, 1000, None, None)); assert titulo(gm) == "+1.000 XP para Nívea Nível" and row(60, "Nívea Nível")["xp"] == 49000 and row(60, "Nívea Nível")["level"] == 10
 run(bot.minha_ficha.callback(xp, None)); v = sent(xp)[1]["embed"].fields[0].value; assert v.startswith("10/10") and "XP total: 49.000" in v and "Faltam" not in v
 # tirar XP: derruba o nível quando cruza a fronteira, avisa, e não marca ninguém
 run(bot.mestre_dar_xp.callback(gm, a60, -5000, "engano", None)); kw = sent(gm)[1]
-assert titulo(gm) == "⬇️ Nívea Nível perdeu nível (-5.000 XP)" and "Nível **10** → **9**" in desc(gm) and "precisam ser ajustados" in desc(gm)
+assert titulo(gm) == "Nívea Nível perdeu nível (-5.000 XP)" and "Nível **10** → **9**" in desc(gm) and "precisam ser ajustados" in desc(gm)
 assert "content" not in kw and row(60, "Nívea Nível")["level"] == 9 and row(60, "Nívea Nível")["xp"] == 44000
 # o XP nunca fica abaixo de zero; zero mudança não gera nada
 u61 = novo(61, "Caio", "Caio Curto"); a61 = alvo(61, "Caio"); run(bot.mestre_dar_xp.callback(gm, a61, 100, None, None))
-run(bot.mestre_dar_xp.callback(gm, a61, -500, None, None)); assert titulo(gm) == "🛠️ -100 XP em Caio Curto" and row(61, "Caio Curto")["xp"] == 0
+run(bot.mestre_dar_xp.callback(gm, a61, -500, None, None)); assert titulo(gm) == "-100 XP em Caio Curto" and row(61, "Caio Curto")["xp"] == 0
 run(bot.mestre_dar_xp.callback(gm, a61, -50, None, None)); assert "Nada mudou" in txt(gm) and sent(gm)[1]["ephemeral"]
 run(bot.mestre_dar_xp.callback(gm, a61, 0, None, None)); assert "diferente de zero" in txt(gm) and sent(gm)[1]["ephemeral"]
 run(bot.mestre_dar_xp.callback(gm, a61, 10, None, "Fantasma")); assert "não tem nenhum personagem chamado" in txt(gm)
@@ -315,21 +323,21 @@ run(bot.mestre_dar_xp.callback(gm, alvo(777, "Novato"), 10, None, None)); assert
 # extrato do jogador: mais recente primeiro, com motivo, mestre e horário no fuso de quem lê
 import re
 run(bot.extrato_xp.callback(xp, None)); print("  extrato:", desc(xp).splitlines()[0][:90])
-linhas = desc(xp).splitlines(); assert sent(xp)[1]["ephemeral"] and len(linhas) == 8
+linhas = corpo_de(xp).splitlines(); assert sent(xp)[1]["ephemeral"] and len(linhas) == 8
 assert linhas[0].startswith("**-5.000 XP** · engano · por Mestre Belmont · ") and re.search(r"<t:\d+:d> <t:\d+:t>$", linhas[0])
 assert "XP total: 44.000 · nível 9" in rodape(xp)
 u62 = novo(62, "Vazio", "Sem Xp"); run(bot.extrato_xp.callback(u62, None)); assert "ainda não recebeu XP" in txt(u62) and sent(u62)[1]["ephemeral"]
 # o extrato mostra só as 10 últimas, da mais nova pra mais antiga
 for i in range(12): run(bot.mestre_dar_xp.callback(gm, a61, 10, f"entrada {i}", None))
-run(bot.extrato_xp.callback(u61, None)); linhas = desc(u61).splitlines()
+run(bot.extrato_xp.callback(u61, None)); linhas = corpo_de(u61).splitlines()
 assert len(linhas) == 10 and linhas[0].startswith("**+10 XP** · entrada 11 ·") and linhas[-1].startswith("**+10 XP** · entrada 2 ·")
 
 # upar = atalho que dá exatamente o XP que falta
 u63 = novo(63, "Upa", "Upador"); a63 = alvo(63, "Upa")
-run(bot.mestre_upar.callback(gm, a63, 1, None, "RP marcante")); assert titulo(gm) == "⬆️ Upador subiu de nível! (+1.000 XP)" and "Nível **1** → **2**" in desc(gm) and "Motivo: RP marcante" in desc(gm)
+run(bot.mestre_upar.callback(gm, a63, 1, None, "RP marcante")); assert titulo(gm) == "Upador subiu de nível! (+1.000 XP)" and "Nível **1** → **2**" in desc(gm) and "Motivo: RP marcante" in desc(gm)
 assert (row(63, "Upador")["level"], row(63, "Upador")["xp"]) == (2, 1000)
 run(bot.mestre_dar_xp.callback(gm, a63, 500, None, None))                                     # 1.500: no meio do nível 2
-run(bot.mestre_upar.callback(gm, a63, 1, None, None)); assert titulo(gm) == "⬆️ Upador subiu de nível! (+1.500 XP)" and row(63, "Upador")["xp"] == 3000 and row(63, "Upador")["level"] == 3
+run(bot.mestre_upar.callback(gm, a63, 1, None, None)); assert titulo(gm) == "Upador subiu de nível! (+1.500 XP)" and row(63, "Upador")["xp"] == 3000 and row(63, "Upador")["level"] == 3
 run(bot.mestre_upar.callback(gm, a63, 3, None, None)); assert "Nível **3** → **6**" in desc(gm) and row(63, "Upador")["xp"] == 15000
 run(bot.mestre_upar.callback(gm, a63, 9, None, None)); assert "Nível **6** → **10**" in desc(gm) and row(63, "Upador")["xp"] == 45000   # trava no 10
 run(bot.mestre_upar.callback(gm, a63, 1, None, None)); assert "nível máximo" in txt(gm) and sent(gm)[1]["ephemeral"] and row(63, "Upador")["xp"] == 45000
@@ -369,17 +377,17 @@ for tarefa in [(70, "Ana", 12300, "Ana Alfa"), (70, "Ana", 500, "Ana Beta"), (71
 for uid, nome in [(70, "Ana"), (71, "Beto"), (73, "Dani"), (74, "Edu")]:
     assert run(bot.bot.tree.interaction_check(inter(uid, nome))) is True
 assert db.get_player_names()["70"] == "Ana"
-run(bot.rank.callback(ana, "personagens", 10)); linhas = desc(ana).splitlines(); print("  ", linhas)
-assert not sent(ana)[1].get("ephemeral") and titulo(ana) == "🏆 Rank de XP: personagens"          # público
+run(bot.rank.callback(ana, "personagens", 10)); linhas = corpo_de(ana).splitlines(); print("  ", linhas)
+assert not sent(ana)[1].get("ephemeral") and titulo(ana) == "Rank de XP: personagens"          # público
 assert linhas[0] == "🥇 **Beto Solo** (Beto) · nível 10 · 46.000 XP" and linhas[1] == "🥈 **Ana Alfa** (Ana) · nível 5 · 12.300 XP"
 assert linhas[2].startswith("🥉 **Ana Beta** (Ana) · nível 1 · 500 XP") and linhas[3].startswith("**4.** **Dani Empata**") and len(linhas) == 5
 assert not any("Caio Zero" in l for l in linhas)                                                   # quem tem 0 XP não entra
 assert rodape(ana) == "Seu melhor personagem: 2º (Ana Alfa)"
-run(bot.rank.callback(ana, "jogadores", 10)); linhas = desc(ana).splitlines(); print("  ", linhas)
-assert titulo(ana) == "🏆 Rank de XP: jogadores" and linhas[0] == "🥇 **Beto** · 46.000 XP · 1 personagem · melhor nível 10"
+run(bot.rank.callback(ana, "jogadores", 10)); linhas = corpo_de(ana).splitlines(); print("  ", linhas)
+assert titulo(ana) == "Rank de XP: jogadores" and linhas[0] == "🥇 **Beto** · 46.000 XP · 1 personagem · melhor nível 10"
 assert linhas[1] == "🥈 **Ana** · 12.800 XP · 2 personagens · melhor nível 5" and rodape(ana) == "Sua posição: 2º"     # soma dos personagens
 run(bot.rank.callback(caio, "jogadores", 10)); assert sent(caio)[1]["embed"].footer.text is None      # sem XP, sem posição
-run(bot.rank.callback(ana, "personagens", 3)); assert len(desc(ana).splitlines()) == 3                # o limite corta a lista
+run(bot.rank.callback(ana, "personagens", 3)); assert len(corpo_de(ana).splitlines()) == 3                # o limite corta a lista
 print("F. rank OK")
 
 
@@ -416,7 +424,7 @@ p2_id = row(80, "P2")["id"]
 async def excluir_com_botoes():
     u = inter(80, "Vaga"); await bot.personagem_excluir.callback(u, "P2")
     kw = u.response.send_message.call_args.kwargs; view = kw["view"]
-    assert isinstance(view, bot.ConfirmarExclusao) and kw["ephemeral"] and kw["embed"].title == "🗑️ Excluir P2?" and "pra sempre" in kw["embed"].description
+    assert isinstance(view, bot.ConfirmarExclusao) and kw["ephemeral"] and nome_do_cartao(kw["embed"]) == "Excluir P2?" and "pra sempre" in kw["embed"].description
     assert row(80, "P2") is not None                                             # só perguntou, ainda não apagou
     intruso = inter(81, "Intruso"); assert await view.interaction_check(intruso) is False and "Só quem pediu" in intruso.response.send_message.call_args.args[0]
     assert row(80, "P2") is not None
@@ -449,7 +457,7 @@ async def mestre_exclui():
     assert view.por_mestre and kw["ephemeral"] and "Vaga" in kw["embed"].description
     btn = inter(4, "Mestre Belmont", roles=["Mestre"]); await view.confirmar.callback(btn)
     aviso = btn.followup.send.call_args.kwargs
-    assert aviso["content"] == "<@80>" and aviso["embed"].title == "🗑️ Personagem excluído" and "Mestre Belmont excluiu **P3**" in aviso["embed"].description
+    assert aviso["content"] == "<@80>" and nome_do_cartao(aviso["embed"]) == "Personagem excluído" and "Mestre Belmont excluiu **P3**" in aviso["embed"].description
     # o que o Discord recebe de verdade (junta com o padrão do bot, que não marca ninguém): só o dono do personagem
     from discord.webhook.async_ import handle_message_parameters
     enviado = handle_message_parameters(content=aviso["content"], allowed_mentions=aviso["allowed_mentions"],
@@ -462,7 +470,7 @@ with sqlite3.connect(db.DB_PATH) as cn:
     assert cn.execute("SELECT COUNT(*) FROM deleted_characters").fetchone()[0] == 2
 # /mestre jogador: o painel do mestre
 run(bot.mestre_jogador.callback(gm, a80)); d = desc(gm); print("  ", d.replace("\n", " | "))
-assert sent(gm)[1]["ephemeral"] and titulo(gm) == "👤 Vaga" and "Personagens: **4** de **10** vagas (3 padrão + 7 extras)" in d and "Já excluiu: **2** personagens" in d and "**P1** · nível 1 · 0 XP · sem raça" in d
+assert sent(gm)[1]["ephemeral"] and titulo(gm) == "Vaga" and "Personagens: **4** de **10** vagas (3 padrão + 7 extras)" in d and "Já excluiu: **2** personagens" in d and "**P1** · nível 1 · 0 XP · sem raça" in d
 novato = alvo(90, "Novato"); run(bot.mestre_jogador.callback(gm, novato)); assert "Personagens: **0** de **3** vagas (3 padrão + 0 extras)" in desc(gm) and "Ainda não criou nenhum personagem" in desc(gm) and "Já excluiu: **0** personagens" in desc(gm)
 print("G. limite, vagas e exclusão OK")
 
@@ -496,7 +504,7 @@ c = campos(ana); assert c["Classe"] == "ainda não definida\n(use `/classe`)" an
 assert c["Rank de Magia"] == "depende da raça e da classe\n(fica claro depois de escolher as duas)"
 assert c["Atributos"] == "Força 0 · Destreza 0 · Vitalidade 0 · Razão 0 · Vontade 0 · Alma 0\nPontos de atributo: 0 de 6 usados (6 livres)"
 run(bot.atributos.callback(ana, None, None, None, None, None, None, None))                # sem números: só mostra
-assert sent(ana)[1]["ephemeral"] and titulo(ana) == "🧬 Atributos de Ana Ficha" and list(campos(ana)) == ["Atributos", "Recursos"]
+assert sent(ana)[1]["ephemeral"] and titulo(ana) == "Atributos de Ana Ficha" and list(campos(ana)) == ["Atributos", "Recursos"]
 # a ordem da criação: /atributos e /classe ficam fechados enquanto faltam passos antes
 run(bot.minha_ficha.callback(ana, None)); e = sent(ana)[1]["embed"]
 assert "⚠️ **Ficha incompleta.** Próximo passo: `/raca_inicial`" in e.description and "/ajuda" in e.description
@@ -528,7 +536,7 @@ assert "Próximo passo: `/atributos`" in sent(ana)[1]["embed"].description
 
 # 6 pontos no nível 1, direto no limite: a ficha fica pronta
 run(bot.atributos.callback(ana, 2, None, 3, None, 1, None, None)); print("  ", campos(ana)["Atributos"].replace("\n", " | "))
-assert titulo(ana) == "🧬 Atributos de Ana Ficha atualizados" and sent(ana)[1]["ephemeral"]
+assert titulo(ana) == "Atributos de Ana Ficha atualizados" and sent(ana)[1]["ephemeral"]
 assert campos(ana)["Atributos"] == "Força 2 · Destreza 0 · Vitalidade 3 · Razão 0 · Vontade 1 · Alma 0\nPontos de atributo: 6 de 6 usados"
 assert campos(ana)["Recursos"] == "❤️ Vida **50** · 🧠 Sanidade **20**\n🔮 Mana **8** · 💪 Estamina **35**"       # 15+35, 5+15, 3+5, 15+20
 assert db.attributes_of(ficha()) == {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 1, "alma": 0}
@@ -579,7 +587,7 @@ run(bot.mestre_dar_xp.callback(gm, ab, -5000, None, None)); assert "/atributos" 
 m = novo(106, "Caio", "Caio Mestrado"); am = alvo(106, "Caio")
 run(bot.mestre_atributos.callback(gm, am, None, None, None, None, None, None, None)); assert "pelo menos um atributo" in txt(gm) and sent(gm)[1]["ephemeral"]
 run(bot.mestre_atributos.callback(gm, am, 9, None, 2, None, None, None, None)); print("  ", desc(gm).replace("\n", " | "))
-assert titulo(gm) == "🛠️ Atributos corrigidos" and "Força: **0** → **9**" in desc(gm) and "Vitalidade: **0** → **2**" in desc(gm) and "Destreza" not in desc(gm)
+assert titulo(gm) == "Atributos corrigidos" and "Força: **0** → **9**" in desc(gm) and "Vitalidade: **0** → **2**" in desc(gm) and "Destreza" not in desc(gm)
 assert "Pontos de atributo: 11 de 6 usados (passou 5)" in desc(gm) and rodape(gm) == "Definido por um mestre, sem conferir os limites." and not sent(gm)[1].get("ephemeral")
 assert (row(106, "Caio Mestrado")["attr_forca"], row(106, "Caio Mestrado")["attr_vitalidade"]) == (9, 2)
 run(bot.mestre_atributos.callback(gm, am, 9, None, None, None, None, None, None)); assert "Nada mudou" in txt(gm) and sent(gm)[1]["ephemeral"]
@@ -591,7 +599,7 @@ run(bot.mestre_atributos.callback(gm, am, 9, None, None, None, None, None, None)
 run(bot.minha_ficha.callback(m, None)); assert "Pontos de atributo: 11 de 6 usados (passou 5)" in campos(m)["Atributos"]
 run(bot.atributos.callback(m, None, None, None, None, None, 1, None)); assert "Ainda não dá pra usar `/atributos`" in txt(m) and row(106, "Caio Mestrado")["attr_alma"] == 0   # sem classe, fechado
 # o mestre define a classe (ele passa por cima da ordem), e aí o jogador pode tentar
-run(bot.mestre_corrigir_classe.callback(gm, am, "Sábio", None)); assert titulo(gm) == "🛠️ Definição corrigida" and "**nada** → **Sábio**" in desc(gm)
+run(bot.mestre_corrigir_classe.callback(gm, am, "Sábio", None)); assert titulo(gm) == "Definição corrigida" and "**nada** → **Sábio**" in desc(gm)
 run(bot.atributos.callback(m, None, None, None, None, None, 1, None)); assert "Você distribuiu 12 pontos" in txt(m) and row(106, "Caio Mestrado")["attr_alma"] == 0
 run(bot.mestre_corrigir_classe.callback(gm, am, "Ladrão", None)); assert "**Sábio** → **Ladrão**" in desc(gm) and row(106, "Caio Mestrado")["class_name"] == "Ladrão"
 run(bot.classe_escolher.callback(m, "Mundano", None)); assert "já é da classe **Ladrão**" in txt(m)
@@ -666,17 +674,17 @@ assert any("grau" in t.lower() for t in todas(next(o for o in pay["mestre"]["opt
 # /calcular_recursos: soma por nível, com o mesmo atributo em todos os níveis
 calc = inter(70, "Calculista")
 run(bot.calcular_recursos.callback(calc, "Caçador", 3, 1, 2, 1, 5)); e = sent(calc)[1]["embed"]; print("  ", e.title, "|", e.description.splitlines()[0:2])
-assert e.title == "🧮 Recursos (Caçador, nível 5)" and sent(calc)[1]["ephemeral"]
+assert nome_do_cartao(e) == "Recursos (Caçador, nível 5)" and sent(calc)[1]["ephemeral"]
 assert "**Vida: 110**\n　Vitalidade 3 × 5 × 5 níveis = 75, mais 35 da classe" in e.description
 assert "**Sanidade: 65**\n　Vontade 2 × 5 × 5 níveis = 50, mais 15 da classe" in e.description
 assert "**Mana: 50**\n　(Alma 1 + Vontade 2) × 3 × 5 níveis = 45, mais 5 da classe" in e.description
 assert "**Estamina: 80**\n　(Força 1 + Vitalidade 3) × 3 × 5 níveis = 60, mais 20 da classe" in e.description
 assert "Por nível" in e.footer.text and "a conta exata é a da /minha_ficha" in e.footer.text and "Destreza e Razão não entram" in e.footer.text and "`" not in e.footer.text
 run(bot.calcular_recursos.callback(calc, "Caçador", 3, 2, 2, 1)); e = sent(calc)[1]["embed"]      # sem nível: nível 1, igual ao cálculo antigo
-assert e.title == "🧮 Recursos (Caçador)" and "níveis" not in e.description
+assert nome_do_cartao(e) == "Recursos (Caçador)" and "níveis" not in e.description
 assert "**Vida: 50**\n　Vitalidade 3 × 5 = 15, mais 35 da classe" in e.description and "**Estamina: 35**" in e.description
 run(bot.calcular_recursos.callback(calc, "Nenhuma", 3, 1, 2, 1, 10)); e = sent(calc)[1]["embed"]
-assert e.title == "🧮 Recursos (sem classe, nível 10)" and "**Vida: 150**\n　Vitalidade 3 × 5 × 10 níveis = 150" in e.description and "da classe" not in e.description
+assert nome_do_cartao(e) == "Recursos (sem classe, nível 10)" and "**Vida: 150**\n　Vitalidade 3 × 5 × 10 níveis = 150" in e.description and "da classe" not in e.description
 run(bot.calcular_recursos.callback(calc, "Caçador", 3, 1, 2, 1, 10)); assert "**Vida: 185**" in sent(calc)[1]["embed"].description and "**Estamina: 140**" in sent(calc)[1]["embed"].description
 assert len(historico_de(70)) == 0 and db.list_characters("70") == []                             # a calculadora continua sem escrever nada
 
@@ -714,7 +722,7 @@ assert sorted(db.get_level_attributes(vc()["id"])) == [1]
 # textos: quem dá XP e o Rank das perícias
 run(bot.niveis.callback(f1, None)); assert "missão de mestre e desenvolvimento do personagem" in rodape(f1) and "sempre por roleplay e não por ação avulsa" in rodape(f1)
 r0 = novo(122, "Rank", "Sem Rank"); run(bot.minha_ficha.callback(r0, None)); assert campos(r0)["Ranks das perícias especiais"] == "nenhum Rank ainda"
-a122 = alvo(122, "Rank"); run(bot.mestre_rank_pericia.callback(gm, a122, "Forja", 3, None)); assert titulo(gm) == "⬆️ Forja: Rank 3/10" and "**0** → **3**" in desc(gm)
+a122 = alvo(122, "Rank"); run(bot.mestre_rank_pericia.callback(gm, a122, "Forja", 3, None)); assert titulo(gm) == "Forja: Rank 3/10" and "**0** → **3**" in desc(gm)
 run(bot.minha_ficha.callback(r0, None)); assert campos(r0)["Ranks das perícias especiais"] == "**Forja** 3/10 ▰▰▰▱▱▱▱▱▱▱"
 run(bot.mestre_rank_pericia.callback(gm, a122, "Forja", 0, None)); run(bot.minha_ficha.callback(r0, None)); assert campos(r0)["Ranks das perícias especiais"] == "nenhum Rank ainda"
 
@@ -863,7 +871,7 @@ for nome in ("ajuda", "help"):
 # /ajuda geral, em cada situação
 h = inter(210, "Ajuda")
 run(bot.ajuda_comando.callback(h, None)); e = sent(h)[1]["embed"]; print("  ", [f.name for f in e.fields])
-assert sent(h)[1]["ephemeral"] and e.title == "📖 Ajuda do bot" and "/ajuda comando:atributos" in e.description
+assert sent(h)[1]["ephemeral"] and nome_do_cartao(e) == "Ajuda do bot" and "/ajuda comando:atributos" in e.description
 assert [f.name for f in e.fields] == ["Seu passo a passo", "Seu personagem", "Sorteios de criação", "Jogo (só com a ficha pronta)", "Consultas"]
 assert "Você ainda não tem personagem" in e.fields[0].value and "`/personagem criar`" in e.fields[0].value
 assert len(e) <= 6000 and all(len(f.value) <= 1024 for f in e.fields)
@@ -879,11 +887,11 @@ assert len(e) <= 6000 and all(len(f.value) <= 1024 for f in e.fields)
 
 # /ajuda de um comando
 run(bot.ajuda_comando.callback(h, "atributos")); e = sent(h)[1]["embed"]
-assert sent(h)[1]["ephemeral"] and e.title == "📖 /atributos" and e.description.startswith("Distribui os pontos de atributo.")
+assert sent(h)[1]["ephemeral"] and nome_do_cartao(e) == "/atributos" and "Distribui os pontos de atributo." in e.description
 assert {f.name: f.value for f in e.fields}["Como usar"] == "`/atributos forca:2 vitalidade:3 vontade:1`" and "Só depois de escolher a classe" in {f.name: f.value for f in e.fields}["Quando dá pra usar"]
-run(bot.ajuda_comando.callback(h, "/ROLAR")); assert sent(h)[1]["embed"].title == "📖 /rolar"
+run(bot.ajuda_comando.callback(h, "/ROLAR")); assert nome_do_cartao(sent(h)[1]["embed"]) == "/rolar"
 run(bot.ajuda_comando.callback(h, "dar_xp")); assert txt(h) == 'Não achei nenhum comando com "dar_xp". Use `/ajuda` pra ver a lista de comandos.' and sent(h)[1]["ephemeral"]      # o jogador não descobre os comandos de mestre
-run(bot.ajuda_comando.callback(h, "ficha")); assert sent(h)[1]["embed"].title == "📖 /minha_ficha"                              # jogador tem preferência
+run(bot.ajuda_comando.callback(h, "ficha")); assert nome_do_cartao(sent(h)[1]["embed"]) == "/minha_ficha"                              # jogador tem preferência
 run(bot.ajuda_comando.callback(h, "personagem")); print("  ", txt(h)); assert txt(h).startswith('Não achei nenhum comando com "personagem". Quis dizer: `/personagem criar`') and sent(h)[1]["ephemeral"]
 run(bot.ajuda_comando.callback(h, "xyzabc")); assert txt(h) == 'Não achei nenhum comando com "xyzabc". Use `/ajuda` pra ver a lista de comandos.'
 # /help é a mesma coisa
@@ -1065,7 +1073,7 @@ run(bot.mestre_apagar_historico.callback(gm, alvo(502, "Vazio"))); assert "**1 r
 async def apagar_com_botoes():
     u = inter(4, "Mestre Belmont", roles=["Mestre"]); await bot.mestre_apagar_historico.callback(u, a500)
     kw = u.response.send_message.call_args.kwargs; view = kw["view"]; e = kw["embed"]
-    assert isinstance(view, bot.ConfirmarApagarHistorico) and kw["ephemeral"] and e.title == "🧹 Apagar o histórico de Ana?"
+    assert isinstance(view, bot.ConfirmarApagarHistorico) and kw["ephemeral"] and nome_do_cartao(e) == "Apagar o histórico de Ana?"
     assert "**10 rolagens**" in e.description and "Não tem como desfazer" in e.description and "sorteios de criação" in e.description and "A ficha, o XP e os personagens não mudam" in e.description
     assert db.count_rolls("500") == 10                                                       # só perguntou: nada apagado ainda
     # quem não pediu não confirma
@@ -1086,8 +1094,8 @@ async def apagar_com_botoes():
     ok = inter(4, "Mestre Belmont", roles=["Mestre"]); await view.confirmar.callback(ok)
     assert ok.response.edit_message.call_args.kwargs["content"] == "🧹 O histórico de **Ana** foi apagado (10 rolagens)."
     aviso = ok.followup.send.call_args.kwargs
-    assert aviso["embed"].title == "🧹 Histórico apagado" and "content" not in aviso and "allowed_mentions" not in aviso            # público, sem marcar ninguém
-    assert aviso["embed"].description == "Mestre Belmont apagou o histórico de rolagens de <@500> (10 rolagens). A ficha, o XP e os personagens continuam como estavam."
+    assert nome_do_cartao(aviso["embed"]) == "Histórico apagado" and "content" not in aviso and "allowed_mentions" not in aviso            # público, sem marcar ninguém
+    assert aviso["embed"].description.endswith("Mestre Belmont apagou o histórico de rolagens de <@500> (10 rolagens). A ficha, o XP e os personagens continuam como estavam.")
     # um segundo clique (ou dois mestres) não quebra nem registra de novo
     de_novo = inter(4, "Mestre Belmont", roles=["Mestre"]); await view.confirmar.callback(de_novo)
     assert "já estava vazio" in de_novo.response.edit_message.call_args.kwargs["content"] and not de_novo.followup.send.called
@@ -1335,12 +1343,12 @@ assert nome_do_cartao(followups(c2)[0][1]["embed"]) == "3° Estado —  Campones
 nova2 = editada(c2)["view"]; assert estado(nova2)["Classe"] == ("🎓", False) and estado(nova2)["Classe social (2)"] == ("🔄", False)
 c3 = clique(nova2, "Classe", 800, "Ana")
 esc = editada(c3)["view"]; assert isinstance(esc, paineis.EscolhaDeClasse) and c3.followup.send.call_count == 0 and nova2.is_finished()
-e = editada(c3)["embed"]; assert e.title == "🎓 Escolha a classe de Ana Painel" and [f.name for f in e.fields] == list(rules.CLASSES) and "uma vez só" in e.description
+e = editada(c3)["embed"]; assert nome_do_cartao(e) == "Escolha a classe de Ana Painel" and [f.name for f in e.fields] == list(rules.CLASSES) and "uma vez só" in e.description
 confere_componentes(esc); sel = seletor(esc)
 assert [o.value for o in sel.options] == list(rules.CLASSES) and sel.options[0].description == "Vantagem: Religião e Luta ou Pontaria" and botao(esc, "Confirmar classe").disabled
 assert esc.origem is u
 c4 = inter(800, "Ana"); sel._values = ["Caçador"]; runp(sel.callback(c4))                                 # escolher no menu só mostra a prévia
-e = editada(c4)["embed"]; assert e.title == "🎓 Caçador" and "Os caçadores devotam" in e.description and "Confirmar classe" in e.description
+e = editada(c4)["embed"]; assert nome_do_cartao(e) == "Caçador" and "Os caçadores devotam" in e.description and "Confirmar classe" in e.description
 assert row(800, "Ana Painel")["class_name"] is None and not botao(esc, "Confirmar classe").disabled and c4.followup.send.call_count == 0
 assert [o.value for o in seletor(esc).options if o.default] == ["Caçador"]
 c4b = inter(800, "Ana"); seletor(esc)._values = ["Paladino"]; runp(seletor(esc).callback(c4b))              # uma classe que não existe é recusada
@@ -1350,7 +1358,7 @@ assert row(800, "Ana Painel")["class_name"] is None
 esc = criar(paineis.EscolhaDeClasse, 800, row(800, "Ana Painel")["id"], "Ana"); esc.origem = u; seletor(esc)._values = ["Caçador"]
 runp(seletor(esc).callback(inter(800, "Ana")))
 c5 = clique(esc, "Confirmar classe", 800, "Ana")
-(conteudo, fk), = followups(c5); assert fk["ephemeral"] is True and fk["embed"].title == "Caçador" and "files" not in fk                # a classe continua privada
+(conteudo, fk), = followups(c5); assert fk["ephemeral"] is True and nome_do_cartao(fk["embed"]) == "Caçador" and "files" not in fk                # a classe continua privada
 assert row(800, "Ana Painel")["class_name"] == "Caçador"
 nova3 = editada(c5)["view"]; assert isinstance(nova3, paineis.PainelFicha)
 assert estado(nova3)["Raça"] == ("✅", True) and estado(nova3)["Classe social"] == ("✅", True)                       # escolher a classe fecha as chances que sobravam
@@ -1359,7 +1367,7 @@ assert estado(nova3)["Classe"] == ("✅", True) and estado(nova3)["Sem magia"] =
 # --- atributos: dois formulários de três campos ---
 c6 = clique(nova3, "Físicos", 800, "Ana")
 modal = c6.response.send_modal.call_args.args[0]
-assert isinstance(modal, paineis.ModalAtributos) and modal.title == "Atributos físicos de Ana Painel" and list(modal.campos) == ["forca", "destreza", "vitalidade"]
+assert isinstance(modal, paineis.ModalAtributos) and nome_do_cartao(modal) == "Atributos físicos de Ana Painel" and list(modal.campos) == ["forca", "destreza", "vitalidade"]
 assert [c.label for c in modal.campos.values()] == [f"{n} (só dá pra aumentar)" for n in ("Força", "Destreza", "Vitalidade")] and all(c.default == "0" for c in modal.campos.values())
 assert len(modal.title) <= 45 and all(len(c.label) <= 45 for c in modal.campos.values())
 def enviar_modal(modal, valores, uid=800, nome="Ana"):
@@ -1372,11 +1380,11 @@ i = enviar_modal(modal, {"forca": "0", "destreza": "0", "vitalidade": "0"})     
 assert followups(i)[0][0] == "Nada mudou: **Ana Painel** já tem esses valores." and followups(i)[0][1]["ephemeral"] and i.response.edit_message.call_count == 1
 nova3 = editada(i)["view"]; c6 = clique(nova3, "Físicos", 800, "Ana"); modal = c6.response.send_modal.call_args.args[0]
 i = enviar_modal(modal, {"forca": "2", "destreza": "0", "vitalidade": "3"})
-(conteudo, fk), = followups(i); assert fk["ephemeral"] is True and fk["embed"].title == "🧬 Atributos de Ana Painel atualizados"
+(conteudo, fk), = followups(i); assert fk["ephemeral"] is True and nome_do_cartao(fk["embed"]) == "Atributos de Ana Painel atualizados"
 assert db.attributes_of(row(800, "Ana Painel")) == {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 0, "alma": 0} and "Pontos de atributo: 5 de 6 usados" in fk["embed"].fields[0].value
 nova4 = editada(i)["view"]; assert estado(nova4)["Físicos"] == ("🧬", False) and "⚠️ **Ficha incompleta.**" in editada(i)["embed"].description       # falta 1 ponto
 c7 = clique(nova4, "Mentais", 800, "Ana"); modal2 = c7.response.send_modal.call_args.args[0]
-assert modal2.title == "Atributos mentais de Ana Painel" and list(modal2.campos) == ["razao", "vontade", "alma"]
+assert nome_do_cartao(modal2) == "Atributos mentais de Ana Painel" and list(modal2.campos) == ["razao", "vontade", "alma"]
 i = enviar_modal(modal2, {"razao": "0", "vontade": "1", "alma": "1"})                                    # 7 pontos no total: o mesmo aviso do /atributos
 (aviso, kw_aviso), = followups(i); assert "Você distribuiu 7 pontos de atributo, mas no nível 1 o total é 6." in aviso and kw_aviso["ephemeral"] is True
 assert db.attributes_of(row(800, "Ana Painel"))["vontade"] == 0
@@ -1405,9 +1413,9 @@ c = inter(800, "Ana"); runp(modal2.on_error(c, RuntimeError("x"))); assert c.res
 painel = criar(paineis.PainelFicha, 800, row(800, "Ana Painel")["id"], "Ana"); painel.origem = u
 c = clique(painel, "Dados", 800, "Ana"); bandeja = enviada(c)
 assert isinstance(bandeja, paineis.BandejaDados) and sent(c)[1]["ephemeral"] and bandeja.origem is c and "## 1d20" in sent(c)[1]["embed"].description
-c = clique(painel, "Níveis", 800, "Ana"); (_, fk), = followups(c); assert fk["ephemeral"] and fk["embed"].title == "📈 XP e vantagens de cada nível" and c.response.edit_message.call_count == 1
+c = clique(painel, "Níveis", 800, "Ana"); (_, fk), = followups(c); assert fk["ephemeral"] and nome_do_cartao(fk["embed"]) == "XP e vantagens de cada nível" and c.response.edit_message.call_count == 1
 assert "▶️ **Nível 1**" in fk["embed"].description
-c = clique(editada(c)["view"], "Ajuda", 800, "Ana"); (_, fk), = followups(c); assert fk["ephemeral"] and fk["embed"].title == "📖 Ajuda do bot" and "escreve `d20+5` no chat" in fk["embed"].description
+c = clique(editada(c)["view"], "Ajuda", 800, "Ana"); (_, fk), = followups(c); assert fk["ephemeral"] and nome_do_cartao(fk["embed"]) == "Ajuda do bot" and "escreve `d20+5` no chat" in fk["embed"].description
 
 # --- trocar de personagem pelo menu ---
 runp(bot.personagem_criar.callback(inter(800, "Ana"), "Ana Segunda"))
@@ -1429,14 +1437,14 @@ c = inter(800, "Ana"); runp(bot.minha_ficha.callback(c, "Fantasma")); assert "N�
 m = novo(802, "Caio", "Caio Cem"); pv = criar(paineis.PainelFicha, 802, row(802, "Caio Cem")["id"], "Caio"); pv.origem = m
 cem = inter(802, "Caio"); cem.guild = NS(roles=[NS(id=555, name="Mestre", mention="<@&555>")])
 with dados(100): runp(botao(pv, "Classe social").callback(cem))
-(conteudo, fk), = followups(cem); assert fk["embed"].title == "🎲 Resultado especial" and conteudo == "<@&555>" and fk["allowed_mentions"].roles == [cem.guild.roles[0]] and "ephemeral" not in fk
+(conteudo, fk), = followups(cem); assert nome_do_cartao(fk["embed"]) == "🎲 Resultado especial" and conteudo == "<@&555>" and fk["allowed_mentions"].roles == [cem.guild.roles[0]] and "ephemeral" not in fk
 v = editada(cem)["view"]; assert estado(v)["Classe social"] == ("⏳", True) and estado(v)["Classe"] == ("🔒", True)
 # --- quem tem magia vê o botão de Rank de magia ---
 vp = novo(803, "Vlad", "Vlad Vampiro"); preparar(803, "Vlad Vampiro", "Vampiro", "Mundano"); db.clear_definition(row(803, "Vlad Vampiro")["id"], "magic_rank")
 pv = criar(paineis.PainelFicha, 803, row(803, "Vlad Vampiro")["id"], "Vlad"); pv.origem = vp
 assert estado(pv)["Magia"] == ("✨", False) and estado(pv)["Físicos"] == ("🧬", True)                     # a magia vem antes dos atributos
 with dados(70): c = clique(pv, "Magia", 803, "Vlad")
-assert followups(c)[0][1]["embed"].title == "Rank Raro" and "ephemeral" not in followups(c)[0][1]
+assert nome_do_cartao(followups(c)[0][1]["embed"]) == "Rank Raro" and "ephemeral" not in followups(c)[0][1]
 v = editada(c)["view"]; assert estado(v)["Magia"] == ("✅", True) and estado(v)["Físicos"] == ("🧬", False)
 # --- com a chavinha da ordem desligada, os passos ficam todos abertos (menos atributos, que precisam da raça) ---
 bot.ORDEM_DA_CRIACAO = False
@@ -1455,12 +1463,12 @@ assert cc.guild_id == 999 and cc.user.id == 800 and cc.namespace.__dict__ == {}
 # --- bandeja de dados ---
 db.set_attributes(row(800, "Ana Painel")["id"], {"vontade": 6}); preparar(800, "Ana Painel"); db.set_active_character("800", row(800, "Ana Painel")["id"])
 d = inter(800, "Ana"); runp(bot.dados_comando.callback(d)); kw = sent(d)[1]; tray = kw["view"]
-assert isinstance(tray, paineis.BandejaDados) and kw["ephemeral"] and tray.origem is d and kw["embed"].title == "🎲 Bandeja de dados"
-assert kw["embed"].description.startswith("## 1d20\n") and [(f.name, f.value) for f in kw["embed"].fields] == [("Motivo", "nenhum (aperta 📝 pra escrever um)"), ("Rolando como", "Ana Painel")]
+assert isinstance(tray, paineis.BandejaDados) and kw["ephemeral"] and tray.origem is d and nome_do_cartao(kw["embed"]) == "Bandeja de dados"
+assert "\n## 1d20\n" in kw["embed"].description and [(f.name, f.value) for f in kw["embed"].fields] == [("Motivo", "nenhum (aperta 📝 pra escrever um)"), ("Rolando como", "Ana Painel")]
 confere_componentes(tray); assert {b.label: b.row for b in tray.children if b.label in ("d4", "d12", "d20", "d100", "Rolar", "+5", "Motivo")} == {"d4": 0, "d12": 0, "d20": 1, "d100": 1, "Rolar": 1, "+5": 2, "Motivo": 3}
 assert botao(tray, "d20").style == discord.ButtonStyle.primary and botao(tray, "d6").style == discord.ButtonStyle.secondary
 assert botao(tray, "Dado", "➖").disabled and not botao(tray, "Dado", "➕").disabled and botao(tray, "Zerar").disabled
-def bd(i): return editada(i)["embed"].description.split("\n")[0]
+def bd(i): return next(l for l in editada(i)["embed"].description.split("\n") if l.startswith("## "))
 c = clique(tray, "d6", 800, "Ana"); assert bd(c) == "## 1d6" and botao(tray, "d6").style == discord.ButtonStyle.primary and botao(tray, "d20").style == discord.ButtonStyle.secondary
 c = clique(tray, "Dado", 800, "Ana", "➕"); c = clique(tray, "Dado", 800, "Ana", "➕"); assert bd(c) == "## 3d6" and not botao(tray, "Dado", "➖").disabled
 c = clique(tray, "+5", 800, "Ana"); assert bd(c) == "## 3d6+5" and not botao(tray, "Zerar").disabled
@@ -1478,7 +1486,7 @@ assert tray.mod == -30 and bd(c) == "## 1d6-30"
 c = clique(tray, "Zerar", 800, "Ana"); c = clique(tray, "d20", 800, "Ana")
 # motivo pelo formulário
 c = clique(tray, "Motivo", 800, "Ana"); mm = c.response.send_modal.call_args.args[0]
-assert isinstance(mm, paineis.ModalMotivo) and mm.title == "Motivo da rolagem" and mm.campo.max_length == 80 and not mm.campo.required
+assert isinstance(mm, paineis.ModalMotivo) and nome_do_cartao(mm) == "Motivo da rolagem" and mm.campo.max_length == 80 and not mm.campo.required
 mm.campo._value = "  ataque com a espada  "; c = inter(800, "Ana"); runp(mm.on_submit(c))
 assert tray.motivo == "ataque com a espada" and dict((f.name, f.value) for f in editada(c)["embed"].fields)["Motivo"] == "ataque com a espada"
 mm2 = runp(botao(tray, "Motivo").callback(inter(800, "Ana"))); mm2 = criar(paineis.ModalMotivo, tray); assert mm2.campo.default == "ataque com a espada"
@@ -1489,7 +1497,7 @@ runp(tray.on_timeout()); assert all(b.disabled for b in tray.children); tray._mo
 c = clique(tray, "Dado", 800, "Ana", "➕"); c = clique(tray, "+5", 800, "Ana"); c = clique(tray, "-1", 800, "Ana")
 antes = len(historico_de(800))
 with fixo(4): c = clique(tray, "Rolar", 800, "Ana", "🎲")
-assert c.response.edit_message.call_count == 1 and editada(c)["view"] is tray and editada(c)["embed"].description.startswith("## 2d20+4")
+assert c.response.edit_message.call_count == 1 and editada(c)["view"] is tray and "## 2d20+4" in editada(c)["embed"].description
 (_, fk), = followups(c); assert "ephemeral" not in fk and fk["embed"].title == "🎲 Ana Painel rolou 2d20+4" and fk["embed"].footer.text == "ataque com a espada · jogador: Ana"
 assert historico_texto(800)[-1] == ("2d20+4", "ataque com a espada", "Ana Painel", 8) and len(historico_de(800)) == antes + 1
 c = clique(tray, "Rolar", 800, "Ana", "🎲")                                                               # pode rolar de novo com a mesma bandeja (dados de verdade)
@@ -1557,7 +1565,7 @@ with dados(40): run(bot.raca_inicial.callback(r1, None))
 assert titulo(r1) == "Humanos" and rodape(r1) == "jogador: Rita · tentativa 1 de 3" and tent(900, "Rita Rolos") == (1, 0)
 with dados():                                                                                             # pedir de novo NÃO rola: só pergunta
     run(bot.raca_inicial.callback(r1, None))
-assert titulo(r1) == "🔄 Rolar a raça de novo?" and "Rolando de novo, sobram 1." in desc(r1) and "Você já usou 1 de 3 chances" in desc(r1) and tent(900, "Rita Rolos") == (1, 0)
+assert titulo(r1) == "Rolar a raça de novo?" and "Rolando de novo, sobram 1." in desc(r1) and "Você já usou 1 de 3 chances" in desc(r1) and tent(900, "Rita Rolos") == (1, 0)
 conf = confirmar_de(r1)
 assert [b.label for b in conf.children] == ["Rolar de novo", "Manter"] and conf.children[0].style == discord.ButtonStyle.danger and conf.dono_id == 900
 assert runp(conf.interaction_check(inter(999, "Intruso"))) is False and runp(conf.interaction_check(inter(900, "Rita"))) is True
@@ -1595,7 +1603,7 @@ assert "já tem Rank de Magia: **Raro**" in txt(mg) and "view" not in sent(mg)[1
 e1 = novo(902, "Est", "Est Rolos"); a902 = alvo(902, "Est")
 with dados(95, 70): run(bot.classe_social.callback(e1, None))
 assert titulo(e1) == "1° Estado —  Clero" and "✝ Alto Clero=" in txt(e1) and tent(902, "Est Rolos") == (0, 1)
-run(bot.classe_social.callback(e1, None)); assert titulo(e1) == "🔄 Rolar a classe social de novo?" and "**1º Estado · Clero (Alto Clero)**" in desc(e1)
+run(bot.classe_social.callback(e1, None)); assert titulo(e1) == "Rolar a classe social de novo?" and "**1º Estado · Clero (Alto Clero)**" in desc(e1)
 conf = confirmar_de(e1)
 with dados(50): c = inter(902, "Est"); runp(conf.children[0].callback(c))
 (_, fk), = followups(c); assert nome_do_cartao(fk["embed"]) == "3° Estado —  Camponeses" and fk["embed"].fields == [] and fk["embed"].footer.text == "jogador: Est · tentativa 2 de 3"
@@ -1603,7 +1611,7 @@ ch = row(902, "Est Rolos"); assert (ch["social_class"], ch["clergy"], ch["clergy
 assert [h["purpose"] for h in reversed(historico_de(902))] == ["classe_social", "clero", "classe_social"]
 run(bot.classe_social.callback(e1, None)); conf = confirmar_de(e1)
 with dados(100): c = inter(902, "Est"); c.guild = NS(roles=[NS(id=555, name="Mestre", mention="<@&555>")]); runp(conf.children[0].callback(c))
-(conteudo, fk), = followups(c); assert fk["embed"].title == "🎲 Resultado especial" and conteudo == "<@&555>" and fk["embed"].footer.text == "jogador: Est · última chance"
+(conteudo, fk), = followups(c); assert nome_do_cartao(fk["embed"]) == "🎲 Resultado especial" and conteudo == "<@&555>" and fk["embed"].footer.text == "jogador: Est · última chance"
 with dados(): r = inter(902, "Est"); runp(bot.classe_social.callback(r, None))
 assert "tirou 100 no sorteio da Classe Social" in txt(r) and "view" not in sent(r)[1]                          # o 100 fecha: quem decide é o mestre
 assert estado(editada(c)["view"])["Classe social"] == ("⏳", True)
@@ -1637,11 +1645,11 @@ pz = novo(904, "Pan", "Pan Chances")
 with dados(40): c = clique(criar(paineis.PainelFicha, 904, row(904, "Pan Chances")["id"], "Pan"), "Raça", 904, "Pan")
 pn = editada(c)["view"]; assert estado(pn)["Raça (2)"] == ("🔄", False)
 c = clique(pn, "Raça (2)", 904, "Pan"); tela = editada(c)["view"]
-assert isinstance(tela, paineis.ConfirmarRepeticao) and c.followup.send.call_count == 0 and editada(c)["embed"].title == "🔄 Rolar a raça de novo?" and pn.is_finished()
+assert isinstance(tela, paineis.ConfirmarRepeticao) and c.followup.send.call_count == 0 and nome_do_cartao(editada(c)["embed"]) == "Rolar a raça de novo?" and pn.is_finished()
 assert tent(904, "Pan Chances") == (1, 0)                                                                    # abrir a confirmação não gasta chance
 with dados(50): c = clique(criar(paineis.PainelFicha, 904, row(904, "Pan Chances")["id"], "Pan"), "Classe social", 904, "Pan")
 pn = editada(c)["view"]; assert estado(pn)["Classe social (2)"] == ("🔄", False) and estado(pn)["Raça (2)"] == ("🔄", False)
-c = clique(pn, "Classe social (2)", 904, "Pan"); tela = editada(c)["view"]; assert isinstance(tela, paineis.ConfirmarRepeticao) and editada(c)["embed"].title == "🔄 Rolar a classe social de novo?"
+c = clique(pn, "Classe social (2)", 904, "Pan"); tela = editada(c)["view"]; assert isinstance(tela, paineis.ConfirmarRepeticao) and nome_do_cartao(editada(c)["embed"]) == "Rolar a classe social de novo?"
 with dados(85): c = inter(904, "Pan"); runp(tela.children[0].callback(c))
 assert nome_do_cartao(followups(c)[0][1]["embed"]) == "2° Estado —  Nobreza" and tent(904, "Pan Chances") == (1, 2) and estado(editada(c)["view"])["Classe social (1)"] == ("🔄", False)
 # painel com a chavinha da ordem desligada: rolar de novo continua valendo
@@ -1693,12 +1701,12 @@ assert isinstance(tela, paineis.PainelDisciplinas), type(tela)
 assert pv.is_finished(), "o painel da ficha devia ter saído de cena"
 assert tela.origem is v, (tela.origem, v)
 assert c.followup.send.call_count == 0, c.followup.send.call_args_list
-e = editada(c)["embed"]; assert e.title == "🩸 Disciplinas de Vlad Vampiro" and "Pontos: 0 de 4 usados (4 livres)" in e.description and [f.name for f in e.fields] == list(rules.DISCIPLINES)
+e = editada(c)["embed"]; assert nome_do_cartao(e) == "Disciplinas de Vlad Vampiro" and "Pontos: 0 de 4 usados (4 livres)" in e.description and [f.name for f in e.fields] == list(rules.DISCIPLINES)
 confere_componentes(tela); sel = seletor(tela)
 assert [o.value for o in sel.options] == list(rules.DISCIPLINES) and sel.options[0].description == "grau 0/5 · força sobrenatural bruta" and sel.options[8].description == "em desenvolvimento"
 assert [b.label for b in tela.children if isinstance(b, discord.ui.Button)] == ["Voltar"]                    # sem escolha: só o Voltar
 c = escolher(tela, "Potência", 950, "Vlad"); e = editada(c)["embed"]
-assert e.title == "🩸 Potência" and [f.name for f in e.fields] == ["▫️ Grau 1", "▫️ Grau 2", "▫️ Grau 3", "Graus 4 e 5", "Pra subir"] and e.footer.text == "Pontos: 0 de 4 usados (4 livres)"
+assert nome_do_cartao(e) == "Potência" and [f.name for f in e.fields] == ["▫️ Grau 1", "▫️ Grau 2", "▫️ Grau 3", "Graus 4 e 5", "Pra subir"] and e.footer.text == "Pontos: 0 de 4 usados (4 livres)"
 assert pra_subir(c) == "Aperta o botão pra gastar 1 ponto e subir pro grau 1. Não dá pra desfazer." and [o.default for o in seletor(tela).options][0] is True
 assert [b.label for b in tela.children if isinstance(b, discord.ui.Button)] == ["Subir pro grau 1", "Ver todas", "Voltar"]
 c = subir(tela, 950, "Vlad"); (aviso, fk), = followups(c)
@@ -1722,7 +1730,7 @@ run(bot.mestre_dar_xp.callback(gm, a950, 1000, None, None)); assert "Você ganho
 c = escolher(tela, "Ofuscação", 950, "Vlad"); assert pra_subir(c).startswith("Aperta o botão")
 c = subir(tela, 950, "Vlad"); assert graus_de(950, "Vlad Vampiro")["Ofuscação"] == 1 and "Não sobrou ponto." in followups(c)[0][0]
 # "Ver todas" e "Voltar"
-c = clique(tela, "Ver todas", 950, "Vlad", "📜"); assert editada(c)["embed"].title == "🩸 Disciplinas de Vlad Vampiro" and tela.selecionada is None
+c = clique(tela, "Ver todas", 950, "Vlad", "📜"); assert nome_do_cartao(editada(c)["embed"]) == "Disciplinas de Vlad Vampiro" and tela.selecionada is None
 por = {f.name: f.value for f in editada(c)["embed"].fields}; assert por["Potência"].startswith("▰▰▰▱▱ 3/5") and por["Domínio"].startswith("▱▱▱▱▱ 0/5") and por["Sanguessugia"] == "⏳ em desenvolvimento"
 c = clique(tela, "Voltar", 950, "Vlad", "⬅️"); assert isinstance(editada(c)["view"], paineis.PainelFicha) and nome_do_cartao(editada(c)["embed"]) == "Ficha" and "Vlad Vampiro" in editada(c)["embed"].description
 assert estado(editada(c)["view"])["Disciplinas"] == ("🩸", False) and botao(editada(c)["view"], "Disciplinas").style == discord.ButtonStyle.secondary       # sem ponto sobrando: cinza
@@ -1746,16 +1754,16 @@ db.set_discipline_grade(row(951, "Dani Dhampir")["id"], "Sanguessugia", 0)
 
 # --- /disciplinas: qualquer um lê; só Vampiro e Dhampir gastam ---
 c = inter(950, "Vlad"); run(bot.disciplinas_comando.callback(c, None)); pn = enviada(c)
-assert isinstance(pn, paineis.PainelDisciplinas) and sent(c)[1]["ephemeral"] and pn.origem is c and titulo(c) == "🩸 Disciplinas de Vlad Vampiro" and pn.personagem_id == row(950, "Vlad Vampiro")["id"]
+assert isinstance(pn, paineis.PainelDisciplinas) and sent(c)[1]["ephemeral"] and pn.origem is c and titulo(c) == "Disciplinas de Vlad Vampiro" and pn.personagem_id == row(950, "Vlad Vampiro")["id"]
 c = inter(952, "Hugo"); run(bot.disciplinas_comando.callback(c, None)); pn = enviada(c)
-assert titulo(c) == "🩸 Disciplinas" and "Só **Vampiros e Dhampirs** têm Disciplinas" in desc(c) and "0/5" not in " ".join(f.value for f in sent(c)[1]["embed"].fields)
+assert titulo(c) == "Disciplinas" and "Só **Vampiros e Dhampirs** têm Disciplinas" in desc(c) and "0/5" not in " ".join(f.value for f in sent(c)[1]["embed"].fields)
 assert seletor(pn).options[0].description == "força sobrenatural bruta"
 c2 = escolher(pn, "Domínio", 952, "Hugo"); e = editada(c2)["embed"]
 assert [f.name for f in e.fields] == ["Grau 1", "Grau 2", "Grau 3", "Graus 4 e 5"] and e.footer.text is None and e.fields[0].value.startswith("Impõe a sua vontade")     # só leitura: sem marcação nem "Pra subir"
 assert [b.label for b in pn.children if isinstance(b, discord.ui.Button)] == ["Ver todas", "Voltar"]        # sem botão de subir
 c = inter(952, "Hugo"); runp(pn._subir(c)); assert followups(c)[0][0] == "Só Vampiros e Dhampirs têm Disciplinas." and graus_de(952, "Hugo Humano") == {}
 c = inter(960, "Sem Personagem"); run(bot.disciplinas_comando.callback(c, None)); pn = enviada(c)                # sem personagem: também lê
-assert titulo(c) == "🩸 Disciplinas" and pn.personagem_id is None and [b for b in pn.children if isinstance(b, discord.ui.Button)] == []
+assert titulo(c) == "Disciplinas" and pn.personagem_id is None and [b for b in pn.children if isinstance(b, discord.ui.Button)] == []
 c2 = escolher(pn, "Regeneração", 960, "Sem Personagem"); assert [f.name for f in editada(c2)["embed"].fields][-1] == "Limite" and [b.label for b in pn.children if isinstance(b, discord.ui.Button)] == ["Ver todas"]
 c = inter(950, "Vlad"); run(bot.disciplinas_comando.callback(c, "Fantasma")); assert "Não achei nenhum personagem seu" in txt(c) and sent(c)[1]["ephemeral"] and "view" not in sent(c)[1]
 for painel_lido in (criar(paineis.PainelDisciplinas, 952, row(952, "Hugo Humano")["id"], "Hugo"), criar(paineis.PainelDisciplinas, 960, None, "Sem")): confere_componentes(painel_lido)
@@ -1765,11 +1773,11 @@ run(bot.mestre_disciplina.callback(gm, alvo(952, "Hugo"), "Potência", 1, None))
 run(bot.mestre_disciplina.callback(gm, alvo(960, "Sem Personagem"), "Potência", 1, None)); assert "ainda não tem personagem" in txt(gm)
 run(bot.mestre_disciplina.callback(gm, a951, "Sanguessugia", 1, None)); assert txt(gm) == paineis.TEXTO_DO_PROBLEMA["bloqueada"] and sent(gm)[1]["ephemeral"] and graus_de(951, "Dani Dhampir") == {}
 run(bot.mestre_disciplina.callback(gm, a951, "Potência", 4, None))                                            # grau 4 direto (só o mestre concede)
-assert titulo(gm) == "⬆️ Potência: grau 4/5" and "**0** → **4**  ▰▰▰▰▱" in desc(gm) and "Pontos: 3 de 3 usados" in desc(gm) and "Grau concedido pelo mestre: os graus 4 e 5 não gastam ponto." in desc(gm)
+assert titulo(gm) == "Potência: grau 4/5" and "**0** → **4**  ▰▰▰▰▱" in desc(gm) and "Pontos: 3 de 3 usados" in desc(gm) and "Grau concedido pelo mestre: os graus 4 e 5 não gastam ponto." in desc(gm)
 assert not sent(gm)[1].get("ephemeral") and graus_de(951, "Dani Dhampir") == {"Potência": 4} and "Os graus 1 a 3 contam como pontos gastos do jogador" in rodape(gm)
 run(bot.mestre_disciplina.callback(gm, a951, "Potência", 4, None)); assert "Nada mudou" in txt(gm) and sent(gm)[1]["ephemeral"]
 run(bot.mestre_disciplina.callback(gm, a951, "Presença", 2, "Dani Dhampir")); assert "Pontos: 5 de 3 usados (passou 2)" in desc(gm) and "Grau concedido" not in desc(gm)   # o mestre não é barrado pelos pontos
-run(bot.mestre_disciplina.callback(gm, a951, "Presença", 0, None)); assert titulo(gm) == "🛠️ Presença: grau 0/5" and graus_de(951, "Dani Dhampir") == {"Potência": 4}
+run(bot.mestre_disciplina.callback(gm, a951, "Presença", 0, None)); assert titulo(gm) == "Presença: grau 0/5" and graus_de(951, "Dani Dhampir") == {"Potência": 4}
 run(bot.mestre_disciplina.callback(gm, a951, "Potência", 1, "Fantasma")); assert "não tem nenhum personagem chamado" in txt(gm)
 with sqlite3.connect(db.DB_PATH) as cn:
     assert [x for x in cn.execute("SELECT action, detail FROM master_actions WHERE action='disciplina' ORDER BY id")] == [("disciplina", "Potência: 0 -> 4"), ("disciplina", "Presença: 0 -> 2"), ("disciplina", "Presença: 2 -> 0")]
@@ -1828,18 +1836,18 @@ assert db.get_active_scene("5000") is None
 
 # --- o mestre abre o Escudo: sem cena, só o botão de iniciar ---
 m = ic(700, "Mestre Belmont", CH, **MESTRE); run(bot.mestre_escudo.callback(m)); esc = enviada(m)
-assert isinstance(esc, escudo.EscudoDoMestre) and sent(m)[1]["ephemeral"] and esc.origem is m and esc.channel_id == "5000" and titulo(m) == "🛡️ Escudo do Mestre" and "Não tem cena aberta neste canal" in desc(m)
+assert isinstance(esc, escudo.EscudoDoMestre) and sent(m)[1]["ephemeral"] and esc.origem is m and esc.channel_id == "5000" and titulo(m) == "Escudo do Mestre" and "Não tem cena aberta neste canal" in desc(m)
 assert [b.label for b in esc.children] == ["Iniciar cena"]; confere_componentes(esc)
 assert runp(esc.interaction_check(ic(999, "Intruso", CH, **MESTRE))) is False                       # outro mestre não mexe na tela alheia
 assert runp(esc.interaction_check(ic(700, "Mestre Belmont", CH, **MESTRE))) is True
 perdeu = ic(700, "Mestre Belmont", CH); assert runp(esc.interaction_check(perdeu)) is False and perdeu.response.send_message.call_args.args[0] == escudo.SO_MESTRE     # perdeu o cargo: a tela não obedece mais
 # iniciar a cena: formulário -> nome -> tela do escudo completa
 c = clicar(esc, "Iniciar cena", 700, "Mestre Belmont", CH, **MESTRE); mc = c.response.send_modal.call_args.args[0]
-assert isinstance(mc, escudo.ModalCena) and mc.title == "Nova cena" and mc.campo.max_length == 60 and mc.campo.required
+assert isinstance(mc, escudo.ModalCena) and nome_do_cartao(mc) == "Nova cena" and mc.campo.max_length == 60 and mc.campo.required
 c = submeter(mc, {mc.campo: "  Motim   na praça  "}, 700, "Mestre Belmont", CH, **MESTRE)
 cena0 = db.get_active_scene("5000"); assert cena0["name"] == "Motim na praça" and cena0["created_by"] == "700" and cena0["guild_id"] == "999" and cena0["round"] == 1
 (aviso, fk), = followups(c); assert "Cena **Motim na praça** aberta" in aviso and fk["ephemeral"] is True
-esc = editada(c)["view"]; assert esc is not None and titulo(m) == "🛡️ Escudo do Mestre" and editada(c)["embed"].title == "🛡️ Escudo do Mestre · Motim na praça"
+esc = editada(c)["view"]; assert esc is not None and titulo(m) == "Escudo do Mestre" and nome_do_cartao(editada(c)["embed"]) == "Escudo do Mestre · Motim na praça"
 assert [b.label for b in esc.children if isinstance(b, discord.ui.Button)] == ["Próximo turno", "Mostrar iniciativa", "NPC", "Atualizar", "Encerrar"] and seletor(esc) is None; confere_componentes(esc)
 mc2 = criar(escudo.ModalCena, esc); mc2.campo._value = "Outra"; c2 = ic(700, "Mestre Belmont", CH, **MESTRE); runp(mc2.on_submit(c2))
 assert "Já tem uma cena aberta neste canal" in followups(c2)[0][0] and db.get_active_scene("5000")["id"] == cena0["id"]      # uma cena por canal
@@ -1860,7 +1868,7 @@ assert [h["purpose"] for h in historico_de(701)][-1] == "iniciativa"
 
 # --- o mestre põe um NPC, e o menu de baixo aparece ---
 c = clicar(esc, "NPC", 700, "Mestre Belmont", CH, **MESTRE); mn = c.response.send_modal.call_args.args[0]
-assert isinstance(mn, escudo.ModalNpc) and mn.title == "NPC na cena" and mn.nome.max_length == 40 and mn.iniciativa.max_length == 12
+assert isinstance(mn, escudo.ModalNpc) and nome_do_cartao(mn) == "NPC na cena" and mn.nome.max_length == 40 and mn.iniciativa.max_length == 12
 c = submeter(mn, {mn.nome: "Guarda", mn.iniciativa: "abc"}, 700, "Mestre Belmont", CH, **MESTRE); assert "Iniciativa inválida" in followups(c)[0][0] and len(db.get_participants(SID)) == 1
 c = submeter(mn, {mn.nome: "Guarda", mn.iniciativa: "12"}, 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
 assert followups(c)[0][0] == "➕ **Guarda** entrou na cena com iniciativa **12** (definida pelo mestre)." and [(p["name"], p["initiative"]) for p in db.get_participants(SID)] == [("Ana Cena", 14), ("Guarda", 12)]
@@ -1869,7 +1877,7 @@ assert [o.label for o in sel.options] == ["1. Ana Cena", "2. Guarda"] and sel.op
 
 # --- o quadro público: postado uma vez, editado nas próximas, e refeito se apagarem ---
 c = clicar(esc, "Mostrar iniciativa", 700, "Mestre Belmont", CH, **MESTRE)
-kw = CH.send.call_args.kwargs; assert isinstance(kw["view"], escudo.QuadroDaCena) and kw["embed"].title == "⚔️ Motim na praça" and db.get_scene(SID)["board_message_id"] == "777"
+kw = CH.send.call_args.kwargs; assert isinstance(kw["view"], escudo.QuadroDaCena) and nome_do_cartao(kw["embed"]) == "Motim na praça" and db.get_scene(SID)["board_message_id"] == "777"
 assert "Quadro da iniciativa postado no canal" in followups(c)[0][0] and followups(c)[0][1]["ephemeral"] and CH.pm.edit.call_count == 0
 esc = editada(c)["view"]
 c = clicar(esc, "Mostrar iniciativa", 700, "Mestre Belmont", CH, **MESTRE); assert CH.send.call_count == 1 and CH.pm.edit.call_count == 1 and "Quadro atualizado" in followups(c)[0][0]      # segunda vez: edita, não posta outro
@@ -1891,7 +1899,7 @@ with dados(9): c = clicar(quadro, "Entrar na iniciativa", 702, "Beto", CH)      
 assert txt(c) == "🎲 **Beto Cena**: 1d20 = 9 + Destreza 0 = **9** de iniciativa." and sent(c)[1]["ephemeral"] and CH.pm.edit.call_count == 1
 assert "▶️" not in ultimo_quadro(CH)["embed"].description and "1. Ana Cena · 14 ⏳" in ultimo_quadro(CH)["embed"].description and "3. Beto Cena · 9 ⏳" in ultimo_quadro(CH)["embed"].description      # o quadro se atualizou sozinho
 c = clicar(quadro, "Enviar intenção", 701, "Ana", CH); mi = c.response.send_modal.call_args.args[0]
-assert isinstance(mi, escudo.ModalIntencao) and mi.title == "Sua intenção" and mi.campo.max_length == 200 and mi.campo.required and mi.campo.style == discord.TextStyle.paragraph
+assert isinstance(mi, escudo.ModalIntencao) and nome_do_cartao(mi) == "Sua intenção" and mi.campo.max_length == 200 and mi.campo.required and mi.campo.style == discord.TextStyle.paragraph
 c = submeter(mi, {mi.campo: SEGREDO}, 701, "Ana", CH); assert "Intenção de **Ana Cena** enviada pro mestre" in txt(c) and sent(c)[1]["ephemeral"]
 assert "3. Beto Cena · 9 ⏳" in ultimo_quadro(CH)["embed"].description and "1. Ana Cena · 14 📝" in ultimo_quadro(CH)["embed"].description and SEGREDO not in texto_do_quadro(CH)      # o quadro mostra 📝, e NUNCA o texto
 c = clicar(quadro, "Minha intenção", 701, "Ana", CH); assert "**Ana Cena**, rodada 1: 📝 intenção aguardando o mestre" in txt(c) and SEGREDO in txt(c) and sent(c)[1]["ephemeral"]      # só ela vê o próprio texto
@@ -1920,7 +1928,7 @@ assert "Permitir" not in [b.label for b in esc.children if isinstance(b, discord
 # negar, com motivo, num formulário; o jogador vê o motivo
 pend = [x for x in esc.children if isinstance(x, discord.ui.Select)][0]; c = inter(700, "Mestre Belmont", **MESTRE); no_canal(c, CH); pend._values = [pend.options[0].value]; runp(pend.callback(c)); esc = editada(c)["view"]
 c = clicar(esc, "Negar", 700, "Mestre Belmont", CH, **MESTRE); mg = c.response.send_modal.call_args.args[0]
-assert isinstance(mg, escudo.ModalNegar) and mg.title == "Negar a intenção" and not mg.campo.required and mg.campo.max_length == 150
+assert isinstance(mg, escudo.ModalNegar) and nome_do_cartao(mg) == "Negar a intenção" and not mg.campo.required and mg.campo.max_length == 150
 c = submeter(mg, {mg.campo: "  Ela está   longe  demais "}, 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
 assert followups(c)[0][0] == "❌ Intenção de **Beto Cena** negada: Ela está longe demais. O jogador vê o motivo em 👁 Minha intenção." and "3. Beto Cena · 9 ❌" in ultimo_quadro(CH)["embed"].description
 c = clicar(quadro, "Minha intenção", 702, "Beto", CH); assert "❌ intenção negada" in txt(c) and "Motivo do mestre: Ela está longe demais" in txt(c) and "Manda outra com `/intencao`" in txt(c)
@@ -1951,7 +1959,7 @@ i = ic(701, "Ana", CH); run(bot.intencao_comando.callback(i, "Correr")); assert 
 pt = [x for x in esc.children if isinstance(x, discord.ui.Select)][0]; c = inter(700, "Mestre Belmont", **MESTRE); no_canal(c, CH); pt._values = [pt.options[2].value]; runp(pt.callback(c)); esc = editada(c)["view"]
 assert [b.label for b in esc.children if isinstance(b, discord.ui.Button)][-2:] == ["Iniciativa", "Remover"] and [o.default for o in menu(esc, "Editar ou remover").options] == [False, False, True]
 c = clicar(esc, "Iniciativa", 700, "Mestre Belmont", CH, **MESTRE); mi2 = c.response.send_modal.call_args.args[0]
-assert isinstance(mi2, escudo.ModalIniciativa) and mi2.campo.default == "9" and mi2.title == "Iniciativa de Beto Cena"
+assert isinstance(mi2, escudo.ModalIniciativa) and mi2.campo.default == "9" and nome_do_cartao(mi2) == "Iniciativa de Beto Cena"
 c = submeter(mi2, {mi2.campo: "20"}, 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
 assert "agora é **20**" in followups(c)[0][0] and [(p["name"], p["initiative"]) for p in db.get_participants(SID)] == [("Beto Cena", 20), ("Ana Cena", 14), ("Guarda", 12)] and "1. Beto Cena · 20" in ultimo_quadro(CH)["embed"].description
 c = submeter(mi2, {mi2.campo: "zzz"}, 700, "Mestre Belmont", CH, **MESTRE); assert "Iniciativa inválida" in followups(c)[0][0] and db.get_participant(mi2.participante_id)["initiative"] == 20
@@ -1970,14 +1978,14 @@ c = clicar(ev, "Mostrar iniciativa", 700, "Mestre Belmont", canal_fake(), "5100"
 
 # --- encerrar: pede confirmação, dá pra voltar, e fecha o quadro ---
 c = clicar(esc, "Encerrar", 700, "Mestre Belmont", CH, **MESTRE); conf = editada(c)["view"]
-assert isinstance(conf, escudo.ConfirmarEncerrar) and editada(c)["embed"].title == "⛔ Encerrar Motim na praça?" and [b.label for b in conf.children] == ["Encerrar a cena", "Voltar"] and esc.is_finished() and c.followup.send.call_count == 0
+assert isinstance(conf, escudo.ConfirmarEncerrar) and nome_do_cartao(editada(c)["embed"]) == "Encerrar Motim na praça?" and [b.label for b in conf.children] == ["Encerrar a cena", "Voltar"] and esc.is_finished() and c.followup.send.call_count == 0
 assert runp(conf.interaction_check(ic(999, "Intruso", CH, **MESTRE))) is False and runp(conf.interaction_check(ic(700, "X", CH))) is False
 c = clicar(conf, "Voltar", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]; assert isinstance(esc, escudo.EscudoDoMestre) and db.get_active_scene("5000") is not None
 c = clicar(esc, "Encerrar", 700, "Mestre Belmont", CH, **MESTRE); conf = editada(c)["view"]
 CH.pm.edit.reset_mock(); c = clicar(conf, "Encerrar a cena", 700, "Mestre Belmont", CH, **MESTRE); esc = editada(c)["view"]
 assert db.get_active_scene("5000") is None and db.get_scene(SID)["active"] == 0 and "Cena **Motim na praça** encerrada" in followups(c)[0][0]
-assert ultimo_quadro(CH)["view"] is None and "(encerrada)" in ultimo_quadro(CH)["embed"].title and cena.LEGENDA not in ultimo_quadro(CH)["embed"].description       # o quadro vira registro, sem botões
-assert [b.label for b in esc.children] == ["Iniciar cena"] and editada(c)["embed"].title == "🛡️ Escudo do Mestre"
+assert ultimo_quadro(CH)["view"] is None and "(encerrada)" in nome_do_cartao(ultimo_quadro(CH)["embed"]) and cena.LEGENDA not in ultimo_quadro(CH)["embed"].description       # o quadro vira registro, sem botões
+assert [b.label for b in esc.children] == ["Iniciar cena"] and nome_do_cartao(editada(c)["embed"]) == "Escudo do Mestre"
 for cmd, args in ((bot.iniciativa_comando, ()), (bot.intencao_comando, ("Atacar",))):
     i = ic(701, "Ana", CH); run(cmd.callback(i, *args)); assert txt(i) == escudo.SEM_CENA                      # depois de encerrada, ninguém entra
 c = clicar(quadro, "Entrar na iniciativa", 702, "Beto", CH); assert txt(c) == escudo.SEM_CENA                  # nem pelo botão do quadro antigo
@@ -2346,7 +2354,7 @@ assert estado_completo(pv) == {"Ficha": ("📋", False), "Vitais": ("❤️", Tr
 assert [b.label for b in pv.children if isinstance(b, discord.ui.Button) and b.row == 2] == ["-10", "-5", "-1", "+1", "+5"] and [b.label for b in pv.children if isinstance(b, discord.ui.Button) and b.row == 3] == ["+10", "Valor exato", "Restaurar tudo"]
 assert botao(pv, "-5").style == discord.ButtonStyle.danger and botao(pv, "+5").style == discord.ButtonStyle.success
 sel = seletor(pv); assert sel.placeholder == "1. Escolhe a barra" and [(o.label, o.value, o.description, o.default) for o in sel.options] == [("Vida", "vida", "50/50", True), ("Sanidade", "sanidade", "25/25", False), ("Mana", "mana", "14/14", False), ("Estamina", "estamina", "35/35", False)]
-d = desc_de(c); assert "▶️ ❤️ **Vida** · 50/50\n" + "▰" * 10 in d and "▫️ 🧠 **Sanidade** · 25/25" in d and "▫️ 🔷 **Mana** · 14/14" in d and "▫️ ⚡ **Estamina** · 35/35" in d and "1. Escolhe a barra" not in d and "**Levou dano ou gastou mana? Escolhe a barra no menu e aperta os botões pra descer ou subir.**" in d
+d = desc_de(c); assert "▶️ ❤️ **Vida** · 50/50\n" + "▰" * 10 in d and "▫️ 🧠 **Sanidade** · 25/25" in d and "▫️ 🔷 **Mana** · 14/14" in d and "▫️ ⚡ **Estamina** · 35/35" in d and "1. Escolhe a barra" not in d and "**Fostes ferido ou esgotastes a vossa mana? Escolhei a barra no menu e apertai os botões para descer ou subir.**" in d
 # --- dano e cura ---
 c = clique(pv, "-10", 1400, "Vit"); assert vitais_de(1400, "Vital Vit")["vida"] == 10 and "▶️ ❤️ **Vida** · 40/50\n" + "▰" * 8 + "▱" * 2 in desc_de(c) and editada(c)["view"] is pv
 c = clique(pv, "-5", 1400, "Vit"); c = clique(pv, "-1", 1400, "Vit"); assert vitais_de(1400, "Vital Vit")["vida"] == 16 and "Vida** · 34/50" in desc_de(c)
@@ -2363,7 +2371,7 @@ c = clique(pv, "-5", 1400, "Vit"); assert vitais_de(1400, "Vital Vit") == {"vida
 sel = seletor(pv); sel._values = ["coragem"]; c = inter(1400, "Vit"); runp(sel.callback(c)); assert c.response.send_message.call_args.args[0] == "Não conheço essa barra. Escolhe uma do menu." and pv.selecionado == "mana"
 # --- valor exato ---
 c = clique(pv, "Valor exato", 1400, "Vit"); m = c.response.send_modal.call_args.args[0]
-assert isinstance(m, paineis.ModalValorExato) and m.title == "Mana: valor exato" and m.campo.default == "9" and m.campo.label == "Quanto de Mana você tem agora? (0 a 14)" and m.campo.required
+assert isinstance(m, paineis.ModalValorExato) and nome_do_cartao(m) == "Mana: valor exato" and m.campo.default == "9" and m.campo.label == "Quanto de Mana você tem agora? (0 a 14)" and m.campo.required
 def enviar_valor(texto): m.campo._value = texto; c = inter(1400, "Vit"); runp(m.on_submit(c)); return c
 c = enviar_valor("3"); assert vitais_de(1400, "Vital Vit")["mana"] == 11 and "Mana** · 3/14" in desc_de(c) and editada(c)["view"] is pv
 c = enviar_valor("99"); assert vitais_de(1400, "Vital Vit")["mana"] == 0 and "Mana** · 14/14" in desc_de(c)                                   # passou do máximo: fica no máximo
@@ -2393,10 +2401,10 @@ gm_ = inter(4, "Mestre Belmont", roles=["Mestre"]); jog = inter(1500, "Jogador")
 # --- /mestre ajuda: só mestre ---
 assert bot._eh_mestre in bot.mestre_ajuda.checks and bot._eh_mestre(jog) is False
 run(bot.mestre_ajuda.callback(gm_, None)); e = sent(gm_)[1]["embed"]
-assert sent(gm_)[1]["ephemeral"] and e.title == "🛡️ Ajuda do mestre" and [f.name for f in e.fields] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Habilidades e perícias", "Ajuda", "Jogadores"] and len(e) <= 6000
+assert sent(gm_)[1]["ephemeral"] and nome_do_cartao(e) == "Ajuda do mestre" and [f.name for f in e.fields] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Habilidades e perícias", "Ajuda", "Jogadores"] and len(e) <= 6000
 assert sum(f.value.count("`/mestre ") for f in e.fields) == 23 and "`/mestre sorte` mexe na sorte dos d20 de um personagem" in e.fields[2].value
-run(bot.mestre_ajuda.callback(gm_, "dar_xp")); e = sent(gm_)[1]["embed"]; assert e.title == "📖 /mestre dar_xp" and sent(gm_)[1]["ephemeral"]
-run(bot.mestre_ajuda.callback(gm_, "mestre sorte")); assert sent(gm_)[1]["embed"].title == "📖 /mestre sorte"
+run(bot.mestre_ajuda.callback(gm_, "dar_xp")); e = sent(gm_)[1]["embed"]; assert nome_do_cartao(e) == "/mestre dar_xp" and sent(gm_)[1]["ephemeral"]
+run(bot.mestre_ajuda.callback(gm_, "mestre sorte")); assert nome_do_cartao(sent(gm_)[1]["embed"]) == "/mestre sorte"
 run(bot.mestre_ajuda.callback(gm_, "corrigir")); assert txt(gm_) == "Não achei nenhum comando de mestre com \"corrigir\". Quis dizer: `/mestre corrigir_nivel`, `/mestre corrigir_magia`, `/mestre corrigir_raca`, `/mestre corrigir_estado`, `/mestre corrigir_classe`?"
 run(bot.mestre_ajuda.callback(gm_, "zzz")); assert txt(gm_) == "Não achei nenhum comando de mestre com \"zzz\". Usa `/mestre ajuda` pra ver a lista."
 assert [c.value for c in run(bot._autocomplete_comando_mestre(gm_, "xp"))] == ["dar_xp", "exportar"] and [c.name for c in run(bot._autocomplete_comando_mestre(gm_, "escudo"))] == ["/mestre escudo"]
@@ -2409,7 +2417,7 @@ for quem in (jog, gm_):
 for buscado in ("mestre dar_xp", "dar_xp", "sorte", "escudo", "mestre"):
     jog2 = inter(1500, "Jogador"); run(bot.ajuda_comando.callback(jog2, buscado)); t = txt(jog2)
     assert t.startswith(f"Não achei nenhum comando com \"{buscado}\".") and "Quis dizer" not in t and "`/mestre" not in t and t.endswith("Use `/ajuda` pra ver a lista de comandos."), buscado      # sem dica que revele os comandos
-gm2 = inter(4, "Mestre Belmont", roles=["Mestre"]); run(bot.ajuda_comando.callback(gm2, "mestre dar_xp")); assert sent(gm2)[1]["embed"].title == "📖 /mestre dar_xp"      # o mestre ainda pode por aqui
+gm2 = inter(4, "Mestre Belmont", roles=["Mestre"]); run(bot.ajuda_comando.callback(gm2, "mestre dar_xp")); assert nome_do_cartao(sent(gm2)[1]["embed"]) == "/mestre dar_xp"      # o mestre ainda pode por aqui
 jog3 = inter(1500, "Jogador"); run(bot.help_comando.callback(jog3, "mestre dar_xp")); assert txt(jog3).startswith("Não achei nenhum comando")
 # --- o grupo /mestre fica escondido de quem não tem Gerenciar servidor ---
 assert bot.ESCONDER_COMANDOS_DE_MESTRE is True and pm["default_member_permissions"] == discord.Permissions(manage_guild=True).value == 32 and pm["dm_permission"] is False
@@ -2556,7 +2564,7 @@ c = clique(painel_de(1600, "Perito", "Per"), "Habilidades", 1600, "Per"); ph = e
 assert isinstance(ph, paineis.PainelHabilidades) and nome_do_cartao(editada(c)["embed"]) == "Habilidades" and editada(c)["embed"].author.name == "Perito" and "Você ainda não criou nenhuma habilidade" in editada(c)["embed"].description
 assert estado_completo(ph) == {"Ficha": ("📋", False), "Vitais": ("❤️", False), "Perícias": ("🎯", False), "Habilidades": ("✨", True), "Criar habilidade": ("➕", False), "Usar": ("⚡", True), "Editar": ("✏️", True), "Apagar": ("🗑", True)} and selects(ph) == []; confere_componentes(ph)
 c = clique(ph, "Criar habilidade", 1600, "Per"); m = c.response.send_modal.call_args.args[0]
-assert isinstance(m, paineis.ModalHabilidade) and m.title == "Nova habilidade" and [x.label for x in m.children] == ["Nome da habilidade", "Descrição (o que é e como funciona)", "O que você quer que ela faça"]
+assert isinstance(m, paineis.ModalHabilidade) and nome_do_cartao(m) == "Nova habilidade" and [x.label for x in m.children] == ["Nome da habilidade", "Descrição (o que é e como funciona)", "O que você quer que ela faça"]
 assert [x.max_length for x in m.children] == [40, 400, 300] and all(x.required for x in m.children) and all(x.default is None for x in m.children)
 c = enviar_form(m, "", "Fogo.", "dano"); assert followups(c)[0] == ("Dá um nome pra habilidade.", {"ephemeral": True}) and db.list_abilities(PC) == []                  # erro: nada é criado
 c = enviar_form(m, "Bola de Fogo", "Uma bola de fogo.", "causa 2d8 de dano e gasta 15 de Mana"); AID = db.list_abilities(PC)[0]["id"]
@@ -2564,13 +2572,13 @@ assert followups(c)[0][0].startswith("⏳ **Bola de Fogo** foi pra fila do mestr
 assert [(o.label, o.value, o.description, str(o.emoji), o.default) for o in selects(ph)[0].options] == [("Bola de Fogo", str(AID), "aguardando o mestre", "⏳", True)] and selects(ph)[0].placeholder == "Escolhe uma habilidade"
 assert estado_completo(ph)["Usar"] == ("⚡", True) and estado_completo(ph)["Editar"] == ("✏️", False) and estado_completo(ph)["Apagar"] == ("🗑", False) and [f.name for f in editada(c)["embed"].fields] == ["Descrição", "Efeito que você pediu"]
 c = clique(ph, "Editar", 1600, "Per"); m = c.response.send_modal.call_args.args[0]
-assert m.title == "Editar habilidade" and [x.default for x in m.children] == ["Bola de Fogo", "Uma bola de fogo.", "causa 2d8 de dano e gasta 15 de Mana"]
+assert nome_do_cartao(m) == "Editar habilidade" and [x.default for x in m.children] == ["Bola de Fogo", "Uma bola de fogo.", "causa 2d8 de dano e gasta 15 de Mana"]
 c = enviar_form(m, "Bola de Fogo", "Uma bola de fogo.", "causa 2d8 de dano e gasta 5 de Mana"); assert followups(c)[0][0] == "⏳ **Bola de Fogo** voltou pra fila do mestre." and db.get_ability(AID)["effect_text"] == "causa 2d8 de dano e gasta 5 de Mana"
 
 # --- a fila do mestre ---
 m_ = GM(); runp(bot.mestre_habilidades.callback(m_)); fila = enviada(m_)
-assert bot._eh_mestre in bot.mestre_habilidades.checks and isinstance(fila, escudo.FilaDeHabilidades) and fila.origem is m_ and sent(m_)[1]["ephemeral"] and sent(m_)[1]["embed"].title == "🛡️ Habilidades dos jogadores"
-assert sent(m_)[1]["embed"].description == "⏳ **1** aguardando · 🔧 **0** em ajuste · ✅ 0 aprovadas (as mais recentes)\n\nEscolhe uma no primeiro menu."
+assert bot._eh_mestre in bot.mestre_habilidades.checks and isinstance(fila, escudo.FilaDeHabilidades) and fila.origem is m_ and sent(m_)[1]["ephemeral"] and nome_do_cartao(sent(m_)[1]["embed"]) == "Habilidades dos jogadores"
+assert sent(m_)[1]["embed"].description.endswith("⏳ **1** aguardando · 🔧 **0** em ajuste · ✅ 0 aprovadas (as mais recentes)\n\nEscolhe uma no primeiro menu.")
 assert len(selects(fila)) == 1 and not [b for b in fila.children if isinstance(b, discord.ui.Button)]; q = selects(fila)[0]
 assert q.placeholder == "1. Escolhe a habilidade" and [(o.label, o.value, str(o.emoji)) for o in q.options] == [("Bola de Fogo · Perito", str(AID), "⏳")]
 assert runp(fila.interaction_check(inter(999, "Intruso", **MESTRE_))) is False and runp(fila.interaction_check(inter(4, "Mestre Belmont"))) is False and runp(fila.interaction_check(GM())) is True      # só o dono, e só enquanto for mestre
@@ -2588,7 +2596,7 @@ escolher(fila, 2, "nenhum", 4, "Mestre Belmont", **MESTRE_); assert (fila.rascun
 escolher(fila, 3, "nenhum", 4, "Mestre Belmont", **MESTRE_); assert fila.rascunho["atributo"] is None
 # valores exatos (o que não está nos menus)
 c = clique(fila, "Valores exatos", 4, "Mestre Belmont", **MESTRE_); mv = c.response.send_modal.call_args.args[0]
-assert mv.title == "Valores exatos" and [x.default for x in mv.children] == [None, "dano", None, None] and not any(x.required for x in mv.children)
+assert nome_do_cartao(mv) == "Valores exatos" and [x.default for x in mv.children] == [None, "dano", None, None] and not any(x.required for x in mv.children)
 def enviar_valores(dado, tipo, custo, atributo):
     mv.dado._value, mv.tipo._value, mv.custo._value, mv.atributo._value = dado, tipo, custo, atributo; c = GM(); runp(mv.on_submit(c)); return c
 assert followups(enviar_valores("abc", "dano", "", ""))[0][0].startswith("Dado inválido: escreve tipo 2d8 ou 1d6+2.") and fila.rascunho["dado"] is None
@@ -2599,13 +2607,13 @@ assert editada(c)["embed"].fields[3].value == "**Custo:** ⚡ 10 de Estamina\n**
 c = enviar_valores("2d8", "dano", "mana 5", "força"); assert editada(c)["embed"].fields[3].value == "**Custo:** 🔷 5 de Mana\n**Rolagem:** dano 2d8 + Força"
 c = clique(fila, "Valores exatos", 4, "Mestre Belmont", **MESTRE_); assert [x.default for x in c.response.send_modal.call_args.args[0].children] == ["2d8", "dano", "mana 5", "Força"]      # o formulário já vem com o que está marcado
 # corrigir o texto
-c = clique(fila, "Corrigir texto", 4, "Mestre Belmont", **MESTRE_); mt = c.response.send_modal.call_args.args[0]; assert mt.title == "Corrigir a habilidade" and [x.default for x in mt.children][0] == "Bola de Fogo"
+c = clique(fila, "Corrigir texto", 4, "Mestre Belmont", **MESTRE_); mt = c.response.send_modal.call_args.args[0]; assert nome_do_cartao(mt) == "Corrigir a habilidade" and [x.default for x in mt.children][0] == "Bola de Fogo"
 mt.nome._value, mt.descricao._value, mt.efeito._value = "", "d", "e"; c = GM(); runp(mt.on_submit(c)); assert followups(c)[0][0] == "Dá um nome pra habilidade." and db.get_ability(AID)["name"] == "Bola de Fogo"
 mt.nome._value = "Bola de Fogo Maior"; mt.descricao._value = "Uma bola enorme."; mt.efeito._value = "causa 2d8 de dano"; c = GM(); runp(mt.on_submit(c))
 assert followups(c)[0][0] == "✏️ Texto de **Bola de Fogo Maior** corrigido." and db.get_ability(AID)["status"] == "pendente" and selects(fila)[0].options[0].label == "Bola de Fogo Maior · Perito"
 # aprovar
 c = clique(fila, "Aprovar", 4, "Mestre Belmont", **MESTRE_)
-assert followups(c)[0] == ("✅ **Bola de Fogo Maior** aprovada: o jogador já pode usar.", {"ephemeral": True}) and editada(c)["embed"].description.startswith("⏳ **0** aguardando · 🔧 **0** em ajuste · ✅ 1 aprovadas")
+assert followups(c)[0] == ("✅ **Bola de Fogo Maior** aprovada: o jogador já pode usar.", {"ephemeral": True}) and "⏳ **0** aguardando · 🔧 **0** em ajuste · ✅ 1 aprovadas" in editada(c)["embed"].description
 ab = db.get_ability(AID); assert (ab["status"], ab["cost_resource"], ab["cost_amount"], ab["roll_kind"], ab["roll_dice"], ab["roll_attribute"], ab["decided_by"]) == ("aprovada", "mana", 5, "dano", "2d8", "forca", "4") and fila.selecionada == AID
 with sqlite3.connect(db.DB_PATH) as cn: assert cn.execute("SELECT master_name, action, detail FROM master_actions WHERE action = 'habilidade' ORDER BY id").fetchall() == [("Mestre Belmont", "habilidade", f"aprovada: habilidade #{AID} (🔷 5 de Mana, dano 2d8 + Força)")]
 
@@ -2617,7 +2625,7 @@ ROLL_REAL = dice.roll
 dice.roll = lambda n: dice.RollResult(n, [5, 3], 0, 8)
 try: c = clique(ph, "Usar", 1600, "Per")
 finally: dice.roll = ROLL_REAL
-e = card_publico(c); assert "ephemeral" not in followups(c)[0][1] and e.title == "✨ Bola de Fogo Maior" and e.author.name == "Perito usou uma habilidade" and e.color == discord.Color.red() and e.footer.text == "jogador: Per"
+e = card_publico(c); assert "ephemeral" not in followups(c)[0][1] and nome_do_cartao(e) == "Bola de Fogo Maior" and e.author.name == "Perito usou uma habilidade" and e.color == discord.Color.red() and e.footer.text == "jogador: Per"
 assert [(f.name, f.value) for f in e.fields] == [("Custo", "🔷 -5 de Mana (sobram 9/14)"), ("Dano", "🎲 2d8: 5 + 3 + Força 3 = **11**"), ("O que ela faz", "causa 2d8 de dano")]
 assert vitais_de(1600, "Perito")["mana"] == 5 and editada(c)["view"] is ph and [(h["purpose"], h["notation"], h["total"], h["rolls_json"]) for h in historico_de(1600)][0] == ("habilidade: Bola de Fogo Maior", "2d8", 11, "[5, 3]")
 db.set_vital_lost(PC, "mana", 12)                                                                                       # sobra 2 de Mana, e a habilidade custa 5
@@ -2633,7 +2641,7 @@ assert followups(c)[0] == ("Habilidade aprovada: só o mestre muda. Fala com ele
 c = inter(1600, "Per"); runp(ph._apagar(c)); assert followups(c)[0] == ("Habilidade aprovada: só o mestre tira. Fala com ele.", {"ephemeral": True}) and db.get_ability(AID) is not None
 # pedir ajuste
 c = clique(fila, "Pedir ajuste", 4, "Mestre Belmont", **MESTRE_); mn = c.response.send_modal.call_args.args[0]
-assert mn.title == "Pedir ajuste" and mn.campo.label == "O que o jogador precisa ajustar?" and mn.campo.required and mn.campo.max_length == 200
+assert nome_do_cartao(mn) == "Pedir ajuste" and mn.campo.label == "O que o jogador precisa ajustar?" and mn.campo.required and mn.campo.max_length == 200
 mn.campo._value = "  "; c = GM(); runp(mn.on_submit(c)); assert followups(c)[0][0] == "Escreve o que o jogador precisa ajustar." and db.get_ability(AID)["status"] == "aprovada"
 mn.campo._value = "Menos dano"; c = GM(); runp(mn.on_submit(c))
 assert followups(c)[0][0] == "🔧 Pedi ajuste em **Bola de Fogo Maior**: o jogador vê a sua nota." and (db.get_ability(AID)["status"], db.get_ability(AID)["master_note"]) == ("ajuste", "Menos dano") and "🔧 **1** em ajuste" in editada(c)["embed"].description
@@ -2641,13 +2649,13 @@ ph = criar(paineis.PainelHabilidades, 1600, PC, "Per", AID); assert ("Nota do me
 assert "🔧 **Bola de Fogo Maior** · o mestre pediu ajuste" in ph.embed().description
 mf = criar(paineis.ModalHabilidade, ph, db.get_ability(AID)); c = enviar_form(mf, "Bola de Fogo Maior", "Uma bola enorme.", "causa 2d6 de dano")                  # o jogador ajusta e volta pra fila
 assert db.get_ability(AID)["status"] == "pendente" and db.get_ability(AID)["master_note"] is None
-c = escolher(fila, 0, str(AID), 4, "Mestre Belmont", **MESTRE_); assert editada(c)["embed"].description.startswith("⏳ **1** aguardando") and fila.rascunho["recurso"] == "mana" and fila.rascunho["dado"] == "2d8"      # o que o mestre tinha marcado continua gravado
+c = escolher(fila, 0, str(AID), 4, "Mestre Belmont", **MESTRE_); assert "⏳ **1** aguardando" in editada(c)["embed"].description and fila.rascunho["recurso"] == "mana" and fila.rascunho["dado"] == "2d8"      # o que o mestre tinha marcado continua gravado
 # recusar
 c = clique(fila, "Recusar", 4, "Mestre Belmont", **MESTRE_); mr = c.response.send_modal.call_args.args[0]
-assert mr.title == "Recusar habilidade" and mr.campo.label == "Motivo (opcional, o jogador vê)" and not mr.campo.required
+assert nome_do_cartao(mr) == "Recusar habilidade" and mr.campo.label == "Motivo (opcional, o jogador vê)" and not mr.campo.required
 mr.campo._value = "Não cabe na campanha"; c = GM(); runp(mr.on_submit(c))
 assert followups(c)[0][0] == "❌ **Bola de Fogo Maior** recusada." and db.get_ability(AID)["status"] == "recusada" and db.get_ability(AID)["master_note"] == "Não cabe na campanha" and fila.selecionada is None and fila.children == []
-assert editada(c)["embed"].description == "Nenhuma habilidade na fila por enquanto. Quando um jogador criar uma, ela aparece aqui."
+assert editada(c)["embed"].description.endswith("Nenhuma habilidade na fila por enquanto. Quando um jogador criar uma, ela aparece aqui.")
 ph = criar(paineis.PainelHabilidades, 1600, PC, "Per", AID); assert "❌ **Bola de Fogo Maior** · recusada" in ph.embed().description and ("Nota do mestre", "Não cabe na campanha") in [(f.name, f.value) for f in ph.embed().fields]
 assert estado_completo(ph)["Editar"] == ("✏️", False) and estado_completo(ph)["Apagar"] == ("🗑", False) and estado_completo(ph)["Usar"] == ("⚡", True)
 c = clique(ph, "Apagar", 1600, "Per"); assert followups(c)[0] == ("🗑 **Bola de Fogo Maior** foi apagada.", {"ephemeral": True}) and db.get_ability(AID) is None and ph.selecionada is None and selects(ph) == []
@@ -2677,7 +2685,7 @@ assert "ephemeral" not in kw and nome_do_cartao(kw["embed"]) == "Baptism of Bloo
 assert followups(m_) == [("📌 Postei. Fixa a mensagem no canal (o pino) pra ela ficar sempre à vista. Os botões continuam funcionando mesmo se o bot reiniciar.", {"ephemeral": True})]
 # 🆕 Criar personagem: um formulário só com o nome
 c = apertar(va, "Criar personagem", 1700, "Novata"); mn = c.response.send_modal.call_args.args[0]
-assert isinstance(mn, bot.ModalNovoPersonagem) and mn.title == "Novo personagem" and (mn.nome.label, mn.nome.min_length, mn.nome.max_length, mn.nome.required) == ("Nome do personagem", 2, 60, True)
+assert isinstance(mn, bot.ModalNovoPersonagem) and nome_do_cartao(mn) == "Novo personagem" and (mn.nome.label, mn.nome.min_length, mn.nome.max_length, mn.nome.required) == ("Nome do personagem", 2, 60, True)
 mn.nome._value = "A"; c = inter(1700, "Novata"); run(mn.on_submit(c)); assert txt(c) == "⚠️ O nome precisa ter entre 2 e 60 letras." and db.get_active_character("1700") is None
 mn.nome._value = "Aurora Reis"; c = inter(1700, "Novata"); run(mn.on_submit(c)); kw = sent(c)[1]
 assert nome_do_cartao(kw["embed"]) == "Personagem criado" and "**Aurora Reis** agora é o personagem que você está usando (1 de 3 vagas)." in kw["embed"].description and isinstance(kw["view"], paineis.PainelFicha) and kw["ephemeral"] and db.get_active_character("1700")["name"] == "Aurora Reis"
@@ -2686,7 +2694,7 @@ c = inter(1700, "Novata"); run(mn.on_submit(c)); assert txt(c) == "Você já tem
 c = apertar(va, "Minha ficha", 1700, "Novata"); kw = sent(c)[1]; assert nome_do_cartao(kw["embed"]) == "Ficha" and "Aurora Reis" in kw["embed"].description and isinstance(kw["view"], paineis.PainelFicha) and kw["ephemeral"] and kw["view"].origem is c
 c = apertar(va, "Minha ficha", 1701, "Sem Ficha"); assert txt(c) == "Você ainda não tem personagem. Aperta **🆕 Criar personagem** na mensagem de boas-vindas pra começar." and sent(c)[1]["ephemeral"]
 c = apertar(va, "Dados", 1700, "Novata"); kw = sent(c)[1]; assert isinstance(kw["view"], paineis.BandejaDados) and kw["ephemeral"]
-c = apertar(va, "Como funciona", 1700, "Novata"); kw = sent(c)[1]; assert nome_do_cartao(kw["embed"]) == "Como funciona" and kw["ephemeral"] and kw["embed"].description.count("**1.** Aperta **🆕 Criar personagem** e diz o nome.") == 1 and "/mestre" not in kw["embed"].description and len(kw["embed"]) <= 6000
+c = apertar(va, "Como funciona", 1700, "Novata"); kw = sent(c)[1]; assert nome_do_cartao(kw["embed"]) == "Como funciona" and kw["ephemeral"] and kw["embed"].description.count("**1.** Apertai **🆕 Criar personagem** e dizei o nome.") == 1 and "/mestre" not in kw["embed"].description and len(kw["embed"]) <= 6000
 # ícone de perícia com a ficha incompleta: não rola (igual ao /rolar)
 pp_inc = editada(clique(painel_de(1700, "Aurora Reis", "Novata"), "Perícias", 1700, "Novata"))["view"]
 c = rolar_icone(pp_inc, "Furtividade", 1700, "Novata")

@@ -14,6 +14,7 @@ from typing import NamedTuple
 import discord
 
 import db
+import vitrine
 import dice
 
 TAMANHO_MAX_INTENCAO = 200
@@ -281,7 +282,7 @@ def embed_quadro(cena_id: int) -> discord.Embed:
     intencoes = db.list_intentions(cena_id, cena["round"])
     encerrada = not cena["active"]
     linhas = _linhas_da_ordem(cena, partes, intencoes, mostrar_texto=False) or ["Ninguém entrou na iniciativa ainda."]
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title=f"⚔️ {cena['name']}" + (" (encerrada)" if encerrada else ""),
         description=f"**Rodada {cena['round']}**\n\n" + "\n".join(linhas) + ("" if encerrada else f"\n\n{LEGENDA}"),
         color=discord.Color.dark_grey().value if encerrada else COR_QUADRO,
@@ -298,7 +299,7 @@ def embed_escudo(cena_id: int, intencao_selecionada: int | None = None) -> disco
     intencoes = db.list_intentions(cena_id, cena["round"])
     linhas = _linhas_da_ordem(cena, partes, intencoes, mostrar_texto=True) or ["Ninguém entrou na iniciativa ainda."]
     vez = next((p["name"] for p in partes if p["id"] == cena["turn_participant_id"]), None)
-    embed = discord.Embed(
+    embed = vitrine.tela(
         title=f"🛡️ Escudo do Mestre · {cena['name']}",
         description=(
             f"**Rodada {cena['round']}** · vez de {('**' + vez + '**') if vez else 'ninguém ainda'}\n\n"
@@ -317,7 +318,7 @@ def embed_escudo(cena_id: int, intencao_selecionada: int | None = None) -> disco
 
 
 def embed_sem_cena() -> discord.Embed:
-    return discord.Embed(
+    return vitrine.tela(
         title="🛡️ Escudo do Mestre",
         description=(
             "Não tem cena aberta neste canal.\n\n"
