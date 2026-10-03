@@ -40,7 +40,7 @@ db.init_db(p); db.init_db(p)                                              # roda
 with sqlite3.connect(p) as c:
     assert c.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     tabelas = {r[0] for r in c.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%'")}
-assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes","character_disciplines","scenes","scene_participants","scene_intentions","dice_effects","character_vitals","character_skills","custom_abilities","character_skill_picks"}, tabelas
+assert tabelas == {"rolls","characters","user_state","master_actions","character_ranks","xp_log","players","deleted_characters","level_attributes","character_disciplines","scenes","scene_participants","scene_intentions","dice_effects","character_vitals","character_skills","custom_abilities","character_skill_picks","npcs","npc_skills"}, tabelas
 print("2. init_db OK")
 
 # ---------- 3. personagens ----------
@@ -503,7 +503,7 @@ print("17. Disciplinas OK")
 # ---------- 18. resultado especial (66 e 77) ----------
 p8 = novo_banco("especial.db")
 cid = db.create_character("1", "Sombra", path=p8)["id"]; G = lambda: db.get_character_by_id(cid, p8)
-assert db.SCHEMA_VERSION == 12 and (G()["race_special"], G()["social_class_special"], G()["magic_rank_special"]) == (None, None, None)
+assert db.SCHEMA_VERSION == 13 and (G()["race_special"], G()["social_class_special"], G()["magic_rank_special"]) == (None, None, None)
 db.set_race(cid, "Humano", 50, p8); assert G()["race_attempts"] == 1
 db.set_special(cid, "race", 66, p8); c = G()                                                        # rolar de novo e cair 66 troca o Humano
 assert (c["race"], c["race_roll"], c["race_set_at"], c["race_special"], c["race_attempts"]) == (None, None, None, 66, 2)
@@ -538,7 +538,7 @@ with sqlite3.connect(p7) as cn:
 with sqlite3.connect(p7) as cn: assert "race_special" not in {r[1] for r in cn.execute("PRAGMA table_info(characters)")}      # de fato é o formato antigo
 db.init_db(p7); db.init_db(p7)                                                                      # duas vezes: idempotente
 with sqlite3.connect(p7) as cn:
-    assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 12      # um banco v7 chega direto na versão atual
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION == 13      # um banco v7 chega direto na versão atual
     colunas = {r[1] for r in cn.execute("PRAGMA table_info(characters)")}
     assert {"race_special", "social_class_special", "magic_rank_special"} <= colunas
     linha = cn.execute("SELECT name, level, xp, race, race_roll, social_class, class_name, race_attempts, social_class_attempts, race_special, social_class_special, magic_rank_special FROM characters").fetchone()
@@ -591,7 +591,7 @@ with sqlite3.connect(p8) as cn:
     assert not cn.execute("SELECT 1 FROM sqlite_master WHERE name = 'dice_effects'").fetchone()               # de fato é o formato antigo
 db.init_db(p8); db.init_db(p8)                                                                              # duas vezes: idempotente
 with sqlite3.connect(p8) as cn:
-    assert cn.execute("PRAGMA user_version").fetchone()[0] == 12      # o v8 também chega direto na versão atual
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == 13      # o v8 também chega direto na versão atual
     assert "class_ability" in {r[1] for r in cn.execute("PRAGMA table_info(characters)")} and cn.execute("SELECT COUNT(*) FROM dice_effects").fetchone()[0] == 0
     linha = cn.execute("SELECT name, level, xp, race, race_roll, class_name, class_ability FROM characters").fetchone()
 assert tuple(linha) == ("Kairon Flagon", 4, 6000, "Vampiro", 90, "Mestre de Forja", None)                    # nada mudou
@@ -621,7 +621,7 @@ with sqlite3.connect(p9) as cn:
     assert not cn.execute("SELECT 1 FROM sqlite_master WHERE name = 'character_vitals'").fetchone()
 db.init_db(p9); db.init_db(p9)
 with sqlite3.connect(p9) as cn:
-    assert cn.execute("PRAGMA user_version").fetchone()[0] == 12 and cn.execute("SELECT COUNT(*) FROM character_vitals").fetchone()[0] == 0
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == 13 and cn.execute("SELECT COUNT(*) FROM character_vitals").fetchone()[0] == 0
     assert tuple(cn.execute("SELECT name, level, xp, race, class_name FROM characters").fetchone()) == ("Kairon Flagon", 4, 6000, "Vampiro", "Mestre de Forja")
 k9 = db.find_character("7", "Kairon Flagon", p9); db.set_vital_lost(k9["id"], "vida", 5, p9); assert db.get_vitals_lost(k9["id"], p9)["vida"] == 5
 print("24. migração v9 -> v10 OK")
@@ -674,7 +674,7 @@ with sqlite3.connect(p10) as cn:
     assert not cn.execute("SELECT 1 FROM sqlite_master WHERE name IN ('character_skills', 'custom_abilities')").fetchone()
 db.init_db(p10); db.init_db(p10)
 with sqlite3.connect(p10) as cn:
-    assert cn.execute("PRAGMA user_version").fetchone()[0] == 12 and cn.execute("SELECT COUNT(*) FROM character_skills").fetchone()[0] == 0 and cn.execute("SELECT COUNT(*) FROM custom_abilities").fetchone()[0] == 0
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == 13 and cn.execute("SELECT COUNT(*) FROM character_skills").fetchone()[0] == 0 and cn.execute("SELECT COUNT(*) FROM custom_abilities").fetchone()[0] == 0
     assert tuple(cn.execute("SELECT name, level, xp, race, class_name FROM characters").fetchone()) == ("Kairon Flagon", 4, 6000, "Vampiro", "Mestre de Forja")
 k10 = db.find_character("7", "Kairon Flagon", p10); db.set_skill_points(k10["id"], "Luta", 4, p10); assert db.get_skills(k10["id"], p10) == {"Luta": 4}
 print("27. migração v10 -> v11 OK")
@@ -699,8 +699,54 @@ with sqlite3.connect(p11) as cn:
     cn.execute("PRAGMA user_version = 11")
 db.init_db(p11); db.init_db(p11)
 with sqlite3.connect(p11) as cn:
-    assert cn.execute("PRAGMA user_version").fetchone()[0] == 12 and cn.execute("SELECT COUNT(*) FROM character_skill_picks").fetchone()[0] == 0
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == 13 and cn.execute("SELECT COUNT(*) FROM character_skill_picks").fetchone()[0] == 0
     assert tuple(cn.execute("SELECT name, level, class_name FROM characters").fetchone()) == ("Kairon Flagon", 4, "Mestre de Forja")
 print("28. escolha de vantagem e migração v11 -> v12 OK")
+
+# ---------- 29. NPCs e criaturas ----------
+p29 = novo_banco("npcs.db")
+n1 = db.create_npc("4", "  Guarda do Rei ", "npc", 3, {"forca": 4, "vitalidade": 3}, ["Mercenário"], "Humano", "Armadura pesada.", {"Luta": 5, "Percepção": 2}, p29)
+n = db.get_npc(n1, p29)
+assert (n["name"], n["kind"], n["species"], n["level"], n["forca"], n["vitalidade"], n["destreza"], n["classes"], n["notes"], n["created_by"]) == ("Guarda do Rei", "npc", "Humano", 3, 4, 3, 0, "Mercenário", "Armadura pesada.", "4") and n["created_at"] and n["updated_at"] >= n["created_at"]
+assert db.get_npc_skills(n1, p29) == {"Luta": 5, "Percepção": 2} and db.get_npc_lost(n1, p29) == {"vida": 0, "sanidade": 0, "mana": 0, "estamina": 0} and db.get_npc(99999, p29) is None
+n2 = db.create_npc("4", "Cerberus", "criatura", 8, {a: 6 for a in rules.ATTRIBUTES}, ["Caçador", "Mercenário", "Feiticeiros"], path=p29)
+assert [x["name"] for x in db.list_npcs(path=p29)] == ["Cerberus", "Guarda do Rei"] and [x["name"] for x in db.list_npcs("criatura", path=p29)] == ["Cerberus"] and len(db.list_npcs(limit=1, path=p29)) == 1 and db.count_npcs(p29) == 2
+db.update_npc(n1, p29, name="Capitão", level=5, alma=99, bonus_vida=50, classes="Mercenário,Caçador", notes="")
+n = db.get_npc(n1, p29); assert (n["name"], n["level"], n["alma"], n["bonus_vida"], n["classes"], n["notes"]) == ("Capitão", 5, 99, 50, "Mercenário,Caçador", "") and db.get_npc(n2, p29)["name"] == "Cerberus"    # só mexe nos campos dados
+db.update_npc(n1, p29); assert db.get_npc(n1, p29)["name"] == "Capitão"                                           # sem campos, nada acontece
+for campos in ({"name": ""}, {"name": "x" * 61}, {"kind": "deus"}, {"level": 0}, {"level": 11}, {"level": "3"}, {"forca": -1}, {"forca": 100}, {"classes": "Paladino"}, {"classes": "Caçador,Caçador"},
+               {"classes": "Caçador,Clérigo,Ladrão,Sábio"}, {"bonus_vida": 10000}, {"bonus_mana": -1000}, {"notes": "n" * 1501}, {"species": "e" * 41}, {"lost_vida": 3}, {"apelido": "x"}):
+    try: db.update_npc(n1, p29, **campos); raise SystemExit(f"deveria recusar {campos}")
+    except ValueError: pass
+assert db.get_npc(n1, p29)["name"] == "Capitão" and db.get_npc(n1, p29)["level"] == 5                             # as recusas não gravaram nada
+db.set_npc_lost(n1, "vida", 12, p29); db.set_npc_lost(n1, "mana", 3, p29); assert db.get_npc_lost(n1, p29) == {"vida": 12, "sanidade": 0, "mana": 3, "estamina": 0} and db.get_npc_lost(n2, p29)["vida"] == 0
+for args in (("coragem", 1), ("vida", -1), ("vida", "3")):
+    try: db.set_npc_lost(n1, *args, path=p29); raise SystemExit(f"deveria recusar {args}")
+    except ValueError: pass
+db.reset_npc_lost(n1, p29); assert db.get_npc_lost(n1, p29) == {k: 0 for k in rules.VITAL_KEYS}
+db.set_npc_skills(n1, {"Luta": 30, "Tática": 0, "Furtividade": 4}, p29); assert db.get_npc_skills(n1, p29) == {"Luta": 30, "Furtividade": 4}        # troca tudo; 0 sai
+for ruim in ({"Voar": 1}, {"Luta": 31}, {"Luta": -1}, {"Luta": "2"}):
+    try: db.set_npc_skills(n1, ruim, p29); raise SystemExit(f"deveria recusar {ruim}")
+    except ValueError: pass
+assert db.get_npc_skills(n1, p29) == {"Luta": 30, "Furtividade": 4}
+for ruim in (dict(name="", kind="npc"), dict(name="A", kind="x"), dict(name="A", level=11)):
+    try: db.create_npc("4", path=p29, **ruim); raise SystemExit(f"deveria recusar {ruim}")
+    except ValueError: pass
+assert db.count_npcs(p29) == 2
+db.delete_npc(n1, p29); assert db.get_npc(n1, p29) is None and db.get_npc_skills(n1, p29) == {} and db.count_npcs(p29) == 1                                   # apagar leva as perícias junto
+print("29. NPCs OK")
+
+# ---------- 30. migração v12 -> v13 ----------
+p12 = novo_banco("v12_real.db")
+with sqlite3.connect(p12) as cn:
+    cn.execute("DROP TABLE npcs"); cn.execute("DROP TABLE npc_skills")
+    cn.execute("INSERT INTO characters (user_id, name, name_key, created_at, level, xp, race, class_name) VALUES ('7', 'Kairon Flagon', 'kairon flagon', '2026-09-18T00:00:00+00:00', 4, 6000, 'Vampiro', 'Mestre de Forja')")
+    cn.execute("PRAGMA user_version = 12")
+db.init_db(p12); db.init_db(p12)
+with sqlite3.connect(p12) as cn:
+    assert cn.execute("PRAGMA user_version").fetchone()[0] == 13 and cn.execute("SELECT COUNT(*) FROM npcs").fetchone()[0] == 0 and cn.execute("SELECT COUNT(*) FROM npc_skills").fetchone()[0] == 0
+    assert tuple(cn.execute("SELECT name, level, class_name FROM characters").fetchone()) == ("Kairon Flagon", 4, "Mestre de Forja")
+assert db.create_npc("4", "Novo", path=p12) and db.count_npcs(p12) == 1
+print("30. migração v12 -> v13 OK")
 
 print("\nTODOS OS TESTES DO BANCO PASSARAM")

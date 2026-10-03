@@ -576,4 +576,26 @@ with tempfile.TemporaryDirectory() as vazia:                                    
     finally: vitrine.PASTA_IMAGENS = pasta
 print("20. gifs do Tenor OK")
 
+# ---------- 21. as perícias especiais na aba Perícias, e a vitrine dos NPCs ----------
+ATR2 = {"forca": 3, "destreza": 2, "vitalidade": 3, "razao": 1, "vontade": 2, "alma": 1}
+sem_ranks = vitrine.embed_rolar_pericias("K", {}, ATR2, "Caçador", ["Luta"], "normal", None)
+assert "Perícias especiais" not in sem_ranks.description                                                         # sem os Ranks, a tela é a de antes
+com_ranks = vitrine.embed_rolar_pericias("K", {}, ATR2, "Caçador", ["Luta"], "normal", None, ranks={"Ritualismo": 3, "Fé": 10}); confere_limites(com_ranks)
+assert "\n\n✨ **Perícias especiais** (o mestre concede o Rank)\n" + f"📿 **Ritualismo** 3/10 {rules.bar(3, 10)}\n⚗️ **Alquimia** 0/10 {rules.bar(0, 10)}\n🔨 **Forja** 0/10 {rules.bar(0, 10)}\n🍲 **Culinária** 0/10 {rules.bar(0, 10)}\n✝️ **Fé** 10/10 {rules.bar(10, 10)}" in com_ranks.description
+assert com_ranks.description.endswith("\n🔮 Magias que podeis criar: **3** (igual ao Rank em Ritualismo)") and vitrine.embed_rolar_pericias("K", {}, ATR2, None, [], "normal", None, ranks={}).description.endswith("**0** (igual ao Rank em Ritualismo)")
+assert [l for l in com_ranks.description.split("\n") if " · " in l and "**" in l].__len__() == 18                  # as 18 perícias comuns continuam sendo as únicas linhas com " · "
+assert [vitrine.estado_em_palavras(a, 100) for a in (100, 99, 61, 60, 31, 30, 1, 0)] == ["ileso", "arranhado", "arranhado", "ferido", "ferido", "gravemente ferido", "gravemente ferido", "caído"] and vitrine.estado_em_palavras(0, 0) == "caído"
+import sqlite3 as _sq3
+npc_fake = {"id": 7, "name": "Cerberus", "kind": "criatura", "species": "Demônio", "level": 8, "classes": "Mercenário,Caçador", "notes": "Três cabeças.", "bonus_vida": 0, "bonus_sanidade": 0, "bonus_mana": 0, "bonus_estamina": 0, **{a: 5 for a in rules.ATTRIBUTES}}
+rec = rules.npc_resources({a: 5 for a in rules.ATTRIBUTES}, 8, ["Mercenário", "Caçador"]); perd = {"vida": 100, "sanidade": 0, "mana": 0, "estamina": 0}
+en = vitrine.embed_npc(npc_fake, rec, perd, {"Luta": 8, "Furtividade": 2}); confere_limites(en)
+assert rotulo(en) == "Cerberus" and "**Criatura · Demônio · nível 8 · Mercenário + Caçador**" in en.description and en.footer.text == "Só os mestres veem esta ficha · Criatura #7" and [(f.name, f.value) for f in en.fields] == [("📝 Notas", "Três cabeças.")]
+assert f"▶️ ❤️ **Vida** · {rec['vida']['total'] - 100}/{rec['vida']['total']}\n" in en.description and "🧬 Força 5 · Destreza 5 · Vitalidade 5 · Razão 5 · Vontade 5 · Alma 5" in en.description and "🎯 ⚔️ Luta 8 · 🥷 Furtividade 2" in en.description and en.color == discord.Color.dark_green()
+assert "sem perícias" in vitrine.embed_npc(npc_fake, rec, perd, {}).description and vitrine.embed_npc({**npc_fake, "notes": ""}, rec, perd, {}).fields == [] and "(bônus +40)" in vitrine.embed_npc({**npc_fake, "bonus_vida": 40}, rec, perd, {}).description
+assert vitrine.embed_npc(npc_fake, rec, {**perd, "vida": rec["vida"]["total"]}, {}).color == discord.Color.dark_grey() and vitrine.embed_npc(npc_fake, rec, {**perd, "vida": rec["vida"]["total"] - 5}, {}).color == discord.Color.red()
+vazio_npcs = vitrine.embed_livro_de_npcs([]); assert rotulo(vazio_npcs) == "NPCs e criaturas" and "Nenhum NPC ainda. Aperta **🧑 Novo NPC** ou **🐺 Nova criatura**" in vazio_npcs.description and vazio_npcs.footer.text == "0 na lista (os mais mexidos primeiro)"
+ce = vitrine.cartao_estado_do_npc(npc_fake, rec, {**perd, "vida": rec["vida"]["total"]}); assert "**caído**" in ce.embed.description and ce.embed.color == discord.Color.dark_grey() and ce.arquivos == []
+pm = vitrine.embed_painel_do_mestre(); confere_limites(pm); assert rotulo(pm) == "Painel do mestre" and all(c in pm.description for c in ("`/mestre rank_pericia`", "NPCs e criaturas", "`/mestre escudo`", "`/mestre ajuda`"))
+print("21. perícias especiais e vitrine dos NPCs OK")
+
 print("\nTODOS OS TESTES DA VITRINE PASSARAM")

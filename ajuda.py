@@ -291,6 +291,29 @@ AJUDA = {
         ),
         "requisito": "Só mestres.",
     },
+    "mestre painel": {
+        "grupo": "mestre",
+        "resumo": "o painel do mestre: onde está cada ferramenta",
+        "uso": "/mestre painel",
+        "detalhes": (
+            "Abre uma tela só sua que organiza as ferramentas da mesa por assunto (jogadores, perícias especiais, "
+            "habilidades, NPCs, cena, sorte) e diz qual comando usar em cada uma. Tem botões pra abrir a fila de "
+            "habilidades, o livro de NPCs e esta ajuda. Se estiver perdido, começa por aqui."
+        ),
+        "requisito": "Só mestres.",
+    },
+    "mestre npcs": {
+        "grupo": "mestre",
+        "resumo": "o livro de NPCs e criaturas",
+        "uso": "/mestre npcs",
+        "detalhes": (
+            "Abre o livro de NPCs e criaturas, só seu. Cria um por modelo (Ralé, Soldado, Veterano, Elite, Chefe ou Lenda) "
+            "e ajusta o que quiser: nível de 1 a 10, atributos sem limite, até 3 classes (o bônus de cada uma soma), perícias, "
+            "notas e o bônus manual de Vida, Sanidade, Mana e Estamina. As barras sobem e descem por botão. Rolar faz o "
+            "teste de perícia pelo NPC, só pra você ou no canal, e No canal mostra a vida da criatura em palavras, sem número."
+        ),
+        "requisito": "Só mestres.",
+    },
     "mestre comecar_aqui": {
         "grupo": "mestre",
         "resumo": "posta a mensagem de boas-vindas com botões",
@@ -491,6 +514,7 @@ MESTRE_SUBGRUPOS = [
     ("Sorteios", ["apagar", "corrigir_magia", "corrigir_raca", "corrigir_estado"]),
     ("Cena", ["escudo"]),
     ("Habilidades e perícias", ["habilidades", "pericia"]),
+    ("Mesa", ["painel", "npcs"]),
     ("Ajuda", ["ajuda", "comecar_aqui"]),
     ("Jogadores", ["jogador", "vagas", "excluir_personagem", "apagar_historico", "exportar"]),
 ]

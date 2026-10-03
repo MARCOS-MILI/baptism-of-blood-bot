@@ -797,7 +797,8 @@ class PainelPericias(_Painel):
 
     def embed(self) -> discord.Embed:
         char, pontos, escolhidas, _ = self._dados()
-        return vitrine.embed_rolar_pericias(char["name"], pontos, db.attributes_of(char), char["class_name"], escolhidas, self.modo, self.atributo, self.jogador)
+        return vitrine.embed_rolar_pericias(char["name"], pontos, db.attributes_of(char), char["class_name"], escolhidas, self.modo, self.atributo, self.jogador,
+                                            ranks=db.get_skill_ranks(char["id"]))
 
     def _montar(self) -> None:
         self.clear_items()

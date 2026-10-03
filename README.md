@@ -163,6 +163,14 @@ Como funciona: `vitrine.tela(title=..., description=..., color=...)` recebe o t�
 
 **Ficam de fora, de propósito:** os cartões de rolagem de dado (saem dezenas de vezes por cena e o cabeçalho empurraria o chat), o resultado especial dos sorteios (66, 77 e o 100, que são cartões cifrados) e os formulários e botões, que o Discord não deixa enfeitar. Os emojis (`cruz2`, `cruz6`...) só aparecem em servidores onde o bot tem acesso a eles; nos outros viram `:cruz2:`.
 
+## O painel do mestre e os NPCs e criaturas
+
+`/mestre painel` abre uma tela só do mestre que organiza as ferramentas por assunto (jogadores, perícias especiais, habilidades, NPCs, cena, sorte) e diz qual comando usar em cada uma, com botões pra fila de habilidades, o livro de NPCs e a ajuda.
+
+`/mestre npcs` abre o **livro de NPCs e criaturas** (só os mestres veem). Cria um por modelo de partida (Ralé, Soldado, Veterano, Elite, Chefe ou Lenda, todos mais fortes que a ralé menos a própria ralé; os números estão em `rules.NPC_TEMPLATES` e dá pra editar) ou do zero, e a ficha é automática: nível de 1 a 10, atributos de 0 a 99 (sem o limite dos jogadores), perícias com até 30 pontos, **até 3 classes** (o bônus de cada uma soma), notas e um **bônus manual** em Vida, Sanidade, Mana e Estamina (é assim que se aumenta a vida de um chefe). As barras sobem e descem por botão, como as dos jogadores. **Rolar** faz o teste de perícia pelo NPC, só pro mestre ou no canal, e **No canal** mostra a vida da criatura em palavras ("ferido"), sem número. A lógica fica em `npcs.py` (sem Discord), as telas em `mesa.py`, e as tabelas são `npcs` e `npc_skills` (esquema 13).
+
+As **perícias especiais** (Ritualismo, Alquimia, Forja, Culinária e Fé, Rank de 0 a 10) aparecem na aba Perícias do jogador, junto com quantas magias ele pode criar (igual ao Rank em Ritualismo). O mestre concede o Rank com `/mestre rank_pericia`.
+
 ## Imagens por link (gifs do Tenor)
 
 `IMAGENS_URL` no `lore.py` guarda links diretos de imagem (o que termina em `.gif`; a página `/view/` do Tenor não serve). Quando o bot liga, ele **baixa** cada link em segundo plano, confere nos primeiros bytes que é mesmo uma imagem (até 8 MB) e anexa o arquivo no cartão, porque o Discord às vezes não mostra imagem de link. A ordem no cartão é: o que foi baixado, depois a imagem parada de `assets/`, depois o link. O que aconteceu com cada link vai pro log (`[imagens] raca-humano: ok (...)` ou `falhou: ...`). `BAIXAR_IMAGENS=0` desliga o download.

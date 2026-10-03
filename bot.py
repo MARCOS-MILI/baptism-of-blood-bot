@@ -50,6 +50,7 @@ import ajuda
 import db
 import dice
 import escudo
+import mesa
 import paineis
 import rules
 import vitrine
@@ -2341,6 +2342,22 @@ async def mestre_pericia(
     await interaction.response.send_message(
         f"🎯 **{char['name']}**: {pericia} foi de {antes} pra **{pontos}**. Pontos livres agora: **{livres}**.", ephemeral=True
     )
+
+
+@mestre_grupo.command(name="painel", description="O painel do mestre: onde está cada ferramenta da mesa, num lugar só.")
+@app_commands.check(_eh_mestre)
+async def mestre_painel(interaction: discord.Interaction):
+    painel = mesa.PainelDoMestre(interaction.user.id)
+    await interaction.response.send_message(embed=painel.embed(), view=painel, ephemeral=True)
+    painel.origem = interaction
+
+
+@mestre_grupo.command(name="npcs", description="O livro de NPCs e criaturas: cria, edita e acompanha a vida de cada um.")
+@app_commands.check(_eh_mestre)
+async def mestre_npcs(interaction: discord.Interaction):
+    livro = mesa.LivroDeNpcs(interaction.user.id)
+    await interaction.response.send_message(embed=livro.embed(), view=livro, ephemeral=True)
+    livro.origem = interaction
 
 
 @mestre_grupo.command(name="comecar_aqui", description="Posta no canal a mensagem de boas-vindas com os botões (criar personagem, ficha, dados).")

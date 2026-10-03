@@ -153,6 +153,7 @@ def level_table_lines(current_level: int | None = None, race: str | None = None,
 # Perícias especiais (Rank de 0 a 10, concedido pelos mestres)
 # ---------------------------------------------------------------------------
 SPECIAL_SKILLS = ["Ritualismo", "Alquimia", "Forja", "Culinária", "Fé"]
+SPECIAL_SKILL_ICONS = {"Ritualismo": "📿", "Alquimia": "⚗️", "Forja": "🔨", "Culinária": "🍲", "Fé": "✝️"}
 MAX_SKILL_RANK = 10
 
 
@@ -270,6 +271,56 @@ def calculate_resources(*, vitalidade: int, forca: int, vontade: int, alma: int,
         }
         for nome in por_nivel
     }
+
+
+# ---------------------------------------------------------------------------
+# NPCs e criaturas (só os mestres usam): nível de 1 a 10, atributos sem limite, até 3 classes, bônus manual de recursos
+# ---------------------------------------------------------------------------
+NPC_KINDS = ("npc", "criatura")
+NPC_KIND_LABELS = {"npc": "NPC", "criatura": "Criatura"}
+NPC_MAX_CLASSES = 3
+NPC_MAX_ATTRIBUTE = 99
+NPC_MAX_SKILL = 30
+NPC_BONUS_MIN, NPC_BONUS_MAX = -999, 9999
+NPC_NOTES_MAX = 1500
+NPC_NAME_MAX = 60
+NPC_SPECIES_MAX = 40
+# Modelos de partida: o mestre cria por um deles e ajusta o que quiser depois. O primeiro é a ralé; os outros são
+# mais fortes do que ela.
+NPC_TEMPLATES = {
+    "Ralé": {"level": 1, "attributes": {"forca": 1, "destreza": 1, "vitalidade": 2, "razao": 0, "vontade": 0, "alma": 0}, "classes": [],
+             "skills": {"Luta": 1}, "notes": "Gente comum de pouca coragem: foge ao primeiro sinal de perigo."},
+    "Soldado": {"level": 2, "attributes": {"forca": 2, "destreza": 2, "vitalidade": 2, "razao": 1, "vontade": 1, "alma": 0}, "classes": ["Mercenário"],
+                "skills": {"Luta": 3, "Pontaria": 2, "Percepção": 2}, "notes": ""},
+    "Veterano": {"level": 4, "attributes": {"forca": 3, "destreza": 3, "vitalidade": 3, "razao": 2, "vontade": 2, "alma": 1}, "classes": ["Mercenário"],
+                 "skills": {"Luta": 5, "Pontaria": 4, "Tática": 3, "Percepção": 3, "Intimidação": 3}, "notes": ""},
+    "Elite": {"level": 6, "attributes": {"forca": 4, "destreza": 4, "vitalidade": 4, "razao": 3, "vontade": 3, "alma": 2}, "classes": ["Caçador"],
+              "skills": {"Luta": 6, "Pontaria": 5, "Furtividade": 4, "Percepção": 5, "Tática": 4}, "notes": ""},
+    "Chefe": {"level": 8, "attributes": {"forca": 5, "destreza": 5, "vitalidade": 5, "razao": 4, "vontade": 4, "alma": 3}, "classes": ["Mercenário", "Caçador"],
+              "skills": {"Luta": 8, "Pontaria": 6, "Intimidação": 6, "Tática": 6, "Percepção": 6}, "notes": ""},
+    "Lenda": {"level": 10, "attributes": {"forca": 7, "destreza": 7, "vitalidade": 7, "razao": 5, "vontade": 5, "alma": 5}, "classes": ["Mercenário", "Caçador", "Feiticeiros"],
+              "skills": {"Luta": 10, "Pontaria": 8, "Intimidação": 8, "Tática": 8, "Percepção": 8, "Ocultismo": 6}, "notes": ""},
+}
+
+
+def npc_resources(attributes: dict[str, int], level: int, classes: list[str],
+                  bonus: dict[str, int] | None = None) -> dict[str, dict[str, int]]:
+    """Vida, Sanidade, Mana e Estamina de um NPC, na mesma forma dos recursos dos personagens. O atributo vale em
+    todos os níveis; o bônus de CADA classe entra uma vez; o 'bonus' manual do mestre soma por cima. Vida nunca
+    fica abaixo de 1, e os outros recursos nunca abaixo de 0."""
+    if not 1 <= level <= MAX_LEVEL:
+        raise ValueError(f"Nível fora de 1 a {MAX_LEVEL}: {level}")
+    desconhecidas = [c for c in classes if c not in CLASSES]
+    if desconhecidas:
+        raise ValueError(f"Classe desconhecida: {desconhecidas[0]}")
+    por_nivel = _base_por_nivel(attributes["vitalidade"], attributes["forca"], attributes["vontade"], attributes["alma"])
+    bonus = bonus or {}
+    saida = {}
+    for nome, valor in por_nivel.items():
+        extra = sum(CLASSES[c][nome] for c in classes) + bonus.get(nome, 0)
+        total = max(1 if nome == "vida" else 0, valor * level + extra)
+        saida[nome] = {"por_nivel": valor, "base": valor * level, "bonus": extra, "total": total}
+    return saida
 
 
 def calculate_resources_by_level(attributes_per_level: list[dict[str, int]],

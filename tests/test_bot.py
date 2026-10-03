@@ -24,6 +24,7 @@ os.environ["BAIXAR_IMAGENS"] = "0"      # o teste nunca mexe na rede: o download
 import bot
 import db
 import habil
+import npcs
 import dice
 import lore
 import paineis
@@ -109,7 +110,7 @@ pay = {n: c.to_dict(bot.bot.tree) for n, c in raiz.items()}
 opt = lambda cmd, nome: next(o for o in cmd["options"] if o["name"] == nome)
 sub_ = lambda g, n: next(o for o in pay[g]["options"] if o["name"] == n)
 assert sorted(o["name"] for o in pay["personagem"]["options"]) == ["criar","excluir","listar","usar"]
-assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","sorte","ajuda","habilidades","pericia","comecar_aqui","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
+assert sorted(o["name"] for o in pay["mestre"]["options"]) == sorted(["apagar","apagar_historico","atributos","corrigir_classe","disciplina","escudo","sorte","ajuda","habilidades","pericia","comecar_aqui","painel","npcs","corrigir_estado","corrigir_magia","corrigir_nivel","corrigir_raca","dar_xp","excluir_personagem","exportar","ficha","jogador","rank_pericia","upar","vagas"])
 req = lambda opts: {o["name"] for o in opts if o.get("required")}
 assert req(pay["rolar"]["options"]) == {"dado"} and req(pay["raca_inicial"].get("options", [])) == set()
 assert req(sub_("mestre", "dar_xp")["options"]) == {"usuario", "quantidade"}
@@ -195,7 +196,7 @@ print("B. fluxo básico OK")
 # ============================ C. mestre: permissão e correções ============================
 assert bot._eh_mestre(inter(2,"Zé", admin=True)) and bot._eh_mestre(inter(2,"Zé", manage=True))
 assert bot._eh_mestre(inter(2,"Zé", roles=["mestre"])) and not bot._eh_mestre(inter(2,"Zé", roles=["Jogador"])) and not bot._eh_mestre(inter(2,"Zé"))
-todos = list(bot.mestre_grupo.commands); assert len(todos) == 23
+todos = list(bot.mestre_grupo.commands); assert len(todos) == 25
 for c in todos:                                                     # TODOS os comandos de mestre barram quem não é mestre
     p = inter(3, "Intruso")
     assert run(c._check_can_run(p)) is False, c.name
@@ -2401,8 +2402,8 @@ gm_ = inter(4, "Mestre Belmont", roles=["Mestre"]); jog = inter(1500, "Jogador")
 # --- /mestre ajuda: só mestre ---
 assert bot._eh_mestre in bot.mestre_ajuda.checks and bot._eh_mestre(jog) is False
 run(bot.mestre_ajuda.callback(gm_, None)); e = sent(gm_)[1]["embed"]
-assert sent(gm_)[1]["ephemeral"] and nome_do_cartao(e) == "Ajuda do mestre" and [f.name for f in e.fields] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Habilidades e perícias", "Ajuda", "Jogadores"] and len(e) <= 6000
-assert sum(f.value.count("`/mestre ") for f in e.fields) == 23 and "`/mestre sorte` mexe na sorte dos d20 de um personagem" in e.fields[2].value
+assert sent(gm_)[1]["ephemeral"] and nome_do_cartao(e) == "Ajuda do mestre" and [f.name for f in e.fields] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Habilidades e perícias", "Mesa", "Ajuda", "Jogadores"] and len(e) <= 6000
+assert sum(f.value.count("`/mestre ") for f in e.fields) == 25 and "`/mestre sorte` mexe na sorte dos d20 de um personagem" in e.fields[2].value
 run(bot.mestre_ajuda.callback(gm_, "dar_xp")); e = sent(gm_)[1]["embed"]; assert nome_do_cartao(e) == "/mestre dar_xp" and sent(gm_)[1]["ephemeral"]
 run(bot.mestre_ajuda.callback(gm_, "mestre sorte")); assert nome_do_cartao(sent(gm_)[1]["embed"]) == "/mestre sorte"
 run(bot.mestre_ajuda.callback(gm_, "corrigir")); assert txt(gm_) == "Não achei nenhum comando de mestre com \"corrigir\". Quis dizer: `/mestre corrigir_nivel`, `/mestre corrigir_magia`, `/mestre corrigir_raca`, `/mestre corrigir_estado`, `/mestre corrigir_classe`?"
@@ -2717,5 +2718,128 @@ try:
 finally:
     os.environ["BAIXAR_IMAGENS"] = "0"; bot.vitrine.baixar_imagens = baixar_real; bot.bot.add_view = add_view_real; bot._tarefas_de_fundo.clear()
 print("AB. Comece aqui OK")
+
+# ============================ AC. o painel do mestre, o livro de NPCs e criaturas, e as perícias especiais ============================
+mesa = bot.mesa
+# --- o painel do mestre ---
+m_ = GM(); runp(bot.mestre_painel.callback(m_)); pm = enviada(m_); e = sent(m_)[1]["embed"]
+assert bot._eh_mestre in bot.mestre_painel.checks and isinstance(pm, mesa.PainelDoMestre) and sent(m_)[1]["ephemeral"] and pm.origem is m_ and nome_do_cartao(e) == "Painel do mestre"
+assert "`/mestre rank_pericia`" in e.description and "Ritualismo, Alquimia, Forja, Culinária e Fé" in e.description and "`/mestre escudo`" in e.description and "`/mestre sorte`" in e.description
+assert [b.label for b in pm.children] == ["Habilidades", "NPCs e criaturas", "Ajuda do mestre"] and runp(pm.interaction_check(inter(999, "Intruso", **MESTRE_))) is False and runp(pm.interaction_check(inter(4, "Sem Cargo"))) is False
+c = clique(pm, "Ajuda do mestre", 4, "Mestre Belmont", **MESTRE_); assert nome_do_cartao(sent(c)[1]["embed"]) == "Ajuda do mestre" and sent(c)[1]["ephemeral"] and not pm.is_finished()
+c = clique(pm, "Habilidades", 4, "Mestre Belmont", **MESTRE_); assert isinstance(editada(c)["view"], escudo.FilaDeHabilidades) and pm.is_finished()
+pm2 = criar(mesa.PainelDoMestre, 4); c = clique(pm2, "NPCs e criaturas", 4, "Mestre Belmont", **MESTRE_); livro = editada(c)["view"]
+# --- o livro vazio e criar NPCs ---
+assert isinstance(livro, mesa.LivroDeNpcs) and nome_do_cartao(editada(c)["embed"]) == "NPCs e criaturas" and "Nenhum NPC ainda." in editada(c)["embed"].description and selects(livro) == []
+assert [b.label for b in livro.children] == ["Novo NPC", "Nova criatura", "Painel do mestre"] and all(b.row == 1 for b in livro.children); confere_componentes(livro)
+c = clique(livro, "Novo NPC", 4, "Mestre Belmont", **MESTRE_); mn = c.response.send_modal.call_args.args[0]
+assert isinstance(mn, mesa.ModalNovoNpc) and mn.title == "Novo NPC" and [x.label for x in mn.children] == ["Nome", "Modelo de partida", "Nível (1 a 10, vazio = o do modelo)", "Espécie (opcional)"]
+assert mn.modelo.default == "Soldado" and [x.required for x in mn.children] == [True, False, False, False]
+def enviar_npc(m, nome, modelo, nivel="", especie=""):
+    m.nome._value, m.modelo._value, m.nivel._value, m.especie._value = nome, modelo, nivel, especie; c = GM(); runp(m.on_submit(c)); return c
+assert txt(enviar_npc(mn, "Fulano", "Zumbi")) == 'Não existe o modelo "Zumbi". Os modelos: Ralé, Soldado, Veterano, Elite, Chefe, Lenda.'
+assert txt(enviar_npc(mn, "Fulano", "Soldado", "11")) == "Nível vai de 1 a 10." and txt(enviar_npc(mn, "Fulano", "Soldado", "abc")) == "Nível: escreve só um número, tipo 12 ou -5." and txt(enviar_npc(mn, "  ", "Soldado")) == "Dá um nome ao NPC."
+assert db.count_npcs() == 0                                                                                       # as recusas não criaram nada
+c = enviar_npc(mn, "  Capitão Dubois ", "veterano", "", "Humano"); cap = editada(c)["view"]; CAP = cap.npc_id
+assert isinstance(cap, mesa.PainelNpc) and livro.is_finished() and editada(c)["view"] is cap
+npc = db.get_npc(CAP); assert (npc["name"], npc["kind"], npc["species"], npc["level"], npc["classes"], npc["created_by"]) == ("Capitão Dubois", "npc", "Humano", 4, "Mercenário", "4") and db.get_npc_skills(CAP) == {"Luta": 5, "Pontaria": 4, "Tática": 3, "Percepção": 3, "Intimidação": 3}
+l2 = criar(mesa.LivroDeNpcs, 4); c = clique(l2, "Nova criatura", 4, "Mestre Belmont", **MESTRE_); mc = c.response.send_modal.call_args.args[0]; assert mc.title == "Nova criatura"
+c = enviar_npc(mc, "Cerberus", "CHEFE", "10", "Demônio"); CER = editada(c)["view"].npc_id; n2 = db.get_npc(CER); assert (n2["kind"], n2["level"], n2["species"], n2["classes"]) == ("criatura", 10, "Demônio", "Mercenário,Caçador")     # o nível digitado vale mais que o do modelo
+c = enviar_npc(mc, "Ralé qualquer", "", ""); assert db.get_npc(editada(c)["view"].npc_id)["level"] == 2                                                                                 # modelo vazio = Soldado
+# --- o livro com NPCs ---
+l3 = criar(mesa.LivroDeNpcs, 4); em = l3.embed(); assert nome_do_cartao(em) == "NPCs e criaturas" and "🐺 **Ralé qualquer** · nível 2 · ❤️ 50/50" in em.description and "🐺 **Cerberus** · nível 10 · ❤️ 315/315" in em.description and "🧑 **Capitão Dubois** · nível 4 · ❤️ 90/90" in em.description
+assert [(o.label, str(o.emoji), o.description) for o in selects(l3)[0].options] == [("Ralé qualquer", "🐺", "Criatura · nível 2"), ("Cerberus", "🐺", "Criatura · nível 10"), ("Capitão Dubois", "🧑", "NPC · nível 4")] and selects(l3)[0].placeholder == "Escolhe um pra abrir a ficha"
+c = escolher(l3, 0, str(CAP), 4, "Mestre Belmont", **MESTRE_); cap = editada(c)["view"]; assert isinstance(cap, mesa.PainelNpc) and cap.npc_id == CAP and l3.is_finished()
+# --- a ficha: barras ---
+e = editada(c)["embed"]; assert nome_do_cartao(e) == "Capitão Dubois" and "**NPC · Humano · nível 4 · Mercenário**" in e.description and "▶️ ❤️ **Vida** · 90/90\n" + "▰" * 10 in e.description and e.footer.text == f"Só os mestres veem esta ficha · NPC #{CAP}"; confere_componentes(cap)
+assert {b.label for b in cap.children if isinstance(b, discord.ui.Button)} == {"-10", "-5", "-1", "+1", "+5", "+10", "Valor exato", "Restaurar", "Bônus", "Rolar", "Dados", "Atributos", "Perícias", "Notas", "Apagar", "Lista", "No canal"}
+assert [(o.label, o.description, o.default) for o in selects(cap)[0].options] == [("Vida", "90/90", True), ("Sanidade", "60/60", False), ("Mana", "41/41", False), ("Estamina", "92/92", False)]
+for rot in ("-10", "-5", "-1"): c = clique(cap, rot, 4, "Mestre Belmont", **MESTRE_)
+assert db.get_npc_lost(CAP)["vida"] == 16 and "Vida** · 74/90" in editada(c)["embed"].description and editada(c)["view"] is cap
+for rot in ("+10", "+5", "+1"): c = clique(cap, rot, 4, "Mestre Belmont", **MESTRE_)
+assert db.get_npc_lost(CAP)["vida"] == 0
+for _ in range(10): c = clique(cap, "-10", 4, "Mestre Belmont", **MESTRE_)
+assert db.get_npc_lost(CAP)["vida"] == 90 and "Vida** · 0/90" in editada(c)["embed"].description and editada(c)["embed"].color == discord.Color.dark_grey()          # dano para no 0
+c = clique(cap, "Valor exato", 4, "Mestre Belmont", **MESTRE_); mv = c.response.send_modal.call_args.args[0]; assert mv.title == "Vida: valor exato" and mv.campo.default == "0" and mv.campo.label == "Quanto de Vida agora? (0 a 90)"
+def valor_npc(texto): mv.campo._value = texto; c = GM(); runp(mv.on_submit(c)); return c
+assert "Vida** · 45/90" in editada(valor_npc("45"))["embed"].description and txt(valor_npc("abc")) == "Escreve só um número, tipo 12." and db.get_npc_lost(CAP)["vida"] == 45
+assert "Vida** · 90/90" in editada(valor_npc("999"))["embed"].description
+c = escolher(cap, 0, "mana", 4, "Mestre Belmont", **MESTRE_); assert cap.selecionado == "mana" and [o.default for o in selects(cap)[0].options] == [False, False, True, False]
+c = clique(cap, "-5", 4, "Mestre Belmont", **MESTRE_); assert db.get_npc_lost(CAP) == {"vida": 0, "sanidade": 0, "mana": 5, "estamina": 0} and "Mana** · 36/41" in editada(c)["embed"].description
+c = clique(cap, "Restaurar", 4, "Mestre Belmont", **MESTRE_); assert db.get_npc_lost(CAP) == {k: 0 for k in rules.VITAL_KEYS}
+# --- o bônus manual: é assim que se aumenta a vida ---
+c = clique(cap, "Bônus", 4, "Mestre Belmont", **MESTRE_); mb = c.response.send_modal.call_args.args[0]
+assert mb.title == "Bônus nos recursos" and [x.label for x in mb.campos.values()] == ["Bônus de Vida (soma ao máximo)", "Bônus de Sanidade (soma ao máximo)", "Bônus de Mana (soma ao máximo)", "Bônus de Estamina (soma ao máximo)"] and [x.default for x in mb.campos.values()] == ["0"] * 4
+def bonus_npc(vida, sanidade, mana, estamina):
+    for campo, v in zip(mb.campos.values(), (vida, sanidade, mana, estamina)): campo._value = v
+    c = GM(); runp(mb.on_submit(c)); return c
+assert txt(bonus_npc("abc", "", "", "")) == "Bônus de Vida: escreve só um número, tipo 12 ou -5." and txt(bonus_npc("10000", "", "", "")) == "Bônus de Vida vai de -999 a 9999." and db.get_npc(CAP)["bonus_vida"] == 0
+c = bonus_npc("+40", "", "-3", "0"); d = editada(c)["embed"].description; n = db.get_npc(CAP)
+assert (n["bonus_vida"], n["bonus_sanidade"], n["bonus_mana"], n["bonus_estamina"]) == (40, 0, -3, 0) and "Vida** · 130/130 (bônus +40)" in d and "Mana** · 38/38 (bônus -3)" in d and "Sanidade** · 60/60\n" in d
+# --- dados básicos: nome, tipo, nível, espécie, classes ---
+c = clique(cap, "Dados", 4, "Mestre Belmont", **MESTRE_); md = c.response.send_modal.call_args.args[0]
+assert md.title == "Dados do NPC" and [x.label for x in md.children] == ["Nome", "Tipo (npc ou criatura)", "Nível (1 a 10)", "Espécie (opcional)", "Classes (até 3, separadas por vírgula)"] and [x.default for x in md.children] == ["Capitão Dubois", "npc", "4", "Humano", "Mercenário"]
+def dados_npc(nome, tipo, nivel, especie, classes):
+    for campo, v in zip(md.children, (nome, tipo, nivel, especie, classes)): campo._value = v
+    c = GM(); runp(md.on_submit(c)); return c
+assert txt(dados_npc("X", "deus", "4", "", "")) == "Tipo: escreve npc ou criatura." and txt(dados_npc("X", "npc", "0", "", "")) == "Nível vai de 1 a 10." and txt(dados_npc("X", "npc", "4", "", "Paladino")).startswith('Não conheço a classe "Paladino".') and txt(dados_npc("  ", "npc", "4", "", "")) == "Dá um nome ao NPC."
+assert db.get_npc(CAP)["name"] == "Capitão Dubois"
+c = dados_npc("Capitão Dubois II", "Monstro", "6", "", "mercenario, cacador"); n = db.get_npc(CAP)
+assert (n["name"], n["kind"], n["level"], n["species"], n["classes"]) == ("Capitão Dubois II", "criatura", 6, "", "Mercenário,Caçador") and "**Criatura · nível 6 · Mercenário + Caçador**" in editada(c)["embed"].description
+assert npcs.recursos(n)["vida"]["total"] == 3 * 5 * 6 + 30 + 35 + 40 == 195 and "Vida** · 195/195 (bônus +40)" in editada(c)["embed"].description                                 # nível, duas classes e o bônus, tudo somado
+# --- atributos sem limite ---
+c = clique(cap, "Atributos", 4, "Mestre Belmont", **MESTRE_); ma = c.response.send_modal.call_args.args[0]
+assert ma.title == "Atributos do NPC" and ma.campo.default == "Força 3, Destreza 3, Vitalidade 3, Razão 2, Vontade 2, Alma 1"
+def atributos_npc(texto): ma.campo._value = texto; c = GM(); runp(ma.on_submit(c)); return c
+assert txt(atributos_npc("Força 100")) == "Atributo vai de 0 a 99." and txt(atributos_npc("Agilidade 4")).startswith('Não conheço o atributo "Agilidade".') and db.get_npc(CAP)["forca"] == 3
+c = atributos_npc("Força 50, alma=99"); n = db.get_npc(CAP); assert (n["forca"], n["alma"], n["destreza"]) == (50, 99, 3) and "🧬 Força 50 · Destreza 3 · Vitalidade 3 · Razão 2 · Vontade 2 · Alma 99" in editada(c)["embed"].description
+# --- perícias sem o limite de 7 ---
+c = clique(cap, "Perícias", 4, "Mestre Belmont", **MESTRE_); mp = c.response.send_modal.call_args.args[0]; assert mp.title == "Perícias do NPC" and mp.campo.default == "Intimidação 3, Luta 5, Percepção 3, Pontaria 4, Tática 3"
+def pericias_npc(texto): mp.campo._value = texto; c = GM(); runp(mp.on_submit(c)); return c
+assert txt(pericias_npc("Voar 2")).startswith('Não conheço a perícia "Voar".') and txt(pericias_npc("Luta 31")) == "Os pontos de perícia vão de 0 a 30." and db.get_npc_skills(CAP)["Luta"] == 5
+c = pericias_npc("Luta 25, Furtividade 9"); assert db.get_npc_skills(CAP) == {"Luta": 25, "Furtividade": 9} and "🎯 ⚔️ Luta 25 · 🥷 Furtividade 9" in editada(c)["embed"].description
+# --- notas ---
+c = clique(cap, "Notas", 4, "Mestre Belmont", **MESTRE_); mt = c.response.send_modal.call_args.args[0]; assert mt.title == "Notas do NPC" and mt.campo.default is None and mt.campo.max_length == 1500
+mt.campo._value = "  Cuidado: usa veneno nas lâminas.  "; c = GM(); runp(mt.on_submit(c)); assert db.get_npc(CAP)["notes"] == "Cuidado: usa veneno nas lâminas." and [(f.name, f.value) for f in editada(c)["embed"].fields] == [("📝 Notas", "Cuidado: usa veneno nas lâminas.")]
+# --- mostrar no canal: a vida em palavras, sem número ---
+db.set_npc_lost(CAP, "vida", 115); c = clique(cap, "No canal", 4, "Mestre Belmont", **MESTRE_); kw = sent(c)[1]
+assert "ephemeral" not in kw and nome_do_cartao(kw["embed"]) == "Capitão Dubois II" and "**ferido**" in kw["embed"].description and "/195" not in kw["embed"].description and "80" not in re.sub(r"<a?:\w+:\d+>", "", kw["embed"].description)
+assert [bot.vitrine.estado_em_palavras(a, 100) for a in (100, 99, 61, 60, 31, 30, 1, 0)] == ["ileso", "arranhado", "arranhado", "ferido", "ferido", "gravemente ferido", "gravemente ferido", "caído"]
+# --- rolar como o NPC ---
+npcs_real = bot.mesa.npcs.lancar; chamadas_npc = []
+def lancar_falso(npc, pericias, pericia, modo="normal", atributo=None):
+    chamadas_npc.append((pericia, modo, atributo)); return "1d20+75", [dice.RollResult("1d20+75", [14], 75, 20)], (["modo vantagem (4 e 14)"] if modo == "vantagem" else []), f"{pericia} (Força)"
+c = clique(cap, "Rolar", 4, "Mestre Belmont", **MESTRE_); rol = editada(c)["view"]; e = editada(c)["embed"]
+assert isinstance(rol, mesa.RolagemDoNpc) and cap.is_finished() and nome_do_cartao(e) == "Capitão Dubois II rola" and "**Luta** +75 · Força + perícia" in e.description and e.footer.text == "Modo: normal · Atributo: automático"; confere_componentes(rol)
+assert [b.label for b in rol.children if isinstance(b, discord.ui.Button)] == ["Só eu", "No canal", "Normal", "Atributo", "Ficha"] and len(selects(rol)[0].options) == 18 and selects(rol)[0].options[6].default and [o.description for o in selects(rol)[0].options if o.label in ("Luta", "Furtividade", "Intuição")] == ["+12", "+75", "+99"]
+bot.mesa.npcs.lancar = lancar_falso
+try:
+    c = clique(rol, "Só eu", 4, "Mestre Belmont", **MESTRE_); kw = sent(c)[1]
+    assert kw["ephemeral"] is True and kw["embed"].title == "🎲 Capitão Dubois II rolou 1d20+75" and kw["embed"].description == "**14 + 75 = 89**" and chamadas_npc[-1] == ("Luta", "normal", None)
+    c = clique(rol, "No canal", 4, "Mestre Belmont", **MESTRE_); assert "ephemeral" not in sent(c)[1] and sent(c)[1]["embed"].footer.text.startswith("Luta (Força) · jogador: Mestre Belmont")
+    c = clique(rol, "Normal", 4, "Mestre Belmont", **MESTRE_); assert rol.modo == "vantagem" and estado_completo(rol)["Vantagem"] == ("⬆️", False) and editada(c)["embed"].footer.text == "Modo: vantagem · Atributo: automático"
+    c = clique(rol, "Só eu", 4, "Mestre Belmont", **MESTRE_); assert chamadas_npc[-1] == ("Luta", "vantagem", None) and sent(c)[1]["embed"].description == "**14 + 75 = 89**\n🎲 modo vantagem (4 e 14)"
+    c = clique(rol, "Atributo", 4, "Mestre Belmont", **MESTRE_); assert rol.atributo == "forca" and botao(rol, "Atributo").style == discord.ButtonStyle.success
+    c = escolher(rol, 0, "Furtividade", 4, "Mestre Belmont", **MESTRE_); assert rol.pericia == "Furtividade" and "**Furtividade** +59 · Força + perícia" in editada(c)["embed"].description
+    c = clique(rol, "Só eu", 4, "Mestre Belmont", **MESTRE_); assert chamadas_npc[-1] == ("Furtividade", "vantagem", "forca")
+finally:
+    bot.mesa.npcs.lancar = npcs_real
+c = clique(rol, "Ficha", 4, "Mestre Belmont", **MESTRE_); cap = editada(c)["view"]; assert isinstance(cap, mesa.PainelNpc) and rol.is_finished()
+# --- apagar ---
+c = clique(cap, "Apagar", 4, "Mestre Belmont", **MESTRE_); cf = editada(c)["view"]
+assert isinstance(cf, mesa.ConfirmarApagarNpc) and nome_do_cartao(editada(c)["embed"]) == "Excluir Capitão Dubois II?" and "Não tem como desfazer" in editada(c)["embed"].description and [b.label for b in cf.children] == ["Apagar de vez", "Cancelar"]
+c = clique(cf, "Cancelar", 4, "Mestre Belmont", **MESTRE_); cap = editada(c)["view"]; assert isinstance(cap, mesa.PainelNpc) and db.get_npc(CAP) is not None
+c = clique(cap, "Apagar", 4, "Mestre Belmont", **MESTRE_); cf = editada(c)["view"]; c = clique(cf, "Apagar de vez", 4, "Mestre Belmont", **MESTRE_)
+assert db.get_npc(CAP) is None and db.get_npc_skills(CAP) == {} and isinstance(editada(c)["view"], mesa.LivroDeNpcs) and "Capitão" not in editada(c)["embed"].description and db.count_npcs() == 2
+# --- apagado por outro mestre enquanto a ficha estava aberta ---
+tmp = db.create_npc("4", "Fantasma"); pf = criar(mesa.PainelNpc, 4, tmp); db.delete_npc(tmp)
+c = clique(pf, "-1", 4, "Mestre Belmont", **MESTRE_); assert nome_do_cartao(editada(c)["embed"]) == "NPC apagado" and [b.label for b in pf.children] == ["Lista"]
+c = clique(pf, "Lista", 4, "Mestre Belmont", **MESTRE_); assert isinstance(editada(c)["view"], mesa.LivroDeNpcs)
+assert runp(criar(mesa.PainelNpc, 4, CER).interaction_check(inter(999, "Intruso", **MESTRE_))) is False and runp(criar(mesa.PainelNpc, 4, CER).interaction_check(inter(4, "Sem Cargo"))) is False
+# --- as perícias especiais aparecem na aba Perícias do jogador ---
+db.set_skill_rank(PC, "Ritualismo", 3); db.set_skill_rank(PC, "Fé", 10); ppe = criar(paineis.PainelPericias, 1600, PC, "Per"); dpe = ppe.embed().description
+assert "✨ **Perícias especiais** (o mestre concede o Rank)" in dpe and f"📿 **Ritualismo** 3/10 {rules.bar(3, 10)}" in dpe and f"⚗️ **Alquimia** 0/10 {rules.bar(0, 10)}" in dpe and f"✝️ **Fé** 10/10 {rules.bar(10, 10)}" in dpe and "🔨 **Forja** 0/10" in dpe and "🍲 **Culinária** 0/10" in dpe
+assert dpe.endswith("🔮 Magias que podeis criar: **3** (igual ao Rank em Ritualismo)")
+print("AC. painel do mestre, NPCs e perícias especiais OK")
 
 print("\nTODOS OS TESTES DO BOT PASSARAM")

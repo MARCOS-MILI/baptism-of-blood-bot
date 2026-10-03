@@ -21,7 +21,7 @@ import dice
 import rules
 
 DB_FILENAME = "baptism_of_blood.db"
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 def _resolve_db_path() -> tuple[str, str]:
@@ -248,6 +248,42 @@ def init_db(path: str | None = None) -> None:
         """)
         # O 'atributo da época': os atributos que o personagem tinha em cada nível que ficou pra trás.
         # O nível atual não tem linha e usa sempre os atributos atuais.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS npcs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'npc',
+                species TEXT NOT NULL DEFAULT '',
+                level INTEGER NOT NULL DEFAULT 1,
+                forca INTEGER NOT NULL DEFAULT 0,
+                destreza INTEGER NOT NULL DEFAULT 0,
+                vitalidade INTEGER NOT NULL DEFAULT 0,
+                razao INTEGER NOT NULL DEFAULT 0,
+                vontade INTEGER NOT NULL DEFAULT 0,
+                alma INTEGER NOT NULL DEFAULT 0,
+                classes TEXT NOT NULL DEFAULT '',
+                bonus_vida INTEGER NOT NULL DEFAULT 0,
+                bonus_sanidade INTEGER NOT NULL DEFAULT 0,
+                bonus_mana INTEGER NOT NULL DEFAULT 0,
+                bonus_estamina INTEGER NOT NULL DEFAULT 0,
+                lost_vida INTEGER NOT NULL DEFAULT 0,
+                lost_sanidade INTEGER NOT NULL DEFAULT 0,
+                lost_mana INTEGER NOT NULL DEFAULT 0,
+                lost_estamina INTEGER NOT NULL DEFAULT 0,
+                notes TEXT NOT NULL DEFAULT '',
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS npc_skills (
+                npc_id INTEGER NOT NULL,
+                skill TEXT NOT NULL,
+                points INTEGER NOT NULL,
+                PRIMARY KEY (npc_id, skill)
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS character_skill_picks (
                 character_id INTEGER NOT NULL,
@@ -832,6 +868,130 @@ def set_skill_points(character_id: int, skill: str, points: int, path: str | Non
                 " ON CONFLICT (character_id, skill) DO UPDATE SET points = excluded.points",
                 (character_id, skill, points),
             )
+
+
+# ---------------------------------------------------------------------------
+# NPCs e criaturas (só os mestres)
+# ---------------------------------------------------------------------------
+_NPC_NUMEROS = ("level", *rules.ATTRIBUTES, "bonus_vida", "bonus_sanidade", "bonus_mana", "bonus_estamina")
+_NPC_CAMPOS = ("name", "kind", "species", "classes", "notes", *_NPC_NUMEROS)
+
+
+def _validar_npc(campos: dict) -> None:
+    """Confere os campos de um NPC antes de gravar (o que vem de formulário já foi lido, mas o banco não confia)."""
+    for chave, valor in campos.items():
+        if chave not in _NPC_CAMPOS:
+            raise ValueError(f"Campo de NPC desconhecido: {chave}")
+        if chave == "name" and not (isinstance(valor, str) and 1 <= len(valor.strip()) <= rules.NPC_NAME_MAX):
+            raise ValueError(f"O nome precisa ter de 1 a {rules.NPC_NAME_MAX} letras.")
+        if chave == "kind" and valor not in rules.NPC_KINDS:
+            raise ValueError(f"Tipo desconhecido: {valor}")
+        if chave == "species" and not (isinstance(valor, str) and len(valor) <= rules.NPC_SPECIES_MAX):
+            raise ValueError(f"A espécie passa de {rules.NPC_SPECIES_MAX} letras.")
+        if chave == "notes" and not (isinstance(valor, str) and len(valor) <= rules.NPC_NOTES_MAX):
+            raise ValueError(f"As notas passam de {rules.NPC_NOTES_MAX} letras.")
+        if chave == "classes":
+            lista = [c for c in valor.split(",") if c] if isinstance(valor, str) else None
+            if lista is None or len(lista) > rules.NPC_MAX_CLASSES or len(set(lista)) != len(lista) or any(c not in rules.CLASSES for c in lista):
+                raise ValueError("Classes inválidas (até 3, sem repetir, só as 8 que existem).")
+        if chave == "level" and not (isinstance(valor, int) and 1 <= valor <= rules.MAX_LEVEL):
+            raise ValueError(f"O nível vai de 1 a {rules.MAX_LEVEL}.")
+        if chave in rules.ATTRIBUTES and not (isinstance(valor, int) and 0 <= valor <= rules.NPC_MAX_ATTRIBUTE):
+            raise ValueError(f"Atributo de 0 a {rules.NPC_MAX_ATTRIBUTE}.")
+        if chave.startswith("bonus_") and not (isinstance(valor, int) and rules.NPC_BONUS_MIN <= valor <= rules.NPC_BONUS_MAX):
+            raise ValueError(f"O bônus vai de {rules.NPC_BONUS_MIN} a {rules.NPC_BONUS_MAX}.")
+
+
+def create_npc(created_by: str, name: str, kind: str = "npc", level: int = 1, attributes: dict | None = None,
+               classes: list[str] | None = None, species: str = "", notes: str = "", skills: dict | None = None,
+               path: str | None = None) -> int:
+    campos = {"name": name.strip(), "kind": kind, "level": level, "species": species, "notes": notes,
+              "classes": ",".join(classes or []), **{a: (attributes or {}).get(a, 0) for a in rules.ATTRIBUTES}}
+    _validar_npc(campos)
+    agora = _now()
+    with _connect(path) as conn:
+        colunas = ", ".join(campos)
+        cur = conn.execute(
+            f"INSERT INTO npcs ({colunas}, created_by, created_at, updated_at) VALUES ({', '.join('?' * len(campos))}, ?, ?, ?)",
+            (*campos.values(), created_by, agora, agora),
+        )
+        npc_id = cur.lastrowid
+    if skills:
+        set_npc_skills(npc_id, skills, path)
+    return npc_id
+
+
+def get_npc(npc_id: int, path: str | None = None) -> sqlite3.Row | None:
+    with _connect(path) as conn:
+        return conn.execute("SELECT * FROM npcs WHERE id = ?", (npc_id,)).fetchone()
+
+
+def list_npcs(kind: str | None = None, limit: int = 25, path: str | None = None) -> list[sqlite3.Row]:
+    """Os mais mexidos primeiro."""
+    with _connect(path) as conn:
+        if kind:
+            return conn.execute("SELECT * FROM npcs WHERE kind = ? ORDER BY updated_at DESC, id DESC LIMIT ?", (kind, limit)).fetchall()
+        return conn.execute("SELECT * FROM npcs ORDER BY updated_at DESC, id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def count_npcs(path: str | None = None) -> int:
+    with _connect(path) as conn:
+        return conn.execute("SELECT COUNT(*) FROM npcs").fetchone()[0]
+
+
+def update_npc(npc_id: int, path: str | None = None, **campos) -> None:
+    if not campos:
+        return
+    _validar_npc(campos)
+    if "name" in campos:
+        campos["name"] = campos["name"].strip()
+    with _connect(path) as conn:
+        atribuicoes = ", ".join(f"{c} = ?" for c in campos)
+        conn.execute(f"UPDATE npcs SET {atribuicoes}, updated_at = ? WHERE id = ?", (*campos.values(), _now(), npc_id))
+
+
+def get_npc_lost(npc_id: int, path: str | None = None) -> dict[str, int]:
+    npc = get_npc(npc_id, path)
+    return {k: (npc[f"lost_{k}"] if npc else 0) for k in rules.VITAL_KEYS}
+
+
+def set_npc_lost(npc_id: int, key: str, lost: int, path: str | None = None) -> None:
+    if key not in rules.VITAL_KEYS:
+        raise ValueError(f"Vital desconhecido: {key}")
+    if not isinstance(lost, int) or lost < 0:
+        raise ValueError("O que se perdeu precisa ser um número de 0 pra cima.")
+    with _connect(path) as conn:
+        conn.execute(f"UPDATE npcs SET lost_{key} = ?, updated_at = ? WHERE id = ?", (lost, _now(), npc_id))
+
+
+def reset_npc_lost(npc_id: int, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE npcs SET lost_vida = 0, lost_sanidade = 0, lost_mana = 0, lost_estamina = 0, updated_at = ? WHERE id = ?", (_now(), npc_id))
+
+
+def get_npc_skills(npc_id: int, path: str | None = None) -> dict[str, int]:
+    with _connect(path) as conn:
+        linhas = conn.execute("SELECT skill, points FROM npc_skills WHERE npc_id = ?", (npc_id,)).fetchall()
+    return {l["skill"]: l["points"] for l in linhas}
+
+
+def set_npc_skills(npc_id: int, skills: dict[str, int], path: str | None = None) -> None:
+    """Troca TODAS as perícias do NPC pelas dadas (pontos 0 saem da lista)."""
+    for skill, pontos in skills.items():
+        if skill not in rules.SKILLS:
+            raise ValueError(f"Perícia desconhecida: {skill}")
+        if not (isinstance(pontos, int) and 0 <= pontos <= rules.NPC_MAX_SKILL):
+            raise ValueError(f"Os pontos de perícia vão de 0 a {rules.NPC_MAX_SKILL}.")
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM npc_skills WHERE npc_id = ?", (npc_id,))
+        conn.executemany("INSERT INTO npc_skills (npc_id, skill, points) VALUES (?, ?, ?)", [(npc_id, s, p) for s, p in skills.items() if p > 0])
+        conn.execute("UPDATE npcs SET updated_at = ? WHERE id = ?", (_now(), npc_id))
+
+
+def delete_npc(npc_id: int, path: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM npc_skills WHERE npc_id = ?", (npc_id,))
+        conn.execute("DELETE FROM npcs WHERE id = ?", (npc_id,))
 
 
 # ---------------------------------------------------------------------------

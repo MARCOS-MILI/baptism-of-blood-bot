@@ -441,7 +441,7 @@ def _aviso_de_vantagem(classe: str | None, escolhidas) -> str | None:
 
 
 def embed_rolar_pericias(nome: str, pontos: dict, atributos: dict, classe: str | None, escolhidas, modo: str,
-                         forcado: str | None, jogador: str | None = None) -> discord.Embed:
+                         forcado: str | None, jogador: str | None = None, ranks: dict | None = None) -> discord.Embed:
     """A tela principal das perícias: um ícone por perícia, e o bonus de cada uma já somado."""
     vantagens = rules.skills_with_advantage(classe, escolhidas)
     linhas = []
@@ -458,6 +458,11 @@ def embed_rolar_pericias(nome: str, pontos: dict, atributos: dict, classe: str |
     aviso = _aviso_de_vantagem(classe, escolhidas)
     if aviso:
         corpo += f"\n\n{aviso}"
+    if ranks is not None:   # as perícias especiais (Rank de 0 a 10), que só o mestre concede
+        corpo += "\n\n✨ **Perícias especiais** (o mestre concede o Rank)\n" + "\n".join(
+            f"{rules.SPECIAL_SKILL_ICONS[p]} **{p}** {ranks.get(p, 0)}/{rules.MAX_SKILL_RANK} {rules.bar(ranks.get(p, 0), rules.MAX_SKILL_RANK)}"
+            for p in rules.SPECIAL_SKILLS
+        ) + f"\n🔮 Magias que podeis criar: **{ranks.get('Ritualismo', 0)}** (igual ao Rank em Ritualismo)"
     _, rotulo = MODOS_DE_TESTE[modo]
     return embed_decorado(
         "Perícias", "Tocai no emblema da perícia e o dado rola sozinho: 1d20 + atributo + perícia, em nome do vosso personagem.",
@@ -465,6 +470,88 @@ def embed_rolar_pericias(nome: str, pontos: dict, atributos: dict, classe: str |
         rodape=f"Modo: {rotulo.lower()} · Atributo: {rules.ATTRIBUTE_LABELS[forcado] if forcado else 'automático (o padrão de cada perícia)'}"
         + (f" · jogador: {jogador}" if jogador else ""),
     )
+
+
+def estado_em_palavras(atual: int, maximo: int) -> str:
+    """O quanto uma criatura está ferida, sem mostrar número: pra mostrar no canal."""
+    if atual <= 0:
+        return "caído"
+    if atual >= maximo:
+        return "ileso"
+    razao = atual / maximo
+    return "arranhado" if razao > 0.6 else "ferido" if razao > 0.3 else "gravemente ferido"
+
+
+def embed_npc(npc, recursos: dict, perdidos: dict, pericias: dict, selecionado: str = "vida") -> discord.Embed:
+    """A ficha automática de um NPC ou criatura (só os mestres veem)."""
+    tipo = rules.NPC_KIND_LABELS[npc["kind"]]
+    classes = [c for c in npc["classes"].split(",") if c]
+    frase = " · ".join([tipo] + ([npc["species"]] if npc["species"] else []) + [f"nível {npc['level']}"] + ([" + ".join(classes)] if classes else []))
+    linhas = []
+    for chave in rules.VITAL_KEYS:
+        maximo = recursos[chave]["total"]
+        atual = rules.vital_current(maximo, perdidos.get(chave, 0))
+        bonus = npc[f"bonus_{chave}"]
+        extra = f" (bônus {bonus:+d})" if bonus else ""
+        seta = "▶️" if chave == selecionado else "▫️"
+        linhas.append(f"{seta} {rules.VITAL_EMOJI[chave]} **{rules.VITAL_LABELS[chave]}** · {atual}/{maximo}{extra}\n{barra(atual, maximo)}")
+    vida_max = recursos["vida"]["total"]
+    vida = rules.vital_current(vida_max, perdidos.get("vida", 0))
+    cor = (
+        discord.Color.dark_grey() if vida == 0 else discord.Color.red() if vida * 4 <= vida_max
+        else discord.Color.orange() if vida * 2 <= vida_max else discord.Color.dark_green()
+    )
+    atributos = " · ".join(f"{rules.ATTRIBUTE_LABELS[a]} {npc[a]}" for a in rules.ATTRIBUTES)
+    ordem = sorted(pericias.items(), key=lambda kv: (-kv[1], rules.SKILLS.index(kv[0])))
+    texto_pericias = " · ".join(f"{rules.SKILL_ICONS[p]} {p} {v}" for p, v in ordem) or "sem perícias"
+    corpo = "\n\n".join(linhas) + f"\n\n🧬 {atributos}\n🎯 {texto_pericias}"
+    embed = embed_decorado(npc["name"], frase, corpo, cor, rodape=f"Só os mestres veem esta ficha · {tipo} #{npc['id']}")
+    if npc["notes"]:
+        embed.add_field(name="📝 Notas", value=npc["notes"][:1024], inline=False)
+    return embed
+
+
+def embed_livro_de_npcs(linhas: list) -> discord.Embed:
+    """A lista dos NPCs e criaturas. 'linhas' é [(npc, recursos, perdidos), ...]."""
+    if linhas:
+        corpo = "\n".join(
+            f"{'🐺' if npc['kind'] == 'criatura' else '🧑'} **{npc['name']}** · nível {npc['level']} · "
+            f"❤️ {rules.vital_current(rec['vida']['total'], perd['vida'])}/{rec['vida']['total']}"
+            for npc, rec, perd in linhas
+        )
+    else:
+        corpo = "Nenhum NPC ainda. Aperta **🧑 Novo NPC** ou **🐺 Nova criatura** pra criar o primeiro."
+    return embed_decorado(
+        "NPCs e criaturas", "Os que a mesa já inventou. Escolhe um no menu pra abrir a ficha.", corpo,
+        discord.Color.dark_gold(), rodape=f"{len(linhas)} na lista (os mais mexidos primeiro)",
+    )
+
+
+def cartao_estado_do_npc(npc, recursos: dict, perdidos: dict) -> Cartao:
+    """O que o mestre mostra no canal: a barra de vida da criatura em palavras, sem número."""
+    maximo = recursos["vida"]["total"]
+    atual = rules.vital_current(maximo, perdidos.get("vida", 0))
+    estado = estado_em_palavras(atual, maximo)
+    cor = discord.Color.dark_grey() if atual == 0 else discord.Color.dark_red()
+    return Cartao(embed_decorado(npc["name"], None, f"{barra(atual, maximo)}\n**{estado}**", cor), [])
+
+
+def embed_painel_do_mestre() -> discord.Embed:
+    """A tela que organiza as ferramentas do mestre: o que fazer e onde fazer."""
+    corpo = (
+        "**O que quereis fazer?**\n\n"
+        "👥 **Dar XP, subir nível, mexer na ficha de um jogador:** `/mestre dar_xp`, `/mestre upar`, `/mestre ficha`, "
+        "`/mestre atributos`, `/mestre pericia`.\n"
+        "✨ **Perícias especiais** (Ritualismo, Alquimia, Forja, Culinária e Fé, Rank de 0 a 10): `/mestre rank_pericia`. "
+        "O Rank em Ritualismo é também quantas magias o jogador pode criar.\n"
+        "📜 **Habilidades que os jogadores criaram:** o botão abaixo.\n"
+        "🐺 **NPCs e criaturas:** o botão abaixo (ficha automática, vida, atributos e rolagens).\n"
+        "⚔️ **Cena, iniciativa e intenções:** `/mestre escudo`, no canal da cena.\n"
+        "🍀 **Sorte dos dados de um jogador:** `/mestre sorte`.\n"
+        "🆕 **Mensagem de boas-vindas com botões:** `/mestre comecar_aqui`.\n"
+        "📖 **Todos os comandos, com exemplo:** o botão de ajuda, ou `/mestre ajuda`."
+    )
+    return embed_decorado("Painel do mestre", "Tudo o que a mesa precisa, num lugar só. Só vós vedes esta tela.", corpo, discord.Color.dark_gold())
 
 
 def embed_pericias(nome: str, pontos: dict, total: int, selecionada: str, classe: str | None, escolhidas,

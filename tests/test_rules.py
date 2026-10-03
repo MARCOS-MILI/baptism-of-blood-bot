@@ -332,4 +332,28 @@ assert [E(m, False) for m in ("normal", "vantagem", "desvantagem")] == ["normal"
 assert rules.ABILITY_STATUS == ("pendente", "ajuste", "aprovada", "recusada") and rules.MAX_CUSTOM_ABILITIES == 8 and rules.ABILITY_ROLL_KINDS == ("dano", "cura")
 print("11. perícias OK")
 
+# ---------- 12. NPCs e criaturas ----------
+assert rules.NPC_KINDS == ("npc", "criatura") and rules.NPC_KIND_LABELS == {"npc": "NPC", "criatura": "Criatura"}
+assert (rules.NPC_MAX_CLASSES, rules.NPC_MAX_ATTRIBUTE, rules.NPC_MAX_SKILL, rules.NPC_BONUS_MIN, rules.NPC_BONUS_MAX) == (3, 99, 30, -999, 9999)
+assert list(rules.NPC_TEMPLATES) == ["Ralé", "Soldado", "Veterano", "Elite", "Chefe", "Lenda"]
+for nome, m in rules.NPC_TEMPLATES.items():                                                                      # todo modelo é válido
+    assert 1 <= m["level"] <= rules.MAX_LEVEL and set(m["attributes"]) == set(rules.ATTRIBUTES) and all(0 <= v <= rules.NPC_MAX_ATTRIBUTE for v in m["attributes"].values()), nome
+    assert len(m["classes"]) <= rules.NPC_MAX_CLASSES and all(c in rules.CLASSES for c in m["classes"]) and all(p in rules.SKILLS and 1 <= v <= rules.NPC_MAX_SKILL for p, v in m["skills"].items()), nome
+vidas = [rules.npc_resources(m["attributes"], m["level"], m["classes"])["vida"]["total"] for m in rules.NPC_TEMPLATES.values()]
+assert vidas == [10, 50, 90, 155, 265, 435] and vidas == sorted(vidas) and len(set(vidas)) == 6                  # a ralé é a mais fraca, e cada modelo é mais forte que o anterior
+assert all(sum(rules.NPC_TEMPLATES[n]["attributes"].values()) > sum(rules.NPC_TEMPLATES["Ralé"]["attributes"].values()) for n in list(rules.NPC_TEMPLATES)[1:])
+zero = {a: 0 for a in rules.ATTRIBUTES}
+assert {k: v["total"] for k, v in rules.npc_resources(zero, 1, []).items()} == {"vida": 1, "sanidade": 0, "mana": 0, "estamina": 0}   # vida nunca abaixo de 1
+atr = {"forca": 2, "destreza": 0, "vitalidade": 3, "razao": 0, "vontade": 2, "alma": 1}
+r = rules.npc_resources(atr, 3, ["Caçador", "Mercenário"])                                                       # o bônus de CADA classe entra uma vez
+assert {k: v["total"] for k, v in r.items()} == {"vida": 15 * 3 + 35 + 30, "sanidade": 10 * 3 + 15 + 20, "mana": 9 * 3 + 5 + 5, "estamina": 15 * 3 + 20 + 20} == {"vida": 110, "sanidade": 65, "mana": 37, "estamina": 85}
+assert r["vida"] == {"por_nivel": 15, "base": 45, "bonus": 65, "total": 110}
+assert rules.npc_resources(atr, 3, ["Caçador"], {"vida": 40, "mana": -2})["vida"]["total"] == 15 * 3 + 35 + 40 and rules.npc_resources(atr, 3, [], {"mana": -2})["mana"]["total"] == 25     # bônus manual soma, também negativo
+assert rules.npc_resources(atr, 3, [], {"vida": -1000})["vida"]["total"] == 1 and rules.npc_resources(atr, 3, [], {"mana": -1000})["mana"]["total"] == 0
+for ruim in ((atr, 0, []), (atr, 11, []), (atr, 1, ["Paladino"])):
+    try: rules.npc_resources(*ruim); raise SystemExit(f"deveria recusar {ruim[1:]}")
+    except ValueError: pass
+assert rules.npc_resources({**atr, "forca": 99, "vitalidade": 99}, 10, [])["estamina"]["total"] == 198 * 3 * 10                # sem limite de atributo (até 99)
+print("12. NPCs OK")
+
 print("\nTODOS OS TESTES DAS REGRAS PASSARAM")

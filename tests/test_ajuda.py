@@ -182,12 +182,12 @@ print("9. comandos novos OK")
 
 # ---------- 10. a ajuda de mestre é separada ----------
 vm = ajuda.visao_mestre(); assert vm["titulo"] == "🛡️ Ajuda do mestre" and "/mestre ajuda comando:dar_xp" in vm["descricao"]
-assert [c[0] for c in vm["campos"]] == [r for r, _ in ajuda.MESTRE_SUBGRUPOS] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Habilidades e perícias", "Ajuda", "Jogadores"]
+assert [c[0] for c in vm["campos"]] == [r for r, _ in ajuda.MESTRE_SUBGRUPOS] == ["XP e nível", "Ficha", "Dados", "Sorteios", "Cena", "Habilidades e perícias", "Mesa", "Ajuda", "Jogadores"]
 todos_mestre = [k.split(" ", 1)[1] for k in ajuda.AJUDA if k.startswith("mestre ")]
-assert sorted(c for _, cmds in ajuda.MESTRE_SUBGRUPOS for c in cmds) == sorted(todos_mestre) and len(todos_mestre) == 23            # nenhum comando de mestre fica de fora
-linhas = [l for _, v in vm["campos"] for l in v.split("\n")]; assert len(linhas) == 23 and all(l.startswith("`/mestre ") for l in linhas) and all(len(v) <= 1024 for _, v in vm["campos"])
+assert sorted(c for _, cmds in ajuda.MESTRE_SUBGRUPOS for c in cmds) == sorted(todos_mestre) and len(todos_mestre) == 25            # nenhum comando de mestre fica de fora
+linhas = [l for _, v in vm["campos"] for l in v.split("\n")]; assert len(linhas) == 25 and all(l.startswith("`/mestre ") for l in linhas) and all(len(v) <= 1024 for _, v in vm["campos"])
 assert "`/mestre dar_xp` " + ajuda.AJUDA["mestre dar_xp"]["resumo"] in linhas and "`/mestre ajuda` a ajuda só dos comandos de mestre" in linhas
-assert ajuda.sugestoes_mestre("")[:4] == ["dar_xp", "upar", "corrigir_nivel", "escudo"] and len(ajuda.sugestoes_mestre("")) == 23
+assert ajuda.sugestoes_mestre("")[:4] == ["dar_xp", "upar", "corrigir_nivel", "escudo"] and len(ajuda.sugestoes_mestre("")) == 25
 assert ajuda.sugestoes_mestre("xp") == ["dar_xp", "exportar"] and ajuda.sugestoes_mestre(" /ESCUDO ") == ["escudo"] and ajuda.sugestoes_mestre("zzz") == []
 assert ajuda.sugestoes_mestre("corrigir") == ["corrigir_nivel", "corrigir_magia", "corrigir_raca", "corrigir_estado", "corrigir_classe"]
 assert ajuda.achar_mestre("dar_xp") == ("mestre dar_xp", []) and ajuda.achar_mestre("mestre escudo") == ("mestre escudo", []) and ajuda.achar_mestre("/Mestre Sorte") == ("mestre sorte", [])
